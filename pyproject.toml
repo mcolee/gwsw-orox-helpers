@@ -1,0 +1,50 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "gwsw-orox-helpers"
+version = "0.1.0"
+description = "Lezen (en later schrijven en clippen) van GWSW-OroX (TTL) rioleringsdatasets: grafmodel, geometrie, klassenhierarchie en cache."
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+requires-python = ">=3.12"
+dependencies = [
+    # pyoxigraph levert de Rust-parser die het OroX-TTL ordegrootten sneller inleest dan
+    # rdflib's pure-Python notation3.
+    "pyoxigraph>=0.5",
+    "rdflib>=7.0",
+    "shapely>=2.0",
+]
+
+[dependency-groups]
+dev = [
+    "mypy>=1.11",
+    "pytest>=8.2",
+    "ruff>=0.6",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/gwsw_orox_helpers"]
+
+[tool.ruff]
+line-length = 100
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "N"]
+
+[tool.ruff.lint.per-file-ignores]
+# De fixturegenerator bevat GML-literalen die niet af te breken zijn zonder de
+# TTL-uitvoer te veranderen.
+"scripts/maak_fixtures.py" = ["E501"]
+
+[tool.mypy]
+python_version = "3.12"
+files = ["src/gwsw_orox_helpers"]
+# rdflib en shapely leveren geen bruikbare stubs.
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

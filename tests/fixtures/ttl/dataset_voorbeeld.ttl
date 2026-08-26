@@ -60,6 +60,17 @@ gwsw:Sloot rdfs:subClassOf gwsw:Oppervlaktewater .
 :PutB_c1 rdf:type gwsw:Compartiment ; rdfs:label "B/c1" ;
     gwsw:hasAspect :PutB_c1_ori .
 :PutB_c1_ori rdf:type gwsw:Compartimentorientatie .
+
+:D1 rdf:type gwsw:Doorlaat ; rdfs:label "D1" ;
+    gwsw:hasAspect :D1_ori .
+:D1_ori rdf:type gwsw:Onderdeelorientatie ;
+    gwsw:hasPart :D1_b , :D1_e ;
+    gwsw:hasAspect [ rdf:type gwsw:Lijn ;
+        gwsw:hasValue "<gml:LineString xmlns:gml=\"http://www.opengis.net/gml\"><gml:posList srsDimension=\"2\">1050.0 2000.0 1050.0 2001.0</gml:posList></gml:LineString>"^^geo:gmlLiteral ] .
+:D1_b rdf:type gwsw:BeginpuntOnderdeel .
+:D1_e rdf:type gwsw:EindpuntOnderdeel .
+:D1_b gwsw:hasConnection :PutB_ori .
+:D1_e gwsw:hasConnection :PutB_c1_ori .
 :Gem rdf:type gwsw:Rioolgemaal ; rdfs:label "G" ;
     gwsw:hasAspect :Gem_ori .
 :Gem_ori rdf:type gwsw:Putorientatie ;

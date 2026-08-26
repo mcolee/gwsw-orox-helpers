@@ -16,7 +16,11 @@ TTL_DIR = Path(__file__).parent / "fixtures" / "ttl"
 
 
 def test_voorbeeld_levert_strengen_en_knooppunten(voorbeeld: GwswDataset) -> None:
-    assert len(voorbeeld.conduits) == 2
+    # Twee leidingen plus een onderdeelverbinding (de doorlaat tussen put B en haar
+    # compartiment); het GWSW rekent beide tot de verbindingen van het netwerk. De
+    # ongelijkheid is de assert: de lader neemt elke orientatie uit de
+    # `Verbinding`-afsluiting als streng, niet alleen `Leidingorientatie`.
+    assert len(voorbeeld.conduits) == 3
     assert len(voorbeeld.of_class("VrijvervalRioolleiding")) == 2
     # Vier knopen: twee putten, een gemaal en een compartiment. Alleen de eerste twee
     # zijn een `Put`; het gemaal en het compartiment hangen elders in de hierarchie.

@@ -302,12 +302,15 @@ C = (1100.0, 2000.0)
 FIXTURES: dict[str, tuple[str, str]] = {}
 
 # Een compacte referentiedataset: de vormen die `dataset.py` op een echte OroX-export
-# tegenkomt, in zeven objecten. Put A draagt twee onvergelijkbare typen (Inspectieput
+# tegenkomt, in acht objecten. Put A draagt twee onvergelijkbare typen (Inspectieput
 # onder Rioolput, VerdektePut rechtstreeks onder Put), put B een compartiment zonder
 # puntgeometrie en een putdeksel met er wel een -- samen de twee helften van
 # `structural_diff`. Streng 1 draagt beide BOB's, streng 2 geen enkele en koppelt aan
-# het compartiment in plaats van aan de put. Deze fixture hoort met de gebundelde
-# ontologie geladen te worden; de klassen erin staan niet allemaal in de prelude.
+# het compartiment in plaats van aan de put. Doorlaat D1 is de derde verbinding: geen
+# leiding maar een Onderdeelorientatie, zodat zichtbaar blijft dat de strengselectie de
+# hele Verbinding-afsluiting neemt en niet alleen Leidingorientatie. Deze fixture hoort
+# met de gebundelde ontologie geladen te worden; de klassen erin staan niet allemaal in
+# de prelude.
 DEKSEL_MET_PUNT = """
 :PutB gwsw:hasPart :PutB_dek .
 :PutB_dek rdf:type gwsw:Putdeksel ;
@@ -325,6 +328,24 @@ COMPARTIMENT_ZONDER_PUNT = """
 :PutB_c1_ori rdf:type gwsw:Compartimentorientatie .
 """
 
+# Een doorlaat tussen put B en haar compartiment: een verbinding zonder leiding. De
+# ontologie hangt de Onderdeelorientatie onder Verbinding (net als Leidingorientatie) en
+# geeft haar eigen vertexklassen, BeginpuntOnderdeel en EindpuntOnderdeel. Ze draagt hier
+# bewust een Lijn: zonder geometrie zou zij wel ontologisch maar niet structureel als
+# streng gelden, en dat zet een `strengen_zonder_geometrie` in `structural_diff`.
+ONDERDEELVERBINDING = """
+:D1 rdf:type gwsw:Doorlaat ; rdfs:label "D1" ;
+    gwsw:hasAspect :D1_ori .
+:D1_ori rdf:type gwsw:Onderdeelorientatie ;
+    gwsw:hasPart :D1_b , :D1_e ;
+    gwsw:hasAspect [ rdf:type gwsw:Lijn ;
+        gwsw:hasValue "<gml:LineString xmlns:gml=\\"http://www.opengis.net/gml\\"><gml:posList srsDimension=\\"2\\">1050.0 2000.0 1050.0 2001.0</gml:posList></gml:LineString>"^^geo:gmlLiteral ] .
+:D1_b rdf:type gwsw:BeginpuntOnderdeel .
+:D1_e rdf:type gwsw:EindpuntOnderdeel .
+:D1_b gwsw:hasConnection :PutB_ori .
+:D1_e gwsw:hasConnection :PutB_c1_ori .
+"""
+
 FIXTURES["dataset_voorbeeld.ttl"] = (
     "geen; een compacte referentiedataset met de vormen die een echte export draagt",
     put("PutA", "A", 1000.0, 2000.0)
@@ -332,6 +353,7 @@ FIXTURES["dataset_voorbeeld.ttl"] = (
     + put("PutB", "B", 1050.0, 2000.0)
     + DEKSEL_MET_PUNT
     + COMPARTIMENT_ZONDER_PUNT
+    + ONDERDEELVERBINDING
     + gemaal("Gem", "G", (1100.0, 2000.0))
     + leiding(
         "L1",

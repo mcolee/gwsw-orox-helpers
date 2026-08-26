@@ -1,0 +1,43 @@
+@prefix rdf:  <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix geo:  <http://www.opengis.net/ont/geosparql#> .
+@prefix gwsw: <http://data.gwsw.nl/1.6/totaal/> .
+@prefix :     <http://example.org/toets#> .
+
+# Minimale klassenhierarchie, zodat de fixture zonder de volle ontologie werkt.
+gwsw:Inspectieput rdfs:subClassOf gwsw:Rioolput .
+gwsw:Rioolput     rdfs:subClassOf gwsw:Put .
+gwsw:GemengdRiool rdfs:subClassOf gwsw:VrijvervalRioolleiding .
+gwsw:VrijvervalRioolleiding rdfs:subClassOf gwsw:Rioolleiding .
+gwsw:Rioolleiding rdfs:subClassOf gwsw:Leiding .
+gwsw:Uitlaatconstructie rdfs:subClassOf gwsw:Bouwwerk .
+
+# GEEN DEFECT in de data: streng '1' loopt van een inspectieput naar een
+# uitlaatconstructie. Die uitlaat is sinds issue #72 een geldig eindpunt voor NET-001
+# (gemaal, overnamepunt OF lozingspunt, BO-53), dus streng '1' voert af en er blijft
+# geen doodlopende eindknoop over.
+#
+# Waar het hier om gaat is de NAAM in de eindknoop-verdeling. Een bouwwerk draagt
+# zijn topologische rol op een Bouwwerkorientatie, en dat aspecttype hoort niet de
+# soortnaam van de knoop te worden: de knoop is de uitlaatconstructie zelf.
+
+:PutA rdf:type gwsw:Inspectieput ; rdfs:label "A" ;
+    gwsw:hasAspect :PutA_ori .
+:PutA_ori rdf:type gwsw:Putorientatie ;
+    gwsw:hasAspect [ rdf:type gwsw:Punt ;
+        gwsw:hasValue "<gml:Point xmlns:gml=\"http://www.opengis.net/gml\"><gml:pos>1000.0 2000.0</gml:pos></gml:Point>"^^geo:gmlLiteral ] .
+
+:Uit1 rdf:type gwsw:Uitlaatconstructie ; rdfs:label "U" ;
+    gwsw:hasAspect :Uit1_ori .
+:Uit1_ori rdf:type gwsw:Bouwwerkorientatie ;
+    gwsw:hasAspect [ rdf:type gwsw:Punt ;
+        gwsw:hasValue "<gml:Point xmlns:gml=\"http://www.opengis.net/gml\"><gml:pos>1050.0 2000.0</gml:pos></gml:Point>"^^geo:gmlLiteral ] .
+
+:L1 rdf:type gwsw:GemengdRiool ; rdfs:label "1" ;
+    gwsw:hasAspect :L1_ori .
+:L1_ori rdf:type gwsw:Leidingorientatie ;
+    gwsw:hasPart :L1_b , :L1_e ;
+    gwsw:hasAspect [ rdf:type gwsw:Lijn ;
+        gwsw:hasValue "<gml:LineString xmlns:gml=\"http://www.opengis.net/gml\"><gml:posList srsDimension=\"2\">1000.0 2000.0 1050.0 2000.0</gml:posList></gml:LineString>"^^geo:gmlLiteral ] .
+:L1_b rdf:type gwsw:BeginpuntLeiding ; gwsw:hasConnection :PutA_ori .
+:L1_e rdf:type gwsw:EindpuntLeiding ; gwsw:hasConnection :Uit1_ori .

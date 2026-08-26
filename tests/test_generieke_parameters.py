@@ -23,7 +23,9 @@ def test_geen_encoding_fallback_zonder_opgave() -> None:
 
 
 def test_encoding_fallback_op_verzoek() -> None:
-    dataset = load_dataset(TTL_DIR / "codering_cp850.ttl", fallback_encoding="cp850")
+    dataset = load_dataset(
+        TTL_DIR / "codering_cp850.ttl", ontology_paths=[], fallback_encoding="cp850"
+    )
     assert dataset.nodes
 
 

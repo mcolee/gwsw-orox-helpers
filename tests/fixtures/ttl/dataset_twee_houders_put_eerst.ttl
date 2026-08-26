@@ -1,0 +1,87 @@
+@prefix rdf:  <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix xsd:  <http://www.w3.org/2001/XMLSchema#> .
+@prefix geo:  <http://www.opengis.net/ont/geosparql#> .
+@prefix gwsw: <http://data.gwsw.nl/1.6/totaal/> .
+@prefix :     <http://example.org/toets#> .
+
+# Minimale klassenhierarchie, zodat de fixture zonder de volle ontologie werkt.
+gwsw:Inspectieput rdfs:subClassOf gwsw:Rioolput .
+gwsw:LozePut rdfs:subClassOf gwsw:Rioolput .
+gwsw:Lozingsput rdfs:subClassOf gwsw:Rioolput .
+gwsw:Overstortput rdfs:subClassOf gwsw:Rioolput .
+gwsw:Rioolput rdfs:subClassOf gwsw:Put .
+gwsw:Putorientatie rdfs:subClassOf gwsw:Knooppunt .
+gwsw:Compartimentorientatie rdfs:subClassOf gwsw:Knooppunt .
+gwsw:Bouwwerkorientatie rdfs:subClassOf gwsw:Knooppunt .
+gwsw:Leidingorientatie rdfs:subClassOf gwsw:Verbinding .
+gwsw:GemengdRiool rdfs:subClassOf gwsw:VrijvervalRioolleiding .
+gwsw:Hemelwaterriool rdfs:subClassOf gwsw:VrijvervalRioolleiding .
+gwsw:Vuilwaterriool rdfs:subClassOf gwsw:VrijvervalRioolleiding .
+gwsw:Infiltratieriool rdfs:subClassOf gwsw:VrijvervalRioolleiding .
+gwsw:Overstortleiding rdfs:subClassOf gwsw:VrijvervalRioolleiding .
+gwsw:VrijvervalRioolleiding rdfs:subClassOf gwsw:Rioolleiding .
+gwsw:Rioolleiding rdfs:subClassOf gwsw:Leiding .
+gwsw:Persleiding rdfs:subClassOf gwsw:MechanischeTransportleiding .
+gwsw:MechanischeTransportleiding rdfs:subClassOf gwsw:Transportleiding .
+gwsw:Transportleiding rdfs:subClassOf gwsw:Leiding .
+gwsw:Rioolgemaal rdfs:subClassOf gwsw:Gemaal .
+gwsw:Uitlaatconstructie rdfs:subClassOf gwsw:Bouwwerk .
+gwsw:Bergbezinkbassin rdfs:subClassOf gwsw:Bouwwerk .
+gwsw:Valput rdfs:subClassOf gwsw:Rioolput .
+gwsw:Duiker rdfs:subClassOf gwsw:Leiding .
+gwsw:Zinker rdfs:subClassOf gwsw:VrijvervalRioolleiding .
+gwsw:Drain rdfs:subClassOf gwsw:VrijvervalRioolleiding .
+gwsw:Sloot rdfs:subClassOf gwsw:Oppervlaktewater .
+
+# DEFECT: geen; compartiment B/c1 hangt onder put B en onder een straat, put eerst geschreven
+
+:PutA rdf:type gwsw:Inspectieput ; rdfs:label "A" ;
+    gwsw:hasAspect :PutA_ori .
+:PutA gwsw:hasAspect [ rdf:type gwsw:BreedtePut ; gwsw:hasValue 1000 ] ,
+    [ rdf:type gwsw:LengtePut ; gwsw:hasValue 1000 ] ,
+    [ rdf:type gwsw:MateriaalPut ; gwsw:hasReference gwsw:Beton ] ,
+    [ rdf:type gwsw:HoogtePut ; gwsw:hasValue 1500 ] .
+:PutA_ori rdf:type gwsw:Putorientatie ;
+    gwsw:hasAspect [ rdf:type gwsw:Punt ;
+        gwsw:hasValue "<gml:Point xmlns:gml=\"http://www.opengis.net/gml\"><gml:pos>1000.0 2000.0</gml:pos></gml:Point>"^^geo:gmlLiteral ] .
+
+:PutA_ori gwsw:hasConnection :PutA_maa .
+:PutA_maa rdf:type gwsw:Maaiveldorientatie ;
+    gwsw:hasAspect [ rdf:type gwsw:Maaiveldhoogte ; gwsw:hasValue 10.0 ] .
+:PutB rdf:type gwsw:Inspectieput ; rdfs:label "B" ;
+    gwsw:hasAspect :PutB_ori .
+:PutB gwsw:hasAspect [ rdf:type gwsw:BreedtePut ; gwsw:hasValue 1000 ] ,
+    [ rdf:type gwsw:LengtePut ; gwsw:hasValue 1000 ] ,
+    [ rdf:type gwsw:MateriaalPut ; gwsw:hasReference gwsw:Beton ] ,
+    [ rdf:type gwsw:HoogtePut ; gwsw:hasValue 1500 ] .
+:PutB_ori rdf:type gwsw:Putorientatie ;
+    gwsw:hasAspect [ rdf:type gwsw:Punt ;
+        gwsw:hasValue "<gml:Point xmlns:gml=\"http://www.opengis.net/gml\"><gml:pos>1050.0 2000.0</gml:pos></gml:Point>"^^geo:gmlLiteral ] .
+
+:PutB_ori gwsw:hasConnection :PutB_maa .
+:PutB_maa rdf:type gwsw:Maaiveldorientatie ;
+    gwsw:hasAspect [ rdf:type gwsw:Maaiveldhoogte ; gwsw:hasValue 10.0 ] .
+:L1 rdf:type gwsw:GemengdRiool ; rdfs:label "1" ;
+    gwsw:hasAspect :L1_ori .
+:L1 gwsw:hasAspect [ rdf:type gwsw:BreedteLeiding ; gwsw:hasValue 300 ] ,
+    [ rdf:type gwsw:HoogteLeiding ; gwsw:hasValue 300 ] ,
+    [ rdf:type gwsw:MateriaalLeiding ; gwsw:hasReference gwsw:Beton ] ,
+    [ rdf:type gwsw:VormLeiding ; gwsw:hasReference gwsw:Rond ] ,
+    [ rdf:type gwsw:LengteLeiding ; gwsw:hasValue 50.0 ] ,
+    [ rdf:type gwsw:Begindatum ; gwsw:hasValue "1980-01-01"^^xsd:date ] .
+:L1_ori rdf:type gwsw:Leidingorientatie ;
+    gwsw:hasPart :L1_b , :L1_e ;
+    gwsw:hasAspect [ rdf:type gwsw:Lijn ;
+        gwsw:hasValue "<gml:LineString xmlns:gml=\"http://www.opengis.net/gml\"><gml:posList srsDimension=\"2\">1000.0 2000.0 1050.0 2000.0</gml:posList></gml:LineString>"^^geo:gmlLiteral ] .
+:L1_b rdf:type gwsw:BeginpuntLeiding .
+:L1_e rdf:type gwsw:EindpuntLeiding .
+:L1_b gwsw:hasConnection :PutA_ori .
+:L1_e gwsw:hasConnection :PutB_c1_ori .
+
+:Straat1 rdf:type gwsw:Straat ; rdfs:label "Dorpsstraat" .
+:PutB gwsw:hasPart :PutB_c1 .
+:Straat1 gwsw:hasPart :PutB_c1 .
+:PutB_c1 rdf:type gwsw:Compartiment ; rdfs:label "B/c1" ;
+    gwsw:hasAspect :PutB_c1_ori .
+:PutB_c1_ori rdf:type gwsw:Compartimentorientatie .

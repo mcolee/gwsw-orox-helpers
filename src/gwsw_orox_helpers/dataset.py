@@ -15,6 +15,7 @@ from rdflib import RDF, RDFS, BNode, URIRef
 from rdflib.term import Node as RdfNode
 from shapely.geometry import LineString, Point
 
+from gwsw_orox_helpers.bronnen import gebundelde_ontologie
 from gwsw_orox_helpers.errors import DatasetError
 from gwsw_orox_helpers.geometry import (
     GeometryError,
@@ -937,6 +938,25 @@ def _deksel_kenmerk(
     return None, None
 
 
+def ontologiepaden(ontology_paths: list[Path] | None) -> list[Path]:
+    """De ontologiebestanden waarmee gelezen wordt, met `None` als de gebundelde.
+
+    Twee verschillende dingen die makkelijk voor elkaar doorgaan: *niets opgegeven*
+    (`None`) betekent de meegeleverde GWSW-ontologie, en een *lege lijst* is de
+    expliciete keuze om zonder ontologie te lezen. Dat onderscheid staat hier en
+    nergens anders, zodat `load_dataset` en `cache` het niet elk anders kunnen
+    invullen.
+
+    De gebundelde ontologie is de standaard omdat de andere kant geen stille keuze
+    mag zijn: zonder klassenhierarchie herkent de lader knopen en strengen niet aan
+    hun GWSW-type en valt hij terug op geometrie -- zie
+    `GwswDataset.klassenhierarchie_bekend`.
+    """
+    if ontology_paths is None:
+        return [gebundelde_ontologie()]
+    return [Path(pad) for pad in ontology_paths]
+
+
 def load_dataset(
     dataset_path: Path,
     ontology_paths: list[Path] | None = None,
@@ -945,6 +965,9 @@ def load_dataset(
     voortgang: Voortgang = NUL_VOORTGANG,
 ) -> GwswDataset:
     """Leest de OroX-dataset en de ontologie(en) en bouwt het domeinmodel op.
+
+    Zonder `ontology_paths` wordt de gebundelde GWSW-ontologie gelezen; een lege lijst
+    betekent expliciet geen ontologie. Zie `ontologiepaden`.
 
     De voortgang gaat per bestand. rdflib geeft geen tussenstand binnen een bestand,
     en juist het parsen van de dataset is de lange stap; er wordt daarom geen
@@ -957,15 +980,16 @@ def load_dataset(
     variant). Welke dat is, is een keuze van de afnemer en niet van deze package.
     """
     dataset_path = Path(dataset_path)
-    voortgang.start_fase("TTL laden", 1 + len(ontology_paths or []))
+    ontologie_paden = ontologiepaden(ontology_paths)
+    voortgang.start_fase("TTL laden", 1 + len(ontologie_paden))
     try:
         graph, fallback = _parse(dataset_path, fallback_encoding)
         voortgang.stap(label=dataset_path.name)
 
         ontology = GraafIndex()
-        for pad in ontology_paths or []:
-            _parse(Path(pad), fallback_encoding, index=ontology)
-            voortgang.stap(label=Path(pad).name)
+        for pad in ontologie_paden:
+            _parse(pad, fallback_encoding, index=ontology)
+            voortgang.stap(label=pad.name)
     finally:
         voortgang.einde_fase()
 
@@ -1000,7 +1024,7 @@ def load_dataset(
         subclasses=subclasses,
         geometry_errors=geometry_errors,
         decode_fallback=fallback,
-        ontologies=tuple(Path(pad) for pad in ontology_paths or []),
+        ontologies=tuple(ontologie_paden),
         kenmerk_property=kenmerk_property,
         functie_per_klasse=functie_per_klasse,
         koppelingsherstel=herstel,

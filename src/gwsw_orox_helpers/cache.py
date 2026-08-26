@@ -34,7 +34,7 @@ from gwsw_orox_helpers import dataset as dataset_module
 from gwsw_orox_helpers import geometry as geometry_module
 from gwsw_orox_helpers import graaf as graaf_module
 from gwsw_orox_helpers import ontologie as ontologie_module
-from gwsw_orox_helpers.dataset import GwswDataset, load_dataset
+from gwsw_orox_helpers.dataset import GwswDataset, load_dataset, ontologiepaden
 from gwsw_orox_helpers.graaf import GraafIndex
 from gwsw_orox_helpers.voortgang import NUL_VOORTGANG, Voortgang
 
@@ -115,10 +115,15 @@ class LuieGraaf:
 
 def cachesleutel(
     dataset_path: Path,
-    ontology_paths: list[Path],
+    ontology_paths: list[Path] | None = None,
     fallback_encoding: str | None = None,
 ) -> str:
     """De sleutel van deze combinatie van invoer, lader, terugvalcodering en bibliotheken.
+
+    `ontology_paths` gaat door dezelfde `ontologiepaden` als `load_dataset`: wat de
+    lezing gebruikt is wat de sleutel hasht. Zonder die stap zou een aanroep zonder
+    ontologieopgave een sleutel krijgen waar de gebundelde ontologie niet in zit, en
+    dan geeft de cache na het vervangen van die ontologie de oude lezing terug.
 
     De terugvalcodering telt mee: ze bepaalt hoe niet-UTF-8-bytes gelezen worden
     (zie `dataset.py`), en een dataset die met een andere codering ingelezen is,
@@ -141,7 +146,7 @@ def cachesleutel(
     for module in (dataset_module, geometry_module, graaf_module, ontologie_module):
         # `__file__` is alleen None bij een namespace-pakket; dit zijn gewone modules.
         haas.update(Path(cast(str, module.__file__)).read_bytes())
-    for pad in [Path(dataset_path), *sorted(Path(p) for p in ontology_paths)]:
+    for pad in [Path(dataset_path), *sorted(ontologiepaden(ontology_paths))]:
         haas.update(pad.name.encode("utf-8"))
         haas.update(_bestandshash(pad).encode("utf-8"))
     return haas.hexdigest()[:32]
@@ -164,7 +169,7 @@ def standaard_cachemap() -> Path:
 
 def laad_met_cache(
     dataset_path: Path,
-    ontology_paths: list[Path],
+    ontology_paths: list[Path] | None = None,
     cache_dir: Path | None = None,
     gebruik_cache: bool = True,
     fallback_encoding: str | None = None,
@@ -173,11 +178,16 @@ def laad_met_cache(
 ) -> tuple[GwswDataset, CacheUitslag]:
     """Leest de dataset uit de cache, of leest hem in en legt hem weg.
 
+    `ontology_paths` betekent hier hetzelfde als in `load_dataset` (zie
+    `ontologiepaden`) en wordt hier één keer ingevuld, zodat de sleutel, de lezing en
+    het herstel van een beschadigde graafcache alle drie dezelfde bestanden zien.
+
     Bij een cachetreffer wordt er niets geparseerd en start er dus geen laadfase:
     een balk die in nul seconden vol schiet zou suggereren dat het inlezen snel was
     in plaats van overgeslagen. De laadfase komt uit `load_dataset` zelf.
     """
     begin = time.perf_counter()
+    ontology_paths = ontologiepaden(ontology_paths)
     if not gebruik_cache:
         dataset = load_dataset(dataset_path, ontology_paths, fallback_encoding, voortgang=voortgang)
         return dataset, CacheUitslag("bestand", "", time.perf_counter() - begin)

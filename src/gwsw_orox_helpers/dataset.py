@@ -27,10 +27,6 @@ from gwsw_orox_helpers.voortgang import NUL_VOORTGANG, Voortgang
 
 GWSW = "http://data.gwsw.nl/1.6/totaal/"
 
-# Turtle moet volgens de spec UTF-8 zijn. Sommige exports (BrutIS) schrijven een
-# handvol bytes in een MS-DOS-codering; cp850 is de gangbare Nederlandse variant.
-FALLBACK_ENCODING = "cp850"
-
 HAS_ASPECT = URIRef(f"{GWSW}hasAspect")
 HAS_PART = URIRef(f"{GWSW}hasPart")
 # Het GWSW declareert `isPartOf owl:inverseOf hasPart` en `isAspectOf owl:inverseOf
@@ -129,16 +125,6 @@ class Vulwaarde:
 
     kind: str
     value: float
-
-
-# De kenmerken waarop `markeer_vulwaarden` werkt: precies de vier velden die zij
-# inspecteert (KLASSE_MAAIVELDHOOGTE, KLASSE_PUTDEKSELNIVEAU, KLASSE_BOB_BEGIN en
-# KLASSE_BOB_EIND). Een andere naam in `[vulwaarden] hoogte_kenmerken` -- een tikfout,
-# of een kenmerk dat de pijplijn niet inleest -- zou stil niets doen terwijl ATTR-013
-# meldt dat de regel is toegepast; `checkconfig.VulwaardeOptions` weigert hem daarom.
-VULWAARDE_KENMERKEN: frozenset[str] = frozenset(
-    {"Maaiveldhoogte", "Putdekselniveau", "BobBeginpuntLeiding", "BobEindpuntLeiding"}
-)
 
 
 class _MetAspecten:
@@ -954,7 +940,7 @@ def _deksel_kenmerk(
 def load_dataset(
     dataset_path: Path,
     ontology_paths: list[Path] | None = None,
-    fallback_encoding: str = FALLBACK_ENCODING,
+    fallback_encoding: str | None = None,
     *,
     voortgang: Voortgang = NUL_VOORTGANG,
 ) -> GwswDataset:
@@ -963,6 +949,12 @@ def load_dataset(
     De voortgang gaat per bestand. rdflib geeft geen tussenstand binnen een bestand,
     en juist het parsen van de dataset is de lange stap; er wordt daarom geen
     percentage getoond dat er niet is.
+
+    Turtle hoort volgens de spec UTF-8 te zijn en zonder `fallback_encoding` wordt niets
+    anders geaccepteerd: een bestand dat er niet aan voldoet levert een `DatasetError`.
+    Sommige exports (BrutIS) schrijven een handvol bytes in een MS-DOS-codering; de
+    afnemer die dat weet, geeft de codering op (`"cp850"` is de gangbare Nederlandse
+    variant). Welke dat is, is een keuze van de afnemer en niet van deze package.
     """
     dataset_path = Path(dataset_path)
     voortgang.start_fase("TTL laden", 1 + len(ontology_paths or []))
@@ -1168,7 +1160,7 @@ def _structural_diff(graph: GraafIndex, subclasses: dict[str, frozenset[str]]) -
 
 
 def _parse(
-    path: Path, fallback_encoding: str, index: GraafIndex | None = None
+    path: Path, fallback_encoding: str | None, index: GraafIndex | None = None
 ) -> tuple[GraafIndex, DecodeFallback | None]:
     """Leest een enkel TTL-bestand in, desnoods via een terugvalcodering.
 
@@ -1199,18 +1191,28 @@ def _parse(
     return index, fallback
 
 
-def _decode(path: Path, rauw: bytes, fallback_encoding: str) -> tuple[str, DecodeFallback | None]:
+def _decode(
+    path: Path, rauw: bytes, fallback_encoding: str | None
+) -> tuple[str, DecodeFallback | None]:
     """Decodeert de inhoud als UTF-8, of anders met de terugvalcodering.
 
     Turtle hoort UTF-8 te zijn, maar niet elke exporttool houdt zich daaraan. Wijkt
     een bestand af, dan wordt dat vastgelegd en gerapporteerd; stilzwijgend
-    vervangen van tekens zou de inhoud ongemerkt veranderen.
+    vervangen van tekens zou de inhoud ongemerkt veranderen. Zonder terugvalcodering
+    (`None`) is er niets om op terug te vallen en is de afwijking een fout: welke
+    codering een afwijkend bestand dan wel draagt, weet alleen de afnemer.
     """
     try:
         return rauw.decode("utf-8"), None
     except UnicodeDecodeError as error:
         # De uitzondering bestaat niet meer buiten dit blok; leg de feiten nu vast.
         eerste_byte, eerste_positie = rauw[error.start], error.start
+
+    if fallback_encoding is None:
+        raise DatasetError(
+            f"{path}: geen geldige UTF-8 (byte {eerste_byte:#04x} op positie "
+            f"{eerste_positie}) en er is geen terugvalcodering opgegeven."
+        )
 
     try:
         tekst = rauw.decode(fallback_encoding)

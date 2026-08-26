@@ -34,7 +34,7 @@ from gwsw_orox_helpers import dataset as dataset_module
 from gwsw_orox_helpers import geometry as geometry_module
 from gwsw_orox_helpers import graaf as graaf_module
 from gwsw_orox_helpers import ontologie as ontologie_module
-from gwsw_orox_helpers.dataset import FALLBACK_ENCODING, GwswDataset, load_dataset
+from gwsw_orox_helpers.dataset import GwswDataset, load_dataset
 from gwsw_orox_helpers.graaf import GraafIndex
 from gwsw_orox_helpers.voortgang import NUL_VOORTGANG, Voortgang
 
@@ -116,15 +116,15 @@ class LuieGraaf:
 def cachesleutel(
     dataset_path: Path,
     ontology_paths: list[Path],
-    fallback_encoding: str = FALLBACK_ENCODING,
+    fallback_encoding: str | None = None,
 ) -> str:
     """De sleutel van deze combinatie van invoer, lader, terugvalcodering en bibliotheken.
 
     De terugvalcodering telt mee: ze bepaalt hoe niet-UTF-8-bytes gelezen worden
     (zie `dataset.py`), en een dataset die met een andere codering ingelezen is,
-    is een andere dataset. Zonder haar in de sleutel zou de cache op een dag dat
-    er een encoding-optie wordt doorgegeven, een met de verkeerde codering
-    ingelezen dataset teruggeven.
+    is een andere dataset. Zonder haar in de sleutel zou de cache bij een andere
+    encoding-keuze een met de verkeerde codering ingelezen dataset teruggeven.
+    `None` -- geen terugval -- is zo'n keuze en krijgt dus een eigen sleutel.
     """
     haas = sha256()
     haas.update(LADER_VERSIE.encode("utf-8"))
@@ -132,7 +132,7 @@ def cachesleutel(
         f"rdflib{rdflib.__version__}shapely{shapely.__version__}"
         f"pyoxigraph{pyoxigraph.__version__}".encode()
     )
-    haas.update(fallback_encoding.encode("utf-8"))
+    haas.update(str(fallback_encoding).encode("utf-8"))
     # `ontologie` staat erbij sinds `load_dataset` er `kenmerk_property` uit afleidt
     # (ATTR-014): die waarde wordt mee gecachet, dus een wijziging aan de afleiding
     # moet net als bij de andere twee de sleutel veranderen. `graaf` draagt sinds de
@@ -167,7 +167,7 @@ def laad_met_cache(
     ontology_paths: list[Path],
     cache_dir: Path | None = None,
     gebruik_cache: bool = True,
-    fallback_encoding: str = FALLBACK_ENCODING,
+    fallback_encoding: str | None = None,
     *,
     voortgang: Voortgang = NUL_VOORTGANG,
 ) -> tuple[GwswDataset, CacheUitslag]:
@@ -211,7 +211,7 @@ def laad_met_cache(
 
 
 def _herlees_graaf(
-    dataset_path: Path, ontology_paths: list[Path], fallback_encoding: str
+    dataset_path: Path, ontology_paths: list[Path], fallback_encoding: str | None
 ) -> GraafIndex:
     """Leest de graafindex opnieuw uit de brondata; herstelweg voor `LuieGraaf`.
 

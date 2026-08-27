@@ -15,6 +15,12 @@ De module heeft een **eigen pad, los van `load_dataset`**. Ze raakt `dataset.py`
 naar de serializer, zodat een export van honderden megabytes niet eerst als domeinmodel
 in het geheugen hoeft. Wie de dataset ook wil *lezen*, gebruikt daarnaast `load_dataset`.
 
+Wat ze wel met de leeslaag deelt is de kennis die anders uit elkaar zou lopen, en die
+staat onder allebei: de IRI's in `namen` en de coderingsregel in `codering`. Dat is geen
+gat in het eigen pad maar de reden dat het er een blijft -- een tweede exemplaar van de
+`gwsw:`-IRI of van de UTF-8-terugval zou pas opvallen als de twee lagen dezelfde bron
+verschillend lazen.
+
 Twee ingangen, want een clip (fase 3) wil de twee helften wegschrijven zonder de bron
 een tweede keer te parsen:
 
@@ -62,23 +68,26 @@ from typing import Final
 
 import pyoxigraph
 
+from gwsw_orox_helpers import namen
+from gwsw_orox_helpers.codering import decodeer
 from gwsw_orox_helpers.errors import DatasetError
+from gwsw_orox_helpers.namen import GWSW
 
-GWSW = "http://data.gwsw.nl/1.6/totaal/"
-
-# De kop van een OroX-export. `gwsw` staat op 1.6 (de leidende versie, zie CLAUDE.md);
-# declareert de bron een andere, dan wint die van de bron (zie `lees_orox`). De
-# dataset-basis `:` zit hier niet in: die verschilt per dataset en komt uit de bron of
-# van de afnemer. Onmuteerbaar, want dit is gedeelde staat: één afnemer die er een sleutel
-# in verzet, verzet hem voor iedereen die daarna schrijft.
+# De kop van een OroX-export. De IRI's komen uit `namen`, de ene plek waar ze staan: de
+# `gwsw:`-prefix hier en de klassen die de leeslaag opzoekt horen dezelfde versie te
+# spellen, en dat is met twee lijstjes niet vol te houden. Declareert de bron een andere,
+# dan wint die van de bron (zie `lees_orox`). De dataset-basis `:` zit hier niet in: die
+# verschilt per dataset en komt uit de bron of van de afnemer. Onmuteerbaar, want dit is
+# gedeelde staat: één afnemer die er een sleutel in verzet, verzet hem voor iedereen die
+# daarna schrijft.
 STANDAARD_PREFIXEN: Final[Mapping[str, str]] = MappingProxyType(
     {
-        "rdf": "http://www.w3.org/1999/02/22-rdf-syntax-ns#",
-        "rdfs": "http://www.w3.org/2000/01/rdf-schema#",
-        "owl": "http://www.w3.org/2002/07/owl#",
-        "xsd": "http://www.w3.org/2001/XMLSchema#",
-        "skos": "http://www.w3.org/2004/02/skos/core#",
-        "geo": "http://www.opengis.net/ont/geosparql#",
+        "rdf": namen.RDF,
+        "rdfs": namen.RDFS,
+        "owl": namen.OWL,
+        "xsd": namen.XSD,
+        "skos": namen.SKOS,
+        "geo": namen.GEO,
         "gwsw": GWSW,
     }
 )
@@ -202,25 +211,14 @@ def schrijf_orox_quads(
 def _gedecodeerd(bron: Path, fallback_encoding: str) -> str:
     """De inhoud van `bron` als tekst: UTF-8, of anders de opgegeven terugvalcodering.
 
-    Dezelfde regel als aan de leeskant (`dataset._decode`): UTF-8 heeft voorrang en de
-    terugval geldt alleen voor een bron die geen geldige UTF-8 is. Wat de leeskant er
-    extra bij doet -- het aantal afwijkende bytes en een paar voorbeeldregels vastleggen
-    in `DecodeFallback` -- hoort bij het rapporteren van een lezing, niet bij het
-    terugschrijven ervan; die weg wordt hier dus niet gedeeld maar ook niet nagebouwd.
+    Precies dezelfde regel als aan de leeskant, want het is dezelfde regel:
+    `codering.decodeer` schrijft hem een keer op en beide lagen lezen hem daar. Wat de
+    leeskant er extra bij doet -- het aantal afwijkende bytes en een paar voorbeeldregels
+    vastleggen in `DecodeFallback` -- hoort bij het rapporteren van een lezing en niet bij
+    het terugschrijven ervan, en het kost een tweede gang over het hele bestand; die stap
+    blijft daar.
     """
-    rauw = bron.read_bytes()
-    try:
-        return rauw.decode("utf-8")
-    except UnicodeDecodeError as fout:
-        eerste_byte, eerste_positie = rauw[fout.start], fout.start
-
-    try:
-        return rauw.decode(fallback_encoding)
-    except (UnicodeDecodeError, LookupError) as fout:
-        raise DatasetError(
-            f"{bron}: geen geldige UTF-8 (byte {eerste_byte:#04x} op positie "
-            f"{eerste_positie}) en ook niet te lezen als {fallback_encoding} ({fout})."
-        ) from fout
+    return decodeer(bron, bron.read_bytes(), fallback_encoding)[0]
 
 
 def _gecontroleerd(
@@ -237,7 +235,7 @@ def _gecontroleerd(
     (geen `fallback_encoding`) en draagt de bron niet-UTF-8-bytes, dan struikelt hij over
     de codering en niet over de syntaxis; "geen geldige Turtle" zou de afnemer dan naar
     een niet-bestaande syntaxfout sturen. De leeslaag zegt in dat geval dat er een
-    terugvalcodering ontbreekt (`dataset._decode`), en dat zegt deze laag hem na. Het
+    terugvalcodering ontbreekt (`codering.decodeer`), en dat zegt deze laag hem na. Het
     kost geen tweede lezing: het oordeel komt uit de foutmelding van de parser, dus de
     bron blijft streamen.
     """

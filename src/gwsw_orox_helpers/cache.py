@@ -30,9 +30,14 @@ import pyoxigraph
 import rdflib
 import shapely
 
+from gwsw_orox_helpers import codering as codering_module
 from gwsw_orox_helpers import dataset as dataset_module
+from gwsw_orox_helpers import domein as domein_module
 from gwsw_orox_helpers import geometry as geometry_module
 from gwsw_orox_helpers import graaf as graaf_module
+from gwsw_orox_helpers import inlezen as inlezen_module
+from gwsw_orox_helpers import klassen as klassen_module
+from gwsw_orox_helpers import namen as namen_module
 from gwsw_orox_helpers import ontologie as ontologie_module
 from gwsw_orox_helpers.dataset import GwswDataset, load_dataset, ontologiepaden
 from gwsw_orox_helpers.graaf import GraafIndex
@@ -45,6 +50,29 @@ LADER_VERSIE = "1"
 
 BESTAND_STRUCTUREN = "structuren.pickle"
 BESTAND_GRAAF = "graaf.pickle"
+
+# "De lader" is niet één bestand maar de hele leeslaag: `dataset` biedt hem aan,
+# `inlezen` leest de graaf uit, `domein` draagt de objecten die gecachet worden,
+# `klassen` leidt de afsluitingen af, `codering` bepaalt hoe de bytes tekst worden,
+# `geometry` hoe een GML-literaal een shapely-object wordt en `namen` welke IRI's dat
+# allemaal opzoekt. `ontologie` staat erbij sinds `load_dataset` er `kenmerk_property`
+# uit afleidt (ATTR-014): die waarde wordt mee gecachet, dus een wijziging aan de
+# afleiding moet de sleutel veranderen. `graaf` draagt sinds de eigen graafindexen de
+# termconversie en de volgordegarantie van de gecachete graaf. Wie hier een module
+# vergeet, krijgt geen fout maar een cache die na een wijziging aan de lader de oude
+# lezing blijft teruggeven; `tests/test_cache.py` parametriseert over deze tuple en
+# bewaakt daarmee elke module erin én de lijst zelf.
+LADERMODULES = (
+    codering_module,
+    dataset_module,
+    domein_module,
+    geometry_module,
+    graaf_module,
+    inlezen_module,
+    klassen_module,
+    namen_module,
+    ontologie_module,
+)
 
 
 @dataclass(frozen=True)
@@ -126,7 +154,7 @@ def cachesleutel(
     dan geeft de cache na het vervangen van die ontologie de oude lezing terug.
 
     De terugvalcodering telt mee: ze bepaalt hoe niet-UTF-8-bytes gelezen worden
-    (zie `dataset.py`), en een dataset die met een andere codering ingelezen is,
+    (zie `codering.py`), en een dataset die met een andere codering ingelezen is,
     is een andere dataset. Zonder haar in de sleutel zou de cache bij een andere
     encoding-keuze een met de verkeerde codering ingelezen dataset teruggeven.
     `None` -- geen terugval -- is zo'n keuze en krijgt dus een eigen sleutel.
@@ -138,12 +166,9 @@ def cachesleutel(
         f"pyoxigraph{pyoxigraph.__version__}".encode()
     )
     haas.update(str(fallback_encoding).encode("utf-8"))
-    # `ontologie` staat erbij sinds `load_dataset` er `kenmerk_property` uit afleidt
-    # (ATTR-014): die waarde wordt mee gecachet, dus een wijziging aan de afleiding
-    # moet net als bij de andere twee de sleutel veranderen. `graaf` draagt sinds de
-    # eigen graafindexen de termconversie en de volgordegarantie van de gecachete
-    # graaf; een wijziging daar is net zo goed een andere lader.
-    for module in (dataset_module, geometry_module, graaf_module, ontologie_module):
+    # De broncode van de hele leeslaag; welke modules dat zijn en waarom, staat bij
+    # `LADERMODULES`.
+    for module in LADERMODULES:
         # `__file__` is alleen None bij een namespace-pakket; dit zijn gewone modules.
         haas.update(Path(cast(str, module.__file__)).read_bytes())
     for pad in [Path(dataset_path), *sorted(ontologiepaden(ontology_paths))]:

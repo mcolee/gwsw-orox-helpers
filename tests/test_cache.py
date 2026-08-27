@@ -8,13 +8,30 @@ in de sleutel.
 from __future__ import annotations
 
 from pathlib import Path
+from types import ModuleType
 
+import pytest
+
+from gwsw_orox_helpers import cache as cache_module
 from gwsw_orox_helpers.bronnen import gebundelde_ontologie
-from gwsw_orox_helpers.cache import BESTAND_GRAAF, cachesleutel, laad_met_cache
+from gwsw_orox_helpers.cache import BESTAND_GRAAF, LADERMODULES, cachesleutel, laad_met_cache
 from gwsw_orox_helpers.dataset import load_dataset
 
 TTL_DIR = Path(__file__).parent / "fixtures" / "ttl"
 VOORBEELD = TTL_DIR / "schoon.ttl"
+
+# De modules van de package die bewust buiten de cachesleutel blijven, elk met de reden.
+# Deze verzameling is de tegenhanger van `cache.LADERMODULES`: samen horen ze precies de
+# package te zijn, zodat een nieuwe module niet stilzwijgend ongehasht kan blijven.
+BUITEN_DE_SLEUTEL = {
+    "__init__",  # alleen re-exports, geen leeslogica
+    "bronnen",  # levert paden; de inhoud van die bestanden wordt zelf al gehasht
+    "cache",  # de sleutel zelf; `LADER_VERSIE` is hier de knop om aan te draaien
+    "clip",  # eigen pad naast de leeslaag; raakt de gecachete lezing niet
+    "errors",  # uitzonderingstypen; er wordt niets van gecachet
+    "schrijven",  # idem als clip
+    "voortgang",  # meldt alleen voortgang; de lezing verandert er niet van
+}
 
 
 def test_de_cache_geeft_dezelfde_dataset_terug(tmp_path: Path) -> None:
@@ -85,67 +102,64 @@ def test_de_sleutel_verandert_mee_met_de_terugvalcodering() -> None:
     )
 
 
-def test_de_sleutel_verandert_mee_met_de_broncode_van_de_lader(tmp_path: Path, monkeypatch) -> None:
+@pytest.mark.parametrize(
+    "module", LADERMODULES, ids=lambda module: module.__name__.rsplit(".", 1)[-1]
+)
+def test_de_sleutel_verandert_mee_met_de_broncode_van_elke_ladermodule(
+    module: ModuleType, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """De broncode van de lader hoort net zo goed bij de sleutel als de invoer zelf.
 
     `test_de_sleutel_verandert_mee_met_de_lader` verzet alleen `LADER_VERSIE`; dat
-    bewijst niet dat de broncode-hash van de ladermodules zelf ook echt meetelt --
-    een refactor die dat deel van `cachesleutel` laat vallen, zou die test nog
-    steeds groen laten. Hier wordt in plaats daarvan `dataset_module.__file__`
-    naar een gewijzigde kopie verzet, zoals de bron die `cachesleutel` inleest.
-    """
-    import gwsw_orox_helpers.cache as cache_module
+    bewijst niet dat de broncode-hash van de ladermodules zelf ook echt meetelt -- een
+    refactor die dat deel van `cachesleutel` laat vallen, zou die test nog steeds groen
+    laten. Hier wordt in plaats daarvan het `__file__` van de module naar een gewijzigde
+    kopie verzet, zoals de bron die `cachesleutel` inleest.
 
-    origineel = Path(cache_module.dataset_module.__file__)
+    De lus loopt over `cache.LADERMODULES` zelf en niet over een handmatige greep uit die
+    lijst: eerder bewaakten drie losse tests alleen `dataset`, `ontologie` en `graaf`,
+    terwijl de vijf andere gehashte modules (`inlezen`, `klassen`, `codering`, `domein`,
+    `namen`) ongetoetst bleven. Elke module die aan de lijst wordt toegevoegd, krijgt hier
+    dus vanzelf zijn geval erbij; wie een module uit de lijst haalt, verliest een geval en
+    struikelt over `test_de_ladermodulelijst_dekt_de_hele_leeslaag`.
+
+    Wat elk van de negen bijdraagt staat bij `cache.LADERMODULES`; de gevoeligste zijn
+    `ontologie` (de `kenmerk_property` die `load_dataset` eruit afleidt en die mee gecachet
+    wordt, ATTR-014) en `graaf` (de termconversie en volgordegarantie van de gepicklede
+    `GraafIndex`).
+    """
+    origineel = Path(module.__file__ or "")
     kopie = tmp_path / origineel.name
     kopie.write_bytes(origineel.read_bytes() + b"\n# gewijzigd voor de test\n")
 
     eerste = cachesleutel(VOORBEELD, [])
-    monkeypatch.setattr(cache_module.dataset_module, "__file__", str(kopie))
+    monkeypatch.setattr(module, "__file__", str(kopie))
 
     assert cachesleutel(VOORBEELD, []) != eerste
 
 
-def test_de_sleutel_verandert_mee_met_de_broncode_van_de_ontologielezer(
-    tmp_path: Path, monkeypatch
-) -> None:
-    """`load_dataset` leidt `kenmerk_property` af met `ontologie.verwachte_property`.
+def test_de_ladermodulelijst_dekt_de_hele_leeslaag() -> None:
+    """De lijst bewaakt zichzelf: elke module van de package is gehasht of uitgezonderd.
 
-    Die waarde wordt in de structurencache bewaard, dus de broncode van `ontologie.py`
-    hoort net als die van de lader bij de sleutel -- anders zou een wijziging aan de
-    afleiding een stille, verouderde `kenmerk_property` blijven serveren (ATTR-014).
+    De test hierboven toetst wat *in* `LADERMODULES` staat; die lijst kan alleen te kort
+    zijn, en een vergeten module levert geen fout op maar een cache die na een wijziging
+    aan de lader de oude lezing blijft teruggeven. Daarom staat hier de andere helft: de
+    modulebestanden van de package min `BUITEN_DE_SLEUTEL` moeten precies de gehashte
+    modules zijn. Een nieuwe module in de leeslaag laat deze test omvallen tot iemand
+    hem in `cache.LADERMODULES` zet -- of hem met een reden in `BUITEN_DE_SLEUTEL`
+    verantwoordt.
     """
-    import gwsw_orox_helpers.cache as cache_module
+    pakket = Path(cache_module.__file__ or "").parent
+    # `rglob`, niet `glob`: ook een module in een toekomstige submap moet zich melden.
+    aanwezig = {
+        ".".join(pad.relative_to(pakket).with_suffix("").parts)
+        for pad in pakket.rglob("*.py")
+        if "__pycache__" not in pad.parts
+    }
+    gehasht = {module.__name__.removeprefix("gwsw_orox_helpers.") for module in LADERMODULES}
 
-    origineel = Path(cache_module.ontologie_module.__file__)
-    kopie = tmp_path / origineel.name
-    kopie.write_bytes(origineel.read_bytes() + b"\n# gewijzigd voor de test\n")
-
-    eerste = cachesleutel(VOORBEELD, [])
-    monkeypatch.setattr(cache_module.ontologie_module, "__file__", str(kopie))
-
-    assert cachesleutel(VOORBEELD, []) != eerste
-
-
-def test_de_sleutel_verandert_mee_met_de_broncode_van_de_graafindex(
-    tmp_path: Path, monkeypatch
-) -> None:
-    """`graaf.py` draagt de termconversie en de volgordegarantie van de gecachete graaf.
-
-    De graafpickle is een `GraafIndex`; wijzigt de indexmodule, dan is de gepicklede
-    graaf van een andere lader en hoort de sleutel te veranderen -- anders serveert de
-    cache stil een index met de oude volgorde- of conversieregels.
-    """
-    import gwsw_orox_helpers.cache as cache_module
-
-    origineel = Path(cache_module.graaf_module.__file__)
-    kopie = tmp_path / origineel.name
-    kopie.write_bytes(origineel.read_bytes() + b"\n# gewijzigd voor de test\n")
-
-    eerste = cachesleutel(VOORBEELD, [])
-    monkeypatch.setattr(cache_module.graaf_module, "__file__", str(kopie))
-
-    assert cachesleutel(VOORBEELD, []) != eerste
+    assert gehasht == aanwezig - BUITEN_DE_SLEUTEL
+    assert BUITEN_DE_SLEUTEL <= aanwezig  # geen verdwenen module als stille uitzondering
 
 
 def test_een_beschadigde_cache_leidt_tot_opnieuw_inlezen(tmp_path: Path) -> None:

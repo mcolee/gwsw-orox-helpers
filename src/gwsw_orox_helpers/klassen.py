@@ -1,0 +1,122 @@
+"""De GWSW-klassenhierarchie en de kleine woordenboeken die de lader eruit afleidt.
+
+Alle drie de uitkomsten hebben dezelfde vorm en dezelfde bron: een graaf met
+klassenkennis erin -- de ontologie, of bij een handgeschreven fixture de dataset zelf --
+en daaruit een woordenboek dat verder zonder graaf te lezen is. `subclasses` draagt per
+klasse haar afsluiting, `kenmerk_property` per kenmerktype de property die de ontologie
+voor zijn waarde voorschrijft, en `functie_per_klasse` per hulpstukklasse haar functie.
+
+Wat ze delen is de terugval: **zonder klassenkennis blijft een afsluiting op de wortel
+zelf steken**, en dan valt de lezing terug op geometrie. Die terugval staat een keer, in
+`_afsluiting`. Stond hij er twee keer, dan zou een van beide bij een wijziging
+achterblijven zonder dat het opvalt -- een afsluiting die stilzwijgend krimpt levert geen
+fout op maar een lege selectie. `_bruikbare_afsluiting` is dezelfde vraag met een
+antwoord dat je kunt zien: `None` waar de afsluiting singleton bleef.
+
+Deze module leest de restricties niet zelf; dat doet `ontologie`. Hier staat wat je met
+die uitkomsten doet: erven, afsluiten en op korte naam terugbrengen.
+"""
+
+from __future__ import annotations
+
+from rdflib import RDFS, URIRef
+
+from gwsw_orox_helpers.graaf import GraafIndex
+from gwsw_orox_helpers.namen import GWSW
+from gwsw_orox_helpers.ontologie import functie_van_klasse, verwachte_property
+
+# De twee wortels waarmee de lader knopen en strengen uit de graaf haalt. Blijft de
+# afsluiting van een van beide op de wortel zelf steken, dan valt dat lezen terug op
+# geometrie; `GwswDataset.klassenhierarchie_bekend` is precies die vraag.
+WORTEL_KNOOPPUNT = "Knooppunt"
+WORTEL_VERBINDING = "Verbinding"
+WORTELS_VOOR_HERKENNING = (WORTEL_KNOOPPUNT, WORTEL_VERBINDING)
+
+WORTEL_HULPSTUK = "Hulpstuk"
+WORTEL_HULPSTUKORIENTATIE = "Hulpstukorientatie"
+
+
+def _uri(naam: str) -> str:
+    """Maakt van een korte klassenaam een volledige GWSW-URI."""
+    return naam if naam.startswith("http") else f"{GWSW}{naam}"
+
+
+def _short(uri: str) -> str:
+    """De korte klassenaam achter de laatste scheidingstekens van een URI."""
+    return uri.rsplit("/", 1)[-1].rsplit("#", 1)[-1]
+
+
+def _afsluiting(subclasses: dict[str, frozenset[str]], wortel: str) -> frozenset[str]:
+    """De subklasse-afsluiting van een wortel; zonder klassenkennis de wortel zelf.
+
+    De enige plek waar die terugval opgeschreven staat. Stond hij er twee keer, dan
+    zou een van beide bij een wijziging achterblijven zonder dat het opvalt: een
+    afsluiting die stilzwijgend krimpt levert geen fout op maar een lege selectie.
+    """
+    return subclasses.get(_uri(wortel), frozenset({_uri(wortel)}))
+
+
+def _bruikbare_afsluiting(
+    subclasses: dict[str, frozenset[str]], wortel: str
+) -> frozenset[str] | None:
+    """De subklasse-afsluiting van een wortel, of None als de ontologie ontbreekt."""
+    afsluiting = _afsluiting(subclasses, wortel)
+    return afsluiting if len(afsluiting) > 1 else None
+
+
+def _subclass_closure(graph: GraafIndex) -> dict[str, frozenset[str]]:
+    """Berekent per klasse de verzameling van zichzelf en al haar subklassen."""
+    kinderen: dict[str, set[str]] = {}
+    for kind, ouder in graph.subject_objects(RDFS.subClassOf):
+        if isinstance(kind, URIRef) and isinstance(ouder, URIRef):
+            kinderen.setdefault(str(ouder), set()).add(str(kind))
+
+    afsluiting: dict[str, frozenset[str]] = {}
+    # Een eigen naam voor de lus: `ouder` hierboven is een rdflib-term, hier een str.
+    for klasse in kinderen:
+        gezien = {klasse}
+        stapel = [klasse]
+        while stapel:
+            huidig = stapel.pop()
+            for afstammeling in kinderen.get(huidig, ()):
+                if afstammeling not in gezien:
+                    gezien.add(afstammeling)
+                    stapel.append(afstammeling)
+        afsluiting[klasse] = frozenset(gezien)
+    return afsluiting
+
+
+def _kenmerk_properties(graph: GraafIndex, subclasses: dict[str, frozenset[str]]) -> dict[str, str]:
+    """Per kenmerktype de property die de ontologie voor zijn waarde voorschrijft.
+
+    Loopt over de subklassen van `Kenmerk` en houdt alleen de types die een
+    `hasValue`- of `hasReference`-restrictie dragen. Leest uit dezelfde graaf als
+    `subclasses` (de ontologie, of bij een fixture de dataset zelf), zodat het met
+    `--geen-ontologie` en inline-hierarchieen meebeweegt. Zonder klassenkennis blijft
+    de afsluiting op `Kenmerk` zelf steken en levert dit een leeg woordenboek.
+    """
+    gevonden: dict[str, str] = {}
+    for uri in _afsluiting(subclasses, "Kenmerk"):
+        property_ = verwachte_property(graph, URIRef(uri))
+        if property_ is not None:
+            gevonden[_short(uri)] = property_
+    return gevonden
+
+
+def _klassefuncties(graph: GraafIndex, subclasses: dict[str, frozenset[str]]) -> dict[str, str]:
+    """Per hulpstukklasse de functiewaarde uit de ontologie, overgeerfd naar subklassen.
+
+    Loopt over de afsluiting van `Hulpstuk`; een klasse met een eigen restrictie wint
+    van wat zij van een bovenklasse zou erven. Sleutel is de volledige URI, zodat een
+    knoop er met zijn `types` direct in kan kijken.
+    """
+    eigen: dict[str, str] = {}
+    for uri in _afsluiting(subclasses, WORTEL_HULPSTUK):
+        functie = functie_van_klasse(graph, URIRef(uri))
+        if functie is not None:
+            eigen[uri] = functie
+    gevonden = dict(eigen)
+    for uri, functie in sorted(eigen.items()):
+        for sub in _afsluiting(subclasses, _short(uri)):
+            gevonden.setdefault(sub, functie)
+    return gevonden

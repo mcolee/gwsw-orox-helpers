@@ -9,30 +9,33 @@ rdflib-termtypen (`URIRef`, `BNode`, `Literal`) als munteenheid zodat de aanroep
 code en alle vergelijkingen ongewijzigd blijven.
 
 Geinventariseerde `Graph`-bewerkingen (stap 0; `grep -rn "\\.graph\\." src/` plus de
-interne lezers in `dataset.py`) -- dit is het volledige leescontract, en de tests in
+interne lezers van de leeslaag, die sinds de hersnit in `inlezen.py` en `klassen.py`
+staan en niet meer in `dataset.py`) -- dit is het volledige leescontract, en de tests in
 `tests/test_graaf.py` toetsen elk ervan tegen het rdflib-antwoord op dezelfde triples,
 inclusief volgorde:
 
-- ``objects(subject, predicate)`` -- beide gebonden. `dataset.py` (`graph_types_of`,
-  `parts_of`/`aspects_of`/`part_holders_of`/`aspect_holders_of` -- met als externe
+- ``objects(subject, predicate)`` -- beide gebonden. `dataset.py`
+  (`GwswDataset.graph_types_of`), `inlezen.py`
+  (`parts_of`/`aspects_of`/`part_holders_of`/`aspect_holders_of` -- met als externe
   aanroepers ook `checks/netwerk.py` en `checks/randvoorzieningen.py` -- ,
   `_read_aspects`, `_types`, `_connections`), `checks/administratief.py`
   (hasConnection), `nulbevinding.py` (`_ouders`) en `ontologie.verwachte_property` (de
   restrictiebron kan deze index zijn).
 - ``subjects(predicate, object)`` -- beide gebonden. `dataset.py`
-  (`subjects_of_class`, de vier hasPart/hasAspect-lezers -- zie hierboven voor hun
-  externe aanroepers -- , `_orientations_of_class`, `_orientations_with`,
-  `_leiding_orientations`, `_connections`, `_subclass_closure` niet -- die gebruikt
-  `subject_objects`), `checks/administratief.py`, `checks/attributen.py`
-  (`_property_tellingen`), `nulbevinding.py`.
+  (`GwswDataset.subjects_of_class`), `inlezen.py` (de vier hasPart/hasAspect-lezers --
+  zie hierboven voor hun externe aanroepers -- , `_orientations_of_class`,
+  `_orientations_with`, `_leiding_orientations`, `_connections`),
+  `checks/administratief.py`, `checks/attributen.py` (`_property_tellingen`),
+  `nulbevinding.py`. `klassen._subclass_closure` niet -- die gebruikt
+  `subject_objects`.
 - ``value(subject, predicate)`` -- het eerste object of None. `dataset.py`
-  (`onderdeel_label`, `_read_aspects`, `_read_inwinning`, `_aspect_van_klasse`,
-  `_label`, `_geometry`, `_is_multipart`), `checks/attributen.py`,
-  `ontologie.verwachte_property`.
+  (`GwswDataset.onderdeel_label`), `inlezen.py` (`_read_aspects`, `_read_inwinning`,
+  `_aspect_van_klasse`, `_label`, `_geometry`, `_is_multipart`),
+  `checks/attributen.py`, `ontologie.verwachte_property`.
 - ``subject_objects(predicate)`` -- alleen het predicaat gebonden;
-  `dataset._subclass_closure`. rdflib loopt hier de pos-index af (eerst per object,
+  `klassen._subclass_closure`. rdflib loopt hier de pos-index af (eerst per object,
   dan per subject), niet de triple-volgorde; de index spiegelt die groepering.
-- ``(s, p, o) in graaf`` -- volledig gebonden membership. `dataset.py`
+- ``(s, p, o) in graaf`` -- volledig gebonden membership. `inlezen.py`
   (`_read_inwinning`, `_aspect_van_klasse`, `_maaiveld_kenmerk`, `_deksel_kenmerk`,
   `_geometry`, `_is_multipart`, `_endpoint`).
 - ``len(graaf)`` -- het aantal triples. `load_dataset` (restrictiebron-keuze),
@@ -53,7 +56,7 @@ import pyoxigraph
 from rdflib import BNode, Literal, URIRef
 from rdflib.term import Node as RdfNode
 
-XSD_STRING = "http://www.w3.org/2001/XMLSchema#string"
+from gwsw_orox_helpers.namen import XSD_STRING
 
 
 def naar_rdflib(

@@ -59,6 +59,10 @@ Eerste afnemer: nlriochecker. Nederlandse identifiers, GWSW-conform.
   de drifttests bewaken beide richtingen.
 
 ## Naslag
+- **`docs/architectuur.md`** beschrijft de snit van `src/gwsw_orox_helpers/`: de lagen en
+  hun importrichting, de twee paden door pyoxigraph (lezen met index, schrijven als
+  stroom) en waar de gedeelde IRI-, prefix- en coderingskennis woont. Lees dat vóór een
+  wijziging die meer dan een module raakt.
 - **`docs/agents/afk-regie.md`** is het sjabloon voor een onbewaakte regiesessie die een
   reeks `ready-for-agent`-issues met Opus-subagents afwerkt: lus per issue, één poort,
   review-timing, wachten zonder pollen, slotrapport.

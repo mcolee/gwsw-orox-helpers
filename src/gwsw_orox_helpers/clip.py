@@ -8,9 +8,11 @@ blanke-knoopstructuur.
 
 **Eigen pad, net als `schrijven`.** Deze module raakt `dataset.py` en `graaf.py` niet
 aan en bouwt geen domeinmodel: ze leest de bron met `schrijven.lees_orox` als
-quadstroom en schrijft de delen met `schrijven.schrijf_orox_quads` weg. Alleen de
-GML-lezers uit `geometry` worden gedeeld, want de knip moet dezelfde coordinaten zien
-als de leeslaag.
+quadstroom en schrijft de delen met `schrijven.schrijf_orox_quads` weg. Gedeeld met de
+leeslaag zijn alleen de GML-lezers uit `geometry` -- de knip moet dezelfde coordinaten
+zien als de leeslaag -- en de IRI's uit `namen`, want een `hasAspect` die hier anders
+gespeld werd dan daar zou de verkeerde helft van de graaf verdelen zonder ergens te
+klagen.
 
 ## Wat er verdeeld wordt
 
@@ -26,7 +28,7 @@ De toewijzing van blokken aan vlakken gaat in vier stappen:
 
 1. **Geometrie zaait.** De geometrie zit niet op het object maar op een
    orientatie-aspect (`gwsw:Punt` / `gwsw:Lijn` met `gwsw:hasValue
-   "<gml...>"^^geo:gmlLiteral`, zie `dataset._geometry`). Een punt gaat naar het vlak
+   "<gml...>"^^geo:gmlLiteral`, zie `inlezen._geometry`). Een punt gaat naar het vlak
    waarin het valt; een lijn die binnen een vlak blijft ook; een lijn die de grens
    kruist wordt doorgeknipt (zie hieronder). Een vlakgeometrie (`gwsw:Buitengrens`)
    wordt niet geknipt maar op haar representatieve punt toegewezen.
@@ -87,7 +89,7 @@ stukken van dezelfde helft ligt per constructie een stuk van een andere (`_segme
 voegt gelijke buren samen), dus er valt in die helft geen enkele lijn van te maken. Wat
 de helft draagt is dan een leiding met een **meerdelige** geometrie, en dat is precies wat
 meer dan een `gwsw:Lijn`-aspect onder een orientatie in OroX betekent. De leeslaag leest
-het ook zo: `load_dataset` zet `Conduit.multipart` aan (`dataset._is_multipart`), dus er
+het ook zo: `load_dataset` zet `Conduit.multipart` aan (`inlezen._is_multipart`), dus er
 komt geen halve leiding uit die zich als een hele voordoet. De stukken een eigen
 orientatie geven zou het alternatief zijn, maar dat vraagt om een kopie van het hele
 orientatieblok inclusief zijn blanke knopen en om het terugvouwen daarvan bij de
@@ -155,23 +157,22 @@ from gwsw_orox_helpers.geometry import (
     parse_gml,
     parse_gml_z,
 )
-from gwsw_orox_helpers.schrijven import GWSW, lees_orox, schrijf_orox_quads
-
-GEO: Final = "http://www.opengis.net/ont/geosparql#"
-XSD: Final = "http://www.w3.org/2001/XMLSchema#"
+from gwsw_orox_helpers.namen import (
+    GML_LITERAL,
+    HAS_ASPECT,
+    HAS_CONNECTION,
+    HAS_PART,
+    HAS_VALUE,
+    IS_ASPECT_OF,
+    IS_PART_OF,
+    XSD,
+)
+from gwsw_orox_helpers.schrijven import lees_orox, schrijf_orox_quads
 
 # De eigen naamruimte voor de knipmerken. Ze staan alleen in de geknipte delen; `merge_orox`
 # gooit elke triple met een predicaat uit deze naamruimte weg.
 KNIP: Final = "https://github.com/mcolee/gwsw-orox-helpers/ns/clip#"
 KNIP_PREFIX: Final = "knip"
-
-HAS_ASPECT: Final = f"{GWSW}hasAspect"
-HAS_PART: Final = f"{GWSW}hasPart"
-IS_ASPECT_OF: Final = f"{GWSW}isAspectOf"
-IS_PART_OF: Final = f"{GWSW}isPartOf"
-HAS_CONNECTION: Final = f"{GWSW}hasConnection"
-HAS_VALUE: Final = f"{GWSW}hasValue"
-GML_LITERAL: Final = f"{GEO}gmlLiteral"
 
 _HAS_VALUE_KNOOP: Final = pyoxigraph.NamedNode(HAS_VALUE)
 _GML_TYPE: Final = pyoxigraph.NamedNode(GML_LITERAL)

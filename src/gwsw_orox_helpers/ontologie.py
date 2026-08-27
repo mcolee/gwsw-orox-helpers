@@ -10,6 +10,10 @@ Dit is de ontbrekende schakel uit issue #35: zonder haar blijft elke drempel han
 en kan een eigen check een waarde goedkeuren die de SHACL-nulmeting afkeurt. De module
 *leest* alleen; hij vergelijkt niets met de projectdrempels en verandert niets aan een
 run. Alleen de inclusieve grenzen worden gelezen -- de GWSW-facetten zijn dat allemaal.
+
+Wat je met die uitkomsten *doet* -- ze erven naar subklassen, ze op korte naam terugbrengen
+-- staat in `klassen`. Deze module kijkt daarom omlaag (naar `namen` en `graaf`) en nooit
+omhoog naar de lader; dat is wat haar los houdt van `dataset`.
 """
 
 from __future__ import annotations
@@ -20,8 +24,8 @@ from decimal import Decimal
 from rdflib import OWL, RDFS, XSD, Graph, URIRef
 from rdflib.collection import Collection
 
-from gwsw_orox_helpers.dataset import GWSW
 from gwsw_orox_helpers.graaf import GraafIndex
+from gwsw_orox_helpers.namen import GWSW
 
 
 @dataclass(frozen=True)
@@ -125,7 +129,7 @@ def functie_van_klasse(graph: Graph | GraafIndex, klasse: URIRef) -> str | None:
     met `owl:hasValue` (`T_stuk` → `VerbindenVanDrieLeidingen`, `Kruisstuk` →
     `VerbindenVanVierLeidingen`). TOP-022 en TOP-023 lezen daar het verwachte aantal
     leidingen uit (issue #60). Alleen de restricties direct op de klasse; het
-    overerven naar subklassen doet `dataset._klassefuncties`.
+    overerven naar subklassen doet `klassen._klassefuncties`.
 
     Tweeënveertig GWSW-klassen dragen meer dan een functiewaarde (`Zadel` bijvoorbeeld
     `LeidingaansluitingVerstevigen` en `VerstevigenAansluiting`). De volgorde waarin de

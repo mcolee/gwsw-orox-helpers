@@ -1,6 +1,22 @@
 # Changelog
 
 ## [Unreleased]
+- Architectuurronde (intern; geen API-wijziging): de leeslaag is uit `dataset.py` in vier
+  modules gesneden -- `domein` (de waardeobjecten), `inlezen` (alles wat de graaf aanraakt,
+  inclusief het parsen), `klassen` (de subklasse-afsluiting en wat eruit volgt) en
+  `codering` (UTF-8 met terugval) -- en de IRI's van alle drie de lagen staan nu één keer,
+  in `namen`. Daarmee verdwijnen drie plekken waar kennis dubbel stond: de `gwsw:`-basis
+  (leeslaag, schrijflaag, cliplaag), de UTF-8-terugval (`dataset._decode` naast
+  `schrijven._gedecodeerd`) en de kringverwijzing tussen `dataset` en `ontologie`, die met
+  functie-lokale imports werd omzeild. `dataset` blijft het gezicht van de leeslaag: elke
+  naam die nlriochecker importeert komt daar naar buiten, met identieke handtekening en
+  identiek gedrag (`tests/test_publieke_api.py` blijft groen). `dataset` draagt daarvoor
+  nu een expliciete `__all__` met dat hele oppervlak, inclusief de namen die bij de
+  hersnit naar een andere module verhuisden maar uit `dataset` importeerbaar blijven:
+  `parse_gml`, `parse_gml_z`, `is_multipart_literal` en `GeometryError` (uit `geometry`)
+  en `ISO_DATUM` en `JAARTAL` (uit `domein`). De cachesleutel hasht nu de broncode van
+  alle leeslaagmodules (`cache.LADERMODULES`), dus bestaande caches worden
+  één keer opnieuw opgebouwd. De gekozen snit staat in `docs/architectuur.md`.
 - Cliplaag: `gwsw_orox_helpers.clip` met `clip_orox` (een OroX-export langs een
   GeoJSON-grenslaag van N vlakken in N OroX-bestanden knippen) en `merge_orox` (die
   delen weer tot het origineel samenvoegen). `merge(clip(bron))` is isomorf aan `bron`:

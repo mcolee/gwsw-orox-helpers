@@ -192,7 +192,7 @@ def test_cp850_bron_zonder_terugval_noemt_de_codering_als_oorzaak(tmp_path: Path
     De parser struikelt over de bytes en niet over de syntaxis; "geen geldige Turtle"
     zou de lezer naar een niet-bestaande syntaxfout sturen terwijl er een
     `fallback_encoding` ontbreekt. De leeslaag zegt hier hetzelfde
-    (`dataset._decode`), en dat is de formulering waar de afnemer op zoekt.
+    (`codering.decodeer`), en dat is de formulering waar de afnemer op zoekt.
     """
     with pytest.raises(DatasetError, match="terugvalcodering"):
         schrijf_orox(CP850, tmp_path / "nooit.ttl")

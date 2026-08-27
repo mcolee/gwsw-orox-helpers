@@ -33,8 +33,9 @@ from gwsw_orox_helpers.dataset import load_dataset
 ds = load_dataset(Path("gemeente_orox.ttl"))  # met de gebundelde GWSW-ontologie 1.6
 print(len(ds.nodes), "putten,", len(ds.conduits), "leidingen")
 
-delen = clip_orox(Path("gemeente_orox.ttl"), Path("grenzen.geojson"),
-                  Path("delen/"), sleutel="gemeentenaam")
+delen = clip_orox(
+    Path("gemeente_orox.ttl"), Path("grenzen.geojson"), Path("delen/"), sleutel="gemeentenaam"
+)
 merge_orox(delen, Path("terug.ttl"))  # isomorf aan de bron
 ```
 

@@ -11,6 +11,11 @@
 # Draagt de vormen die de schrijver moet overleven -- de ontologiekop, een GML-literaal,
 # kale getallen (decimal en integer), een xsd:date, een blanke knoop en een prefix die
 # wel gedeclareerd maar niet gebruikt wordt (skos, net als in de Juinen-export).
+#
+# En de vormen die de clip (fase 3) moet overleven: :Leiding_1 loopt van x=233000 naar
+# x=233040 en kruist daarmee de grens van tests/fixtures/gis/mini_grens.geojson (x=233020),
+# en :Ontluchter_1 is een onderdeel zonder eigen geometrie onder die geknipte leiding --
+# zijn kant volgt uit het aanhechtingspunt (hasConnection naar :Put_2_ori, dus Mini-Oost).
 
 <file:///mini/GwswDataset__Mini.orox.ttl>
 	rdf:type                      owl:Ontology ;
@@ -50,8 +55,19 @@
 :Leiding_1
 	rdf:type                      gwsw:Gemengdriool ;
 	rdfs:label                    "put 1-put 2" ;
+	gwsw:hasPart                  :Ontluchter_1 ;
 	gwsw:hasAspect                :Leiding_1_ori ;
 	gwsw:hasAspect                _:Leiding_1_lengte .
+
+# Onderdeel zonder eigen geometrie: de kant volgt uit het aanhechtingspunt, niet uit de
+# houder -- die ligt na de knip immers aan beide kanten van de grens.
+:Ontluchter_1
+	rdf:type                      gwsw:Ontluchter ;
+	rdfs:label                    "ontluchter 1" ;
+	gwsw:hasAspect                [ rdf:type gwsw:Onderdeelorientatie ;
+	                                gwsw:hasPart [ rdf:type gwsw:BeginpuntOnderdeel ;
+	                                               gwsw:hasConnection :Put_2_ori ] ] .
+
 _:Leiding_1_lengte
 	rdf:type                      gwsw:Lengte ;
 	gwsw:hasValue                 40 .

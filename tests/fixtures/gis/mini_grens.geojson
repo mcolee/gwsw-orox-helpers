@@ -1,0 +1,39 @@
+{
+  "type": "FeatureCollection",
+  "name": "mini_grens",
+  "crs": { "type": "name", "properties": { "name": "urn:ogc:def:crs:EPSG::28992" } },
+  "features": [
+    {
+      "type": "Feature",
+      "properties": { "gemeentenaam": "Mini-West", "gemeentecode": "GM9001" },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [232960.0, 580960.0],
+            [233020.0, 580960.0],
+            [233020.0, 581040.0],
+            [232960.0, 581040.0],
+            [232960.0, 580960.0]
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": { "gemeentenaam": "Mini-Oost", "gemeentecode": "GM9002" },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [233020.0, 580960.0],
+            [233080.0, 580960.0],
+            [233080.0, 581040.0],
+            [233020.0, 581040.0],
+            [233020.0, 580960.0]
+          ]
+        ]
+      }
+    }
+  ]
+}

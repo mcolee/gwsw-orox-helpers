@@ -308,3 +308,25 @@ def test_schrijflaag_is_additief() -> None:
     bron = inspect.getsource(schrijven)
     assert "from gwsw_orox_helpers.dataset import" not in bron
     assert "from gwsw_orox_helpers.graaf import" not in bron
+
+
+def test_cliplaag_is_additief() -> None:
+    """Fase 3 doet hetzelfde: namen erbij, en een eigen pad naast de leeslaag."""
+    from gwsw_orox_helpers import clip
+
+    assert callable(clip.clip_orox)
+    assert callable(clip.merge_orox)
+    assert _handtekening(clip.clip_orox) == (
+        "(bron: 'Path', grenzen: 'Path', uitmap: 'Path', *, sleutel: 'str', "
+        "fallback_encoding: 'str | None' = None) -> 'list[Path]'"
+    )
+    assert _handtekening(clip.merge_orox) == "(delen: 'list[Path]', doel: 'Path') -> 'None'"
+    # En ze staan, net als de schrijflaag, ook op de package zelf.
+    import gwsw_orox_helpers
+
+    assert gwsw_orox_helpers.clip_orox is clip.clip_orox
+    assert gwsw_orox_helpers.merge_orox is clip.merge_orox
+    # De clip hangt net zomin aan de leeslaag; alleen de GML-lezers worden gedeeld.
+    bron = inspect.getsource(clip)
+    assert "from gwsw_orox_helpers.dataset import" not in bron
+    assert "from gwsw_orox_helpers.graaf import" not in bron

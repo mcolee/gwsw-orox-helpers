@@ -9,7 +9,7 @@ import rdflib
 
 # Niet `Graph.isomorphic`, dat #2 zelf noemt: die methode vergelijkt alleen de triples
 # zonder blanke knopen en verklaart de rest ongezien gelijk. In `mini_orox.ttl` is dat
-# 18 van de 47 triples en in de Juinen-export 78%, dus juist het deel waar de belofte
+# 22 van de 55 triples en in de Juinen-export 78%, dus juist het deel waar de belofte
 # van deze serializer over gaat. `rdflib.compare.isomorphic` doet de echte
 # knoop-toewijzing (canonicaliseren en dan vergelijken).
 from rdflib.compare import isomorphic
@@ -146,7 +146,7 @@ def test_snede_door_een_blanke_knoop_is_niet_meer_te_herenigen(tmp_path: Path) -
     Blanke-knooplabels zijn documentgebonden: staat `:X gwsw:hasAspect _:b` in de ene
     helft en `_:b rdf:type gwsw:Punt` in de andere, dan mint elke lezer voor elk bestand
     zijn eigen knoop en is de hereniging een andere graaf dan de bron -- de triples zijn
-    er alle 47 nog, maar de brug tussen de twee is weg. Dit is de eerlijke uitkomst en
+    er alle 55 nog, maar de brug tussen de twee is weg. Dit is de eerlijke uitkomst en
     geen fout in de serializer; de afnemer (fase 3) moet elke bnode-sluiting aan één kant
     houden. Zie de moduledocstring van `schrijven`.
     """
@@ -161,7 +161,7 @@ def test_snede_door_een_blanke_knoop_is_niet_meer_te_herenigen(tmp_path: Path) -
 
     bron = _graaf(MINI)
     samen = _graaf(tmp_path / "bnodes.ttl") + _graaf(tmp_path / "rest.ttl")
-    assert len(binnen) == 18 and len(buiten) == 29
+    assert len(binnen) == 22 and len(buiten) == 33
     assert len(samen) == len(bron)  # geen triple zoekgeraakt ...
     assert not isomorphic(samen, bron)  # ... en toch niet dezelfde graaf.
 

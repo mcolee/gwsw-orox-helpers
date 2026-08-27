@@ -1,0 +1,39 @@
+{
+  "type": "FeatureCollection",
+  "name": "juinen_grens",
+  "crs": { "type": "name", "properties": { "name": "urn:ogc:def:crs:EPSG::28992" } },
+  "features": [
+    {
+      "type": "Feature",
+      "properties": { "gemeentenaam": "Juinen-West", "gemeentecode": "GM9101" },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [168000.0, 442400.0],
+            [168540.0, 442400.0],
+            [168540.0, 443400.0],
+            [168000.0, 443400.0],
+            [168000.0, 442400.0]
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": { "gemeentenaam": "Juinen-Oost", "gemeentecode": "GM9102" },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [168540.0, 442400.0],
+            [169200.0, 442400.0],
+            [169200.0, 443400.0],
+            [168540.0, 443400.0],
+            [168540.0, 442400.0]
+          ]
+        ]
+      }
+    }
+  ]
+}

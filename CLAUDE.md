@@ -35,7 +35,9 @@ Eerste afnemer: nlriochecker. Nederlandse identifiers, GWSW-conform.
   en `uv run --with pytest-cov pytest --cov=gwsw_orox_helpers --cov-fail-under=95`.
   Dezelfde vijf staan in `.github/workflows/toets.yml`; wijkt de een af, dan wijken ze
   allebei af. Draai hem bij elke commit die `src/**.py` raakt en **lees de uitvoer** —
-  "de tests draaiden" is geen bewijs, de geplakte uitvoer wel.
+  "de tests draaiden" is geen bewijs, de geplakte uitvoer wel. Let op: `ruff format
+  --check .` controleert óók Python-codeblokken in Markdown; een README-only commit kan
+  de poort dus rood zetten (gebeurde 27-08), draai die check ook bij docs met codeblokken.
 - Kleine stappen; na elke groene stap een commit met een duidelijke boodschap. Werk op
   `dev`. Deze repo kent (nog) geen release-splitsing: geen merge naar `main`, geen
   `scripts/uitgave.py`; het versienummer in `pyproject.toml` bumpt de auteur.

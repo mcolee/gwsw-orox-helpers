@@ -20,6 +20,7 @@ die ze leest, niet bij de tekstmodule die ze spelt.
 
 from __future__ import annotations
 
+import gc
 import logging
 from collections.abc import Iterable, Iterator
 from contextlib import contextmanager
@@ -42,6 +43,14 @@ from gwsw_orox_helpers.geometry import (
 )
 from gwsw_orox_helpers.graaf import GraafIndex
 from gwsw_orox_helpers.klassen import _afsluiting, _short
+
+# `RDF.type` en `RDFS.label` zijn geen attributen maar een `__getattr__` op rdflib's
+# `DefinedNamespace`, en die kost bijna een microseconde per keer. De lezers hieronder
+# stellen die vraag per aspect en per object -- op de De Wolden en Hoogeveen-export bijna
+# negenhonderdduizend keer, samen ruim acht tiende seconde. Een keer opvragen en daarna
+# de naam gebruiken kost er zestien nanoseconde van; het is dezelfde term.
+_RDF_TYPE = RDF.type
+_RDFS_LABEL = RDFS.label
 
 HAS_ASPECT = URIRef(namen.HAS_ASPECT)
 HAS_PART = URIRef(namen.HAS_PART)
@@ -106,6 +115,35 @@ def _quiet_rdflib():
         logger.setLevel(oud)
 
 
+@contextmanager
+def _gc_uit():
+    """Legt de cyclische GC stil rond het vullen van de index.
+
+    Hij zou anders bij elke paar duizend nieuwe dicts opnieuw door de al gevulde index
+    lopen, en die groeit tot miljoenen containers -- op de De Wolden en Hoogeveen-export
+    kostte dat 2,2 van de 14 seconden van de vullus. Er ontstaat daar per constructie geen
+    kringetje: de dicts, de lijsten en de rdflib-termen wijzen alleen naar beneden. Wat dit
+    *niet* uitzet is de referentietelling, dus wat vrijkomt gaat nog altijd meteen weg.
+
+    **Waarom hier en niet in `GraafIndex.vul_uit`.** De GC uitzetten is een procesbreed
+    neveneffect en dat hoort niet in een publieke, gepinde methode: wie `vul_uit` van
+    buiten aanroept, hoort niet ongevraagd de GC van zijn hele proces te zien wisselen.
+    `_parse` is de enige productieweg ernaartoe -- voor de dataset zowel als voor elk
+    ontologiebestand -- dus de winst is dezelfde.
+
+    De oude stand komt in `finally` terug, ook als de stroom halverwege afbreekt, en een
+    aanroeper die de GC zelf al uit had houdt hem uit.
+    """
+    stond_aan = gc.isenabled()
+    if stond_aan:
+        gc.disable()
+    try:
+        yield
+    finally:
+        if stond_aan:
+            gc.enable()
+
+
 def _parse(
     path: Path, fallback_encoding: str | None, index: GraafIndex | None = None
 ) -> tuple[GraafIndex, DecodeFallback | None]:
@@ -131,7 +169,7 @@ def _parse(
         # rdflib waarschuwt bij het bouwen van een literaal met een ongeldige lexicale
         # vorm (de meegeleverde ontologie draagt een xsd:date "20210830" zonder streepjes);
         # net als bij de oude parse hoort die traceback niet in de CLI-uitvoer thuis.
-        with _quiet_rdflib():
+        with _quiet_rdflib(), _gc_uit():
             index.vul_uit(quads)
     except Exception as error:  # pyoxigraph gooit uiteenlopende parsefouten
         raise DatasetError(f"{path}: geen geldige Turtle ({error}).") from error
@@ -227,7 +265,7 @@ def _read_aspects(graph: GraafIndex, subject: RdfNode) -> tuple[Aspect, ...]:
         if waarde is None and referentie is None:
             continue
         inwinning = _read_inwinning(graph, aspect)
-        for soort in graph.objects(aspect, RDF.type):
+        for soort in graph.objects(aspect, _RDF_TYPE):
             gevonden.append(
                 Aspect(
                     kind=_short(str(soort)),
@@ -242,15 +280,15 @@ def _read_aspects(graph: GraafIndex, subject: RdfNode) -> tuple[Aspect, ...]:
 def _read_inwinning(graph: GraafIndex, subject: RdfNode) -> Inwinning | None:
     """Leest de inwinningsmetagegevens die aan een kenmerk hangen."""
     for aspect in aspects_of(graph, subject):
-        if (aspect, RDF.type, KLASSE_INWINNING) not in graph:
+        if (aspect, _RDF_TYPE, KLASSE_INWINNING) not in graph:
             continue
         wijze: str | None = None
         datum: date | None = None
         for deel in aspects_of(graph, aspect):
-            if (deel, RDF.type, KLASSE_WIJZE_VAN_INWINNING) in graph:
+            if (deel, _RDF_TYPE, KLASSE_WIJZE_VAN_INWINNING) in graph:
                 referentie = graph.value(deel, HAS_REFERENCE)
                 wijze = _short(str(referentie)) if referentie is not None else None
-            elif (deel, RDF.type, KLASSE_DATUM_INWINNING) in graph:
+            elif (deel, _RDF_TYPE, KLASSE_DATUM_INWINNING) in graph:
                 waarde = graph.value(deel, HAS_VALUE)
                 datum = _as_date(str(waarde)) if waarde is not None else None
         gevonden = Inwinning(wijze=wijze, datum=datum)
@@ -262,7 +300,7 @@ def _read_inwinning(graph: GraafIndex, subject: RdfNode) -> Inwinning | None:
 def _aspect_van_klasse(graph: GraafIndex, subject: RdfNode, klasse: URIRef) -> Aspect | None:
     """Het kenmerk van deze klasse dat direct aan het object hangt."""
     for aspect in aspects_of(graph, subject):
-        if (aspect, RDF.type, klasse) not in graph:
+        if (aspect, _RDF_TYPE, klasse) not in graph:
             continue
         waarde = graph.value(aspect, HAS_VALUE)
         if waarde is None:
@@ -284,7 +322,7 @@ def _maaiveld_kenmerk(
     maaiveldorientatie, die via hasConnection aan de putorientatie hangt.
     """
     for buur in _connections(graph, orientation):
-        if (buur, RDF.type, KLASSE_MAAIVELDORIENTATIE) not in graph:
+        if (buur, _RDF_TYPE, KLASSE_MAAIVELDORIENTATIE) not in graph:
             continue
         aspect = _aspect_van_klasse(graph, buur, KLASSE_MAAIVELDHOOGTE)
         if aspect is not None:
@@ -338,7 +376,7 @@ def _deksel_kenmerk(
         return direct, _herkomst(graph, subject, direct)
 
     for deel in parts_of(graph, subject):
-        if not any((deel, RDF.type, URIRef(klasse)) in graph for klasse in deksel_klassen):
+        if not any((deel, _RDF_TYPE, URIRef(klasse)) in graph for klasse in deksel_klassen):
             continue
         for orientatie in aspects_of(graph, deel):
             aspect = _aspect_van_klasse(graph, orientatie, KLASSE_PUTDEKSELNIVEAU)
@@ -364,19 +402,19 @@ def _bob(graph: GraafIndex, endpoint: RdfNode | None, klasse: URIRef) -> Aspect 
 
 def _label(graph: GraafIndex, subject: RdfNode) -> str:
     """Het rdfs:label van een object, of een lege tekst."""
-    waarde = graph.value(subject, RDFS.label)
+    waarde = graph.value(subject, _RDFS_LABEL)
     return str(waarde) if waarde is not None else ""
 
 
 def _types(graph: GraafIndex, subject: RdfNode) -> frozenset[str]:
     """Alle rdf:type-waarden van een object."""
-    return frozenset(str(waarde) for waarde in graph.objects(subject, RDF.type))
+    return frozenset(str(waarde) for waarde in graph.objects(subject, _RDF_TYPE))
 
 
 def _geometry(graph: GraafIndex, orientation: RdfNode, klasse: URIRef, errors: dict[str, str]):
     """Zoekt de geometrie van een orientatie en geeft die met haar z-waarden terug."""
     for aspect in aspects_of(graph, orientation):
-        if (aspect, RDF.type, klasse) not in graph:
+        if (aspect, _RDF_TYPE, klasse) not in graph:
             continue
         literal = graph.value(aspect, HAS_VALUE)
         if literal is None:
@@ -464,7 +502,7 @@ def _orientations_of_class(graph: GraafIndex, klassen: frozenset[str]):
     """De orientaties waarvan het type in deze verzameling klassen valt."""
     gezien = set()
     for klasse in klassen:
-        for orientation in graph.subjects(RDF.type, URIRef(klasse)):
+        for orientation in graph.subjects(_RDF_TYPE, URIRef(klasse)):
             if orientation not in gezien:
                 gezien.add(orientation)
                 yield orientation
@@ -473,7 +511,7 @@ def _orientations_of_class(graph: GraafIndex, klassen: frozenset[str]):
 def _orientations_with(graph: GraafIndex, klasse: URIRef):
     """De orientaties die via hasAspect een geometrie van dit type dragen."""
     gezien = set()
-    for aspect in graph.subjects(RDF.type, klasse):
+    for aspect in graph.subjects(_RDF_TYPE, klasse):
         for orientation in aspect_holders_of(graph, aspect):
             if orientation not in gezien:
                 gezien.add(orientation)
@@ -550,7 +588,7 @@ def _is_multipart(graph: GraafIndex, orientation: RdfNode, klasse: URIRef) -> bo
     literalen = [
         str(graph.value(aspect, HAS_VALUE))
         for aspect in aspects_of(graph, orientation)
-        if (aspect, RDF.type, klasse) in graph and graph.value(aspect, HAS_VALUE) is not None
+        if (aspect, _RDF_TYPE, klasse) in graph and graph.value(aspect, HAS_VALUE) is not None
     ]
     if len(literalen) > 1:
         return True
@@ -561,7 +599,7 @@ def _leiding_orientations(graph: GraafIndex):
     """De orientaties die een begin- of eindpunt van een leiding bevatten."""
     gezien = set()
     for klasse in (*KLASSEN_BEGINPUNT, *KLASSEN_EINDPUNT):
-        for endpoint in graph.subjects(RDF.type, klasse):
+        for endpoint in graph.subjects(_RDF_TYPE, klasse):
             for orientation in part_holders_of(graph, endpoint):
                 if orientation not in gezien:
                     gezien.add(orientation)
@@ -573,7 +611,7 @@ def _endpoint(
 ) -> RdfNode | None:
     """Het begin- of eindpunt van een verbinding, van welke soort dan ook."""
     for part in parts_of(graph, orientation):
-        if any((part, RDF.type, klasse) in graph for klasse in klassen):
+        if any((part, _RDF_TYPE, klasse) in graph for klasse in klassen):
             return part
     return None
 

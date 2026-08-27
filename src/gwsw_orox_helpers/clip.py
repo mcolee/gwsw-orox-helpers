@@ -185,6 +185,14 @@ _INTEGER: Final = pyoxigraph.NamedNode(f"{XSD}integer")
 _BOOLEAN: Final = pyoxigraph.NamedNode(f"{XSD}boolean")
 _WAAR: Final = pyoxigraph.Literal("true", datatype=_BOOLEAN)
 
+# De predicaten die een houder aan een onderdeel binden, in de twee schrijfrichtingen die
+# het GWSW toestaat. Als verzameling en niet als tuple in de lus: `_maak_plan` en
+# `_deelstroom` stellen deze vraag per quad van de bron -- op de export van De Wolden en
+# Hoogeveen ruim zeven miljoen keer -- en zouden de tuple anders elke keer opnieuw bouwen.
+_HOUDER_NAAR_ONDERDEEL: Final = frozenset({HAS_ASPECT, HAS_PART})
+_ONDERDEEL_NAAR_HOUDER: Final = frozenset({IS_ASPECT_OF, IS_PART_OF})
+_RANDPREDICATEN: Final = _HOUDER_NAAR_ONDERDEEL | _ONDERDEEL_NAAR_HOUDER
+
 # De inhoud van de gml:pos of gml:posList, met de omhulsels eromheen. Alleen de middelste
 # groep wordt vervangen; al het andere in de literaal blijft letterlijk staan (srsName,
 # srsDimension, de soort geometrie).
@@ -228,14 +236,32 @@ class _Plan:
     stukken: dict[str, tuple[_Stuk, ...]] = field(default_factory=dict)
     # Blok-sleutel van een houder van een geknipte geometrie -> bitmasker; draagt `knip:geknipt`.
     geknipte_houders: dict[str, int] = field(default_factory=dict)
+    # Het bitmasker per term, platgeslagen: `toewijzing` na `blok`. `_maak_plan` vult hem
+    # met `bouw_maskers` als laatste stap; de schrijfronde leest hem alleen.
+    maskers: dict[str, int] = field(default_factory=dict)
 
     def blok(self, sleutel: str) -> str:
         """Het blok waar deze term in valt: hijzelf, of het blok van zijn blanke knoop."""
         return self.eigenaar.get(sleutel, sleutel)
 
-    def masker(self, sleutel: str) -> int:
-        """Het bitmasker van vlakken waar het blok van deze term in staat."""
-        return self.toewijzing.get(self.blok(sleutel), 0)
+    def bouw_maskers(self) -> None:
+        """Slaat `toewijzing` en `eigenaar` plat tot een tabel per term.
+
+        De schrijfronde stelt die vraag per quad -- op de export van De Wolden en
+        Hoogeveen ruim vier miljoen keer per deel -- en per term langs `blok` lopen
+        kost er twee opzoekingen in plaats van een. Platgeslagen is het er een.
+
+        `_maak_plan` bouwt de tabel als laatste stap, wanneer `toewijzing` en `eigenaar`
+        niet meer veranderen. Dat is bewust geen luie vulling bij de eerste vraag: die zou
+        de tabel laten afhangen van *wanneer* er voor het eerst naar gevraagd werd, en een
+        latere verzetting stil buiten beeld laten. Wie het plan alsnog verzet, bouwt hem
+        opnieuw.
+        """
+        toewijzing = self.toewijzing
+        plat = dict(toewijzing)
+        for knoop, blok in self.eigenaar.items():
+            plat[knoop] = toewijzing.get(blok, 0)
+        self.maskers = plat
 
 
 def clip_orox(
@@ -373,37 +399,49 @@ def _bestandsnaam(naam: str) -> str:
 # --------------------------------------------------------------------------------------
 
 
-def _sleutel(term: object, namen: dict[str, str], teller: Iterator[int]) -> str | None:
-    """De sleutel van een term: zijn IRI, of `_:b<n>` voor een blanke knoop.
-
-    De nummering volgt de stroomvolgorde en is daarmee bij elke lezing van hetzelfde
-    bestand dezelfde -- anders dan de namen die pyoxigraph zelf verzint.
-    """
-    if isinstance(term, pyoxigraph.NamedNode):
-        return term.value
-    if isinstance(term, pyoxigraph.BlankNode):
-        naam = namen.get(term.value)
-        if naam is None:
-            naam = f"b{next(teller)}"
-            namen[term.value] = naam
-        return f"_:{naam}"
-    return None
-
-
 def _genummerd(
     quads: Iterable[pyoxigraph.Quad],
 ) -> Iterator[tuple[pyoxigraph.Quad, str, str | None]]:
     """De quadstroom met de sleutel van subject en object erbij.
 
-    Subject en object worden altijd in die volgorde opgevraagd, zodat de nummering van
-    de blanke knopen in elke ronde over hetzelfde bestand gelijk uitvalt.
+    De sleutel van een term is zijn IRI, of `_:b<n>` voor een blanke knoop. Die
+    nummering volgt de stroomvolgorde -- subject voor object, altijd in die volgorde --
+    en is daarmee bij elke lezing van hetzelfde bestand dezelfde, anders dan de namen
+    die pyoxigraph zelf verzint. Een literaal (en een RDF-ster-triple) heeft geen
+    sleutel; als object levert dat `None`, als subject kan het niet voorkomen.
+
+    De twee takken staan bewust twee keer uitgeschreven in plaats van in een hulpfunctie
+    per term: deze lus draait per quad van de bron en de bron gaat er N+1 keer doorheen,
+    dus een aanroep per term is er op de export van De Wolden en Hoogeveen elf miljoen.
     """
     namen: dict[str, str] = {}
     teller = itertools.count()
+    named_node = pyoxigraph.NamedNode
+    blank_node = pyoxigraph.BlankNode
     for quad in quads:
-        onderwerp = _sleutel(quad.subject, namen, teller)
+        subject = quad.subject
+        if isinstance(subject, named_node):
+            onderwerp: str | None = subject.value
+        elif isinstance(subject, blank_node):
+            ruw = subject.value
+            onderwerp = namen.get(ruw)
+            if onderwerp is None:
+                onderwerp = namen[ruw] = f"_:b{next(teller)}"
+        else:  # pragma: no cover -- een subject is nooit een literaal
+            onderwerp = None
         assert onderwerp is not None  # een subject is nooit een literaal
-        yield quad, onderwerp, _sleutel(quad.object, namen, teller)
+
+        object_ = quad.object
+        if isinstance(object_, named_node):
+            voorwerp: str | None = object_.value
+        elif isinstance(object_, blank_node):
+            ruw = object_.value
+            voorwerp = namen.get(ruw)
+            if voorwerp is None:
+                voorwerp = namen[ruw] = f"_:b{next(teller)}"
+        else:
+            voorwerp = None
+        yield quad, onderwerp, voorwerp
 
 
 def _maak_plan(bron: Path, vlakken: tuple[_Vlak, ...], fallback_encoding: str | None) -> _Plan:
@@ -421,9 +459,9 @@ def _maak_plan(bron: Path, vlakken: tuple[_Vlak, ...], fallback_encoding: str | 
             ouder_van.setdefault(voorwerp, onderwerp)
         predicaat = quad.predicate.value
         if voorwerp is not None:
-            if predicaat in (HAS_ASPECT, HAS_PART):
+            if predicaat in _HOUDER_NAAR_ONDERDEEL:
                 randen.append((onderwerp, voorwerp))
-            elif predicaat in (IS_ASPECT_OF, IS_PART_OF):
+            elif predicaat in _ONDERDEEL_NAAR_HOUDER:
                 randen.append((voorwerp, onderwerp))
             elif predicaat == HAS_CONNECTION:
                 verbindingen.append((onderwerp, voorwerp))
@@ -450,6 +488,7 @@ def _maak_plan(bron: Path, vlakken: tuple[_Vlak, ...], fallback_encoding: str | 
     _omlaag(plan, blokken, ouders, _verbindingsgraaf(verbindingen, plan), len(vlakken))
     _omhoog(plan, ouders)
     _merk_houders(plan, randen)
+    plan.bouw_maskers()
     return plan
 
 
@@ -894,31 +933,50 @@ def _deelstroom(
         if masker & bit:
             yield pyoxigraph.Triple(_term(blok), _GEKNIPT, _WAAR)
 
+    # De vaste tabellen en typen krijgen een lokale naam: hier onder draait alles per quad
+    # van de bron, en dat zijn er op de export van De Wolden en Hoogeveen 1,9 miljoen.
+    maskers = plan.maskers
+    stukken_van = plan.stukken
+    named_node = pyoxigraph.NamedNode
+    blank_node = pyoxigraph.BlankNode
+    triple = pyoxigraph.Triple
+
     for quad, onderwerp, voorwerp in _genummerd(quads):
-        masker = plan.masker(onderwerp)
-        if not masker & bit:
+        if not maskers.get(onderwerp, 0) & bit:
             continue
         predicaat = quad.predicate.value
-        if voorwerp is not None and predicaat in (HAS_ASPECT, HAS_PART, IS_ASPECT_OF, IS_PART_OF):
+        if voorwerp is not None and predicaat in _RANDPREDICATEN:
             # De rand tussen houder en onderdeel gaat naar de vlakken van het onderdeel; de
             # houder staat daar altijd ook, dus geen van beide einden komt los te hangen.
-            ander = plan.masker(voorwerp)
+            ander = maskers.get(voorwerp, 0)
             if ander and not ander & bit:
                 continue
 
         # Blanke knopen gaan met hun vaste naam de deur uit; zie de moduledocstring.
         subject_uit: pyoxigraph.NamedNode | pyoxigraph.BlankNode = (
-            quad.subject if isinstance(quad.subject, pyoxigraph.NamedNode) else _term(onderwerp)
+            quad.subject if isinstance(quad.subject, named_node) else _term(onderwerp)
         )
         object_uit = (
             _term(voorwerp)
-            if voorwerp is not None and isinstance(quad.object, pyoxigraph.BlankNode)
+            if voorwerp is not None and isinstance(quad.object, blank_node)
             else quad.object
         )
-        gml = _gml_waarde(quad.object)
 
-        onderwerpen = _stuktermen(plan, onderwerp, deel)
-        voorwerpen = _stuktermen(plan, voorwerp, deel) if voorwerp is not None else None
+        eigen_stukken = stukken_van.get(onderwerp)
+        andere_stukken = stukken_van.get(voorwerp) if voorwerp is not None else None
+        if eigen_stukken is None and andere_stukken is None:
+            # Verreweg de meeste triples: geen van beide einden is een geknipte
+            # geometrieknoop, dus er komt geen stukknoop in de plaats en er valt niets te
+            # merken. Alles hieronder zou dan uitkomen op deze ene triple.
+            yield triple(subject_uit, quad.predicate, object_uit)
+            continue
+
+        onderwerpen = _stuktermen(plan, onderwerp, deel) if eigen_stukken is not None else None
+        voorwerpen = (
+            _stuktermen(plan, voorwerp, deel)
+            if voorwerp is not None and andere_stukken is not None
+            else None
+        )
         if onderwerpen == []:
             # Een geknipte geometrieknoop zonder stuk in dit deel. Dat kan: een blok kan in
             # een vlak staan om een andere geometrie (de orientatie draagt naast de lijn ook
@@ -926,7 +984,7 @@ def _deelstroom(
             # ongeknipte geometrie te staan.
             continue
         if voorwerpen == []:
-            if predicaat in (HAS_ASPECT, HAS_PART, IS_ASPECT_OF, IS_PART_OF):
+            if predicaat in _RANDPREDICATEN:
                 # Een houder/onderdeel-rand naar een geknipte geometrie zonder stuk hier:
                 # niet schrijven, anders zou er een naam in dit deel hangen waar niets bij
                 # staat. Kwijt raakt de triple er niet van, want de rand wordt naar de
@@ -938,11 +996,15 @@ def _deelstroom(
             # `hasConnection` die na de knip naar de put aan de overkant blijft wijzen.
             voorwerpen = None
         for subject, stuk in onderwerpen if onderwerpen is not None else ((subject_uit, None),):
-            if stuk is not None and predicaat == HAS_VALUE and gml is not None:
-                yield from _knipmerken(subject, onderwerp, gml, stuk, plan)
-                continue
+            if stuk is not None and predicaat == HAS_VALUE:
+                # Pas hier naar de GML-tekst vragen: alleen een stuk van een geknipte
+                # geometrie doet er iets mee, en dat is een handvol van de miljoenen quads.
+                gml = _gml_waarde(quad.object)
+                if gml is not None:
+                    yield from _knipmerken(subject, onderwerp, gml, stuk, plan)
+                    continue
             for object_, _ in voorwerpen if voorwerpen is not None else ((object_uit, None),):
-                yield pyoxigraph.Triple(subject, quad.predicate, object_)
+                yield triple(subject, quad.predicate, object_)
 
 
 def _gml_waarde(term: object) -> str | None:
@@ -1006,26 +1068,23 @@ class _Scan:
     ontdubbelen: set[str] = field(default_factory=set)
 
 
-def _ruwe_sleutel(term: object) -> str | None:
-    """De sleutel van een term zoals hij in het deelbestand staat.
-
-    Anders dan bij het knippen worden de blanke knopen hier *niet* hernummerd: de clip
-    heeft ze een vaste naam gegeven en die naam is precies de identiteit die de delen
-    delen.
-    """
-    if isinstance(term, pyoxigraph.NamedNode):
-        return term.value
-    if isinstance(term, pyoxigraph.BlankNode):
-        return f"_:{term.value}"
-    return None
-
-
 def _scan_delen(delen: Sequence[Path]) -> _Scan:
-    """Eerste ronde over de delen: knipstukken verzamelen en dubbele subjecten aanwijzen."""
+    """Eerste ronde over de delen: knipstukken verzamelen en dubbele subjecten aanwijzen.
+
+    De sleutel van een term is hier zijn IRI, of `_:<naam>` voor een blanke knoop. Anders
+    dan bij het knippen worden die blanke knopen *niet* hernummerd: de clip heeft ze een
+    vaste naam gegeven en die naam is precies de identiteit die de delen delen. De twee
+    takken staan uitgeschreven en niet in een hulpfunctie per term: deze lus en die van
+    `_samengevoegd` stellen de vraag samen vier keer per quad, op de delen van De Wolden
+    en Hoogeveen zeven en een half miljoen keer.
+    """
     scan = _Scan()
     gezien: set[str] = set()
     merken: dict[str, dict[str, str]] = {}
     verwijzers: dict[str, set[str]] = {}
+    named_node = pyoxigraph.NamedNode
+    blank_node = pyoxigraph.BlankNode
+    literal = pyoxigraph.Literal
 
     for index, pad in enumerate(delen):
         geopend = lees_orox(pad)
@@ -1035,17 +1094,28 @@ def _scan_delen(delen: Sequence[Path]) -> _Scan:
             }
         hier: set[str] = set()
         for quad in geopend.quads:
-            onderwerp = _ruwe_sleutel(quad.subject)
-            assert onderwerp is not None
+            subject_in = quad.subject
+            if isinstance(subject_in, named_node):
+                onderwerp = subject_in.value
+            else:
+                assert isinstance(subject_in, blank_node)  # een subject is nooit een literaal
+                onderwerp = f"_:{subject_in.value}"
             hier.add(onderwerp)
             predicaat = quad.predicate.value
-            if predicaat.startswith(KNIP) and isinstance(quad.object, pyoxigraph.Literal):
-                merken.setdefault(onderwerp, {})[predicaat] = quad.object.value
+            object_in = quad.object
+            if predicaat.startswith(KNIP) and isinstance(object_in, literal):
+                merken.setdefault(onderwerp, {})[predicaat] = object_in.value
             elif predicaat == HAS_VALUE:
-                gml = _gml_waarde(quad.object)
+                gml = _gml_waarde(object_in)
                 if gml is not None:
                     scan.sjabloon.setdefault(onderwerp, gml)
-            voorwerp = _ruwe_sleutel(quad.object)
+            voorwerp: str | None
+            if isinstance(object_in, named_node):
+                voorwerp = object_in.value
+            elif isinstance(object_in, blank_node):
+                voorwerp = f"_:{object_in.value}"
+            else:
+                voorwerp = None
             if voorwerp is not None and "__knip" in voorwerp:
                 verwijzers.setdefault(voorwerp, set()).add(onderwerp)
         for sleutel in hier:
@@ -1111,17 +1181,31 @@ def _tokens_tekst(literal: str) -> str:
 
 
 def _samengevoegd(delen: Sequence[Path], scan: _Scan) -> Iterator[pyoxigraph.Triple]:
-    """De triples van alle delen samen: ontdubbeld, ontknipt en zonder knipmerken."""
+    """De triples van alle delen samen: ontdubbeld, ontknipt en zonder knipmerken.
+
+    De sleutels worden hier op dezelfde manier gelezen als in `_scan_delen`, en om
+    dezelfde reden uitgeschreven.
+    """
     gezien: set[tuple[str, str, str]] = set()
     geschreven: set[str] = set()
+    # Vaste tabellen en typen als lokale naam; alles hieronder draait per quad van elk deel.
+    herkomst_van = scan.herkomst_van
+    ontdubbelen = scan.ontdubbelen
+    named_node = pyoxigraph.NamedNode
+    blank_node = pyoxigraph.BlankNode
+    triple = pyoxigraph.Triple
     for pad in delen:
         for quad in lees_orox(pad).quads:
             predicaat = quad.predicate.value
             if predicaat.startswith(KNIP):
                 continue
-            onderwerp = _ruwe_sleutel(quad.subject)
-            assert onderwerp is not None
-            herkomst = scan.herkomst_van.get(onderwerp)
+            subject_in = quad.subject
+            if isinstance(subject_in, named_node):
+                onderwerp = subject_in.value
+            else:
+                assert isinstance(subject_in, blank_node)  # een subject is nooit een literaal
+                onderwerp = f"_:{subject_in.value}"
+            herkomst = herkomst_van.get(onderwerp)
             subject: pyoxigraph.NamedNode | pyoxigraph.BlankNode
             if herkomst is not None:
                 if predicaat == HAS_VALUE and _gml_waarde(quad.object) is not None:
@@ -1131,19 +1215,26 @@ def _samengevoegd(delen: Sequence[Path], scan: _Scan) -> Iterator[pyoxigraph.Tri
                     continue
                 subject = _term(herkomst)
             else:
-                subject = _term(onderwerp)
+                # De term staat er al: `_term(onderwerp)` zou hem letterlijk opnieuw
+                # opbouwen uit de tekst die er zojuist uit kwam.
+                subject = subject_in
 
-            voorwerp = _ruwe_sleutel(quad.object)
-            doel = scan.herkomst_van.get(voorwerp) if voorwerp is not None else None
-            object_ = _term(doel) if doel is not None else quad.object
+            object_in = quad.object
+            if isinstance(object_in, named_node):
+                doel = herkomst_van.get(object_in.value)
+            elif isinstance(object_in, blank_node):
+                doel = herkomst_van.get(f"_:{object_in.value}")
+            else:
+                doel = None
+            object_ = _term(doel) if doel is not None else object_in
 
             sleutel = herkomst if herkomst is not None else onderwerp
-            if sleutel in scan.ontdubbelen:
+            if sleutel in ontdubbelen:
                 merk = (sleutel, predicaat, _objectsleutel(object_))
                 if merk in gezien:
                     continue
                 gezien.add(merk)
-            yield pyoxigraph.Triple(subject, quad.predicate, object_)
+            yield triple(subject, quad.predicate, object_)
 
 
 def _objectsleutel(term: object) -> str:

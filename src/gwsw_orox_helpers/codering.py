@@ -20,10 +20,16 @@ niet voor te betalen; wie een lezing rapporteert wel.
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Final
 
 from gwsw_orox_helpers.errors import DatasetError
+
+# Elke byte die geen ASCII is; het zoeken ernaar gebeurt zo in C en niet per byte in
+# Python. Zie `_fallback_samples`.
+_NIET_ASCII: Final = re.compile(rb"[\x80-\xff]")
 
 
 @dataclass(frozen=True)
@@ -86,17 +92,27 @@ def terugvalverslag(pad: Path, rauw: bytes, encoding: str) -> DecodeFallback:
 
 
 def _fallback_samples(rauw: bytes, encoding: str, limiet: int = 5) -> list[str]:
-    """De regels waarin de niet-ASCII-bytes staan, ter controle door de gebruiker."""
+    """De regels waarin de niet-ASCII-bytes staan, ter controle door de gebruiker.
+
+    Twee dingen houden dit weg van een Python-lus over alle bytes. Het zoeken naar de
+    volgende afwijkende byte doet `_NIET_ASCII.search` in C -- een `for byte in rauw`
+    over de 112 MB van De Wolden en Hoogeveen kostte 4,8 van de 27 seconden van
+    `load_dataset`, en dat voor vijf voorbeeldregels. En na een regel springt de scan
+    over de rest van die regel heen: elke verdere afwijkende byte erin zou dezelfde
+    tekst opleveren, en die staat er dan al in.
+    """
     voorbeelden: list[str] = []
-    for index, byte in enumerate(rauw):
-        if byte <= 0x7F:
-            continue
+    einde = len(rauw)
+    positie = 0
+    while (treffer := _NIET_ASCII.search(rauw, positie)) is not None:
+        index = treffer.start()
         start = rauw.rfind(b"\n", 0, index) + 1
         eind = rauw.find(b"\n", index)
-        regel = rauw[start : eind if eind != -1 else len(rauw)]
+        regel = rauw[start : eind if eind != -1 else einde]
         tekst = regel.decode(encoding, "replace").strip()
         if tekst not in voorbeelden:
             voorbeelden.append(tekst)
         if len(voorbeelden) >= limiet:
             break
+        positie = eind + 1 if eind != -1 else einde
     return voorbeelden

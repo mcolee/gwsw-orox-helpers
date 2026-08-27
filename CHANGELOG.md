@@ -1,6 +1,27 @@
 # Changelog
 
 ## [Unreleased]
+- Performanceronde (intern; geen API-wijziging, gedrag bevroren): de vier hete paden zijn
+  op de 112 MB-export van De Wolden en Hoogeveen gemeten met `scripts/benchmark.py` en
+  daarna alleen bijgesteld waar het profiel dat aanwees. `load_dataset` gaat van 27,3 naar
+  20,7 s (-24%), `merge_orox` van 20,9 naar 18,2 s (-13%) en `clip_orox` van 42,0 naar
+  39,1 s (-7%); `schrijf_orox` blijft op 6,9 s en het geheugen blijft gelijk. Wat er
+  veranderde: het verslag van de UTF-8-terugval zoekt zijn voorbeeldregels met een
+  bytepatroon in plaats van met een Python-lus over alle 112 MB
+  (`codering._fallback_samples`, 4,8 -> 0,5 s); de cyclische GC ligt stil terwijl de
+  grafindex zich vult, waar hij anders bij elke paar duizend nieuwe dicts opnieuw door
+  miljoenen containers loopt (`inlezen._gc_uit` om `_parse` heen -- de enige productieweg
+  naar `GraafIndex.vul_uit`, zodat die publieke methode van dat procesbrede neveneffect
+  vrij blijft); `RDF.type` en `RDFS.label` worden een keer opgevraagd in plaats van bijna
+  negenhonderdduizend keer (`inlezen`, want op rdflib's `DefinedNamespace` is dat geen
+  attribuut maar een `__getattr__` van bijna een microseconde); de schrijfronde van de
+  clip slaat per quad de omweg over `_Plan.blok`,
+  de tuple van randpredicaten, de sleutelfunctie per term en de GML-vraag over
+  (`clip._deelstroom`, `clip._genummerd`); en de hereniging bouwt de term van een subject
+  niet meer uit zijn eigen tekst opnieuw op (`clip._samengevoegd`, `clip._scan_delen`).
+  Geen nieuwe afhankelijkheden, geen C-extensies. De tellingen van de `zwaar`-tests zijn
+  ongewijzigd: 1.877.729 triples, 74 klassen, 650.470 objecten, dezelfde vingerafdruk en
+  dezelfde bestandsgrootte.
 - Architectuurronde (intern; geen API-wijziging): de leeslaag is uit `dataset.py` in vier
   modules gesneden -- `domein` (de waardeobjecten), `inlezen` (alles wat de graaf aanraakt,
   inclusief het parsen), `klassen` (de subklasse-afsluiting en wat eruit volgt) en

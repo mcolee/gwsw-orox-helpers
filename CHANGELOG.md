@@ -1,6 +1,8 @@
 # Changelog
 
 ## [Unreleased]
+- Agent-regie-infrastructuur overgenomen uit nlriochecker (docs/agents,
+  CLAUDE.md-werkwijze).
 
 ## [0.1.0] - 2026-08-26
 - Leeslaag overgenomen uit nlriochecker: OroX-TTL naar domeinmodel, grafindex,

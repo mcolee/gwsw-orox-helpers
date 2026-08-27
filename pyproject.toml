@@ -48,3 +48,10 @@ ignore_missing_imports = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+# `zwaar` draait tegen exports van honderden megabytes die niet in de repo zitten; die
+# horen niet in de snelle poort. Draaien doe je ze expliciet: `pytest -m zwaar` (de
+# `-m` van de opdrachtregel overschrijft deze).
+addopts = ["-m", "not zwaar"]
+markers = [
+    "zwaar: draait tegen een niet-getrackte export van honderden MB; slaat zichzelf over als die ontbreekt",
+]

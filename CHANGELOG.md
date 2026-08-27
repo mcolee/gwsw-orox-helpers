@@ -1,6 +1,13 @@
 # Changelog
 
 ## [Unreleased]
+- Schrijflaag: `gwsw_orox_helpers.schrijven` met `schrijf_orox` (bestand naar bestand),
+  `lees_orox` (quadstroom plus bronprefixen) en `schrijf_orox_quads` (een al geparseerde
+  stroom wegschrijven, de ingang voor de clip). Regenererende serializer met een eigen
+  pad naast `load_dataset`: niet byte-gelijk aan de bron, wel graaf-gelijk. Schrijft via
+  een tmp naast het doel en hernoemt pas bij succes, zodat een fout halverwege geen
+  afgekapte export achterlaat. Additief; `tests/test_publieke_api.py` pint het oppervlak
+  dat nlriochecker importeert.
 - Agent-regie-infrastructuur overgenomen uit nlriochecker (docs/agents,
   CLAUDE.md-werkwijze).
 

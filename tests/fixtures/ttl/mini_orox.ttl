@@ -1,0 +1,72 @@
+@prefix rdf:       <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
+@prefix rdfs:      <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix owl:       <http://www.w3.org/2002/07/owl#> .
+@prefix xsd:       <http://www.w3.org/2001/XMLSchema#> .
+@prefix skos:      <http://www.w3.org/2004/02/skos/core#> .
+@prefix geo:       <http://www.opengis.net/ont/geosparql#> .
+@prefix :          <http://sparql.gwsw.nl/repositories/Mini#> .
+@prefix gwsw:      <http://data.gwsw.nl/1.6/totaal/> .
+
+# Mini-OroX voor de snelle poort: handgeschreven, niet uit scripts/maak_fixtures.py.
+# Draagt de vormen die de schrijver moet overleven -- de ontologiekop, een GML-literaal,
+# kale getallen (decimal en integer), een xsd:date, een blanke knoop en een prefix die
+# wel gedeclareerd maar niet gebruikt wordt (skos, net als in de Juinen-export).
+
+<file:///mini/GwswDataset__Mini.orox.ttl>
+	rdf:type                      owl:Ontology ;
+	owl:versionInfo               "Export for GWSW from mini fixture" ;
+.
+
+#============================================================================================
+# Een put met deksel, een leiding ertussen, en de inwinning van de leiding.
+#============================================================================================
+
+:Put_1
+	rdf:type                      gwsw:Inspectieput ;
+	rdfs:label                    "put 1" ;
+	gwsw:hasAspect                :Put_1_ori ;
+	gwsw:hasPart                  :Put_1_deksel .
+:Put_1_ori
+	rdf:type                      gwsw:Putorientatie ;
+	gwsw:hasAspect                [ rdf:type gwsw:Punt ;
+	                                gwsw:hasValue "<gml:Point xmlns:gml=\"http://www.opengis.net/gml\" srsName=\"EPSG:28992\"><gml:pos srsDimension=\"3\">233000.00 581000.00 10.12</gml:pos></gml:Point>"^^geo:gmlLiteral ] .
+
+:Put_1_deksel
+	rdf:type                      gwsw:Putdeksel ;
+	gwsw:hasAspect                :Put_1_deksel_ori .
+:Put_1_deksel_ori
+	rdf:type                      gwsw:Dekselorientatie ;
+	gwsw:hasAspect                [ rdf:type gwsw:Putdekselniveau ; gwsw:hasValue 10.12 ] .
+
+:Put_2
+	rdf:type                      gwsw:Inspectieput ;
+	rdfs:label                    "put 2" ;
+	gwsw:hasAspect                :Put_2_ori .
+:Put_2_ori
+	rdf:type                      gwsw:Putorientatie ;
+	gwsw:hasAspect                [ rdf:type gwsw:Punt ;
+	                                gwsw:hasValue "<gml:Point xmlns:gml=\"http://www.opengis.net/gml\" srsName=\"EPSG:28992\"><gml:pos srsDimension=\"3\">233040.00 581000.00 10.08</gml:pos></gml:Point>"^^geo:gmlLiteral ] .
+
+:Leiding_1
+	rdf:type                      gwsw:Gemengdriool ;
+	rdfs:label                    "put 1-put 2" ;
+	gwsw:hasAspect                :Leiding_1_ori ;
+	gwsw:hasAspect                _:Leiding_1_lengte .
+_:Leiding_1_lengte
+	rdf:type                      gwsw:Lengte ;
+	gwsw:hasValue                 40 .
+:Leiding_1_ori
+	rdf:type                      gwsw:Leidingorientatie ;
+	gwsw:hasAspect                [ rdf:type gwsw:Lijn ;
+	                                gwsw:hasValue "<gml:LineString xmlns:gml=\"http://www.opengis.net/gml\" srsName=\"EPSG:28992\"><gml:posList srsDimension=\"3\">233000.00 581000.00 8.50 233040.00 581000.00 8.40</gml:posList></gml:LineString>"^^geo:gmlLiteral ] ;
+	gwsw:hasAspect                [ rdf:type gwsw:BeginpuntLeiding ;
+	                                gwsw:hasConnection :Put_1_ori ] ;
+	gwsw:hasAspect                [ rdf:type gwsw:EindpuntLeiding ;
+	                                gwsw:hasConnection :Put_2_ori ] ;
+	gwsw:hasAspect                :Leiding_1_inwinning .
+:Leiding_1_inwinning
+	rdf:type                      gwsw:Inwinning ;
+	gwsw:hasAspect                [ rdf:type gwsw:WijzeVanInwinning ;
+	                                gwsw:hasReference gwsw:Ingemeten ] ;
+	gwsw:hasAspect                [ rdf:type gwsw:DatumInwinning ;
+	                                gwsw:hasValue "2024-03-01"^^xsd:date ] .

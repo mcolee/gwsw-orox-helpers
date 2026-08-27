@@ -1,7 +1,7 @@
 # gwsw-orox-helpers
 
 Python-bibliotheek voor GWSW-OroX-bestanden (Turtle): rioleringsdata volgens het
-[Gegevenswoordenboek Stedelijk Water](https://www.gwsw.nl/).
+[Gegevenswoordenboek Stedelijk Water](https://data.gwsw.nl/).
 
 - **Lezen** — `load_dataset` parseert een OroX-export naar een domeinmodel (putten,
   leidingen, aspecten, klassenhiërarchie) met GML-geometrie als shapely-objecten;

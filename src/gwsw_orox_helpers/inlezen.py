@@ -117,19 +117,28 @@ def _quiet_rdflib():
 
 @contextmanager
 def _gc_uit():
-    """Legt de cyclische GC stil rond het vullen van de index.
+    """Legt de cyclische GC stil rond een leesfase.
 
-    Hij zou anders bij elke paar duizend nieuwe dicts opnieuw door de al gevulde index
-    lopen, en die groeit tot miljoenen containers -- op de De Wolden en Hoogeveen-export
-    kostte dat 2,2 van de 14 seconden van de vullus. Er ontstaat daar per constructie geen
-    kringetje: de dicts, de lijsten en de rdflib-termen wijzen alleen naar beneden. Wat dit
-    *niet* uitzet is de referentietelling, dus wat vrijkomt gaat nog altijd meteen weg.
+    Hij zou anders bij elke paar duizend nieuwe dicts opnieuw door alles lopen wat er al
+    staat, en dat groeit tot miljoenen containers -- op de De Wolden en Hoogeveen-export
+    kostte dat 2,2 van de 14 seconden van de vullus alleen al. Er ontstaat per constructie
+    geen kringetje: de dicts, de lijsten, de rdflib-termen en de waardeobjecten wijzen
+    alleen naar beneden. Wat dit *niet* uitzet is de referentietelling, dus wat vrijkomt
+    gaat nog altijd meteen weg.
+
+    **Twee aanroepers, genest.** De buitenste is `dataset.load_dataset`, om het hele
+    leesblok: beide parses, de klassenafleiding en de objectopbouw van `_read_nodes` en
+    `_read_conduits`, die zelf miljoenen tuples en dataclasses maakt. De binnenste staat
+    hieronder in `_parse`, om `GraafIndex.vul_uit` heen. Nesten is neveneffectvrij: de
+    binnenste kijkt naar `gc.isenabled()`, ziet dat de buitenste de GC al uit heeft en
+    laat die stand met rust.
 
     **Waarom hier en niet in `GraafIndex.vul_uit`.** De GC uitzetten is een procesbreed
     neveneffect en dat hoort niet in een publieke, gepinde methode: wie `vul_uit` van
     buiten aanroept, hoort niet ongevraagd de GC van zijn hele proces te zien wisselen.
     `_parse` is de enige productieweg ernaartoe -- voor de dataset zowel als voor elk
-    ontologiebestand -- dus de winst is dezelfde.
+    ontologiebestand -- dus de winst is dezelfde. `load_dataset` is wél een eigen,
+    buitenste productieaanroep, en zegt het neveneffect in haar eigen docstring toe.
 
     De oude stand komt in `finally` terug, ook als de stroom halverwege afbreekt, en een
     aanroeper die de GC zelf al uit had houdt hem uit.

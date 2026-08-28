@@ -59,6 +59,53 @@ from rdflib.term import Node as RdfNode
 from gwsw_orox_helpers.namen import XSD_STRING
 
 
+def _uriref_snel(value: str) -> URIRef:
+    """Bouwt een `URIRef` zonder rdflib's eigen IRI-validatie.
+
+    `URIRef.__new__` doet in de tak zonder `base` niets anders dan `_is_valid_uri(value)`
+    aanroepen -- een reguliere expressie over de hele tekst, met een `logger.warning` als
+    hij niet aanslaat -- en daarna `str.__new__(cls, value)`. pyoxigraph heeft de IRI op
+    dat moment al tegen zijn eigen Turtle-grammatica gehouden, dus die tweede controle
+    kost alleen tijd. Deze functie neemt het `str.__new__`-pad rechtstreeks.
+
+    De uitkomst is van de trage weg niet te onderscheiden: `type()`, `==`, `hash()`,
+    `str()`, `.n3()` en `.toPython()` geven hetzelfde.
+    `tests/test_graaf.py::test_uriref_snel_is_niet_te_onderscheiden_van_de_trage_weg` is
+    de bewaker voor een rdflib-upgrade die `URIRef.__new__` meer laat doen dan valideren.
+
+    Wat wél wegvalt is de `logger.warning` die `_is_valid_uri` bij een vreemd ogende IRI
+    zou loggen. Op de leesweg was die er toch al niet -- `inlezen._parse` dempt
+    `rdflib.term` met `_quiet_rdflib` -- maar wie `GraafIndex.vul_uit` rechtstreeks
+    aanroept, ziet hem voortaan ook niet. De term zelf blijft dezelfde.
+    """
+    return str.__new__(URIRef, value)
+
+
+def _literal_string_snel(value: str) -> Literal:
+    """Bouwt een kale `Literal` (geen taal, geen datatype) zonder de constructor.
+
+    Dit is verreweg de vaakst voorkomende literaalvorm in een OroX-export, en juist voor
+    deze vorm rekent `Literal.__new__` niets uit: zonder datatype mapt het lexicale pad de
+    tekst een-op-een op zichzelf, dus de vier interne velden landen altijd op
+    `_language=None`, `_datatype=None`, `_value=<dezelfde tekst>` en `_ill_typed=None`.
+    Die vier zet deze functie rechtstreeks.
+
+    **Dit reikt naar rdflib-interne veldnamen** (rdflib 7.6.0), en dat is bewust: er is
+    geen publieke weg om een literaal te bouwen zonder de constructor. De bewaker is
+    `tests/test_graaf.py::test_literal_string_snel_is_niet_te_onderscheiden_van_de_trage_weg`,
+    dat het snelpad tegen `Literal(value)` houdt op `type()`, `==`, `hash()`, `str()`,
+    `.n3()`, `.datatype`, `.language`, `.value`, `.ill_typed` en `.toPython()`. Hernoemt
+    een rdflib-upgrade een van die velden of verandert hun betekenis, dan wordt die test
+    rood -- en dat is de enige plek waar dat opvalt.
+    """
+    literal = str.__new__(Literal, value)
+    literal._language = None
+    literal._datatype = None
+    literal._value = value
+    literal._ill_typed = None
+    return literal
+
+
 def naar_rdflib(
     term: pyoxigraph.NamedNode | pyoxigraph.BlankNode | pyoxigraph.Literal | pyoxigraph.Triple,
 ) -> RdfNode:
@@ -74,9 +121,13 @@ def naar_rdflib(
 
     Andere termsoorten (RDF-ster-triples, benoemde grafen) horen niet in een Turtle-parse en
     vallen luid om op een `TypeError` in plaats van stilzwijgend verkeerd om te zetten.
+
+    De twee vormen die het gros van een OroX-export uitmaken -- een `URIRef` en een kale
+    `xsd:string`-`Literal` -- gaan via `_uriref_snel` en `_literal_string_snel`; de
+    taal-literaal, elk ander datatype en de `BNode` blijven op de generieke weg.
     """
     if isinstance(term, pyoxigraph.NamedNode):
-        return URIRef(term.value)
+        return _uriref_snel(term.value)
     if isinstance(term, pyoxigraph.BlankNode):
         return BNode(term.value)
     if not isinstance(term, pyoxigraph.Literal):
@@ -85,7 +136,7 @@ def naar_rdflib(
         return Literal(term.value, lang=term.language)
     datatype = term.datatype.value
     if datatype == XSD_STRING:
-        return Literal(term.value)
+        return _literal_string_snel(term.value)
     return Literal(term.value, datatype=URIRef(datatype))
 
 

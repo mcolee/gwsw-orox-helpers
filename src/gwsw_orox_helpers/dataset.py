@@ -70,6 +70,7 @@ from gwsw_orox_helpers.inlezen import (
     KLASSE_WIJZE_VAN_INWINNING,
     KLASSEN_BEGINPUNT,
     KLASSEN_EINDPUNT,
+    _gc_uit,
     _parse,
     _read_aspects,
     _read_conduits,
@@ -600,37 +601,48 @@ def load_dataset(
     Sommige exports (BrutIS) schrijven een handvol bytes in een MS-DOS-codering; de
     afnemer die dat weet, geeft de codering op (`"cp850"` is de gangbare Nederlandse
     variant). Welke dat is, is een keuze van de afnemer en niet van deze package.
+
+    Eén neveneffect om te weten: tijdens de lezing ligt de cyclische garbage collector van
+    het hele proces stil en komt hij daarna terug, ook na een fout -- de referentietelling
+    blijft aan, dus wat vrijkomt gaat nog altijd meteen weg (zie `inlezen._gc_uit`).
     """
     dataset_path = Path(dataset_path)
     ontologie_paden = ontologiepaden(ontology_paths)
     voortgang.start_fase("TTL laden", 1 + len(ontologie_paden))
-    try:
-        graph, fallback = _parse(dataset_path, fallback_encoding)
-        voortgang.stap(label=dataset_path.name)
+    # Om het hele leesblok en niet alleen om het vullen van de index (`_parse`): ook de
+    # objectopbouw hieronder maakt miljoenen dicts, tuples en dataclasses aan, en bij elke
+    # paar duizend daarvan zou de GC opnieuw door de al gevulde index lopen. Er ontstaat
+    # per constructie geen kringetje -- de index, de termen en de waardeobjecten wijzen
+    # alleen naar beneden. De binnenste `_gc_uit` in `_parse` blijft staan en is
+    # neveneffectvrij: die kijkt naar `gc.isenabled()` en laat deze stand met rust.
+    with _gc_uit():
+        try:
+            graph, fallback = _parse(dataset_path, fallback_encoding)
+            voortgang.stap(label=dataset_path.name)
 
-        ontology = GraafIndex()
-        for pad in ontologie_paden:
-            _parse(pad, fallback_encoding, index=ontology)
-            voortgang.stap(label=pad.name)
-    finally:
-        voortgang.einde_fase()
+            ontology = GraafIndex()
+            for pad in ontologie_paden:
+                _parse(pad, fallback_encoding, index=ontology)
+                voortgang.stap(label=pad.name)
+        finally:
+            voortgang.einde_fase()
 
-    restrictiebron = ontology if len(ontology) else graph
-    subclasses = _subclass_closure(restrictiebron)
-    kenmerk_property = _kenmerk_properties(restrictiebron, subclasses)
-    functie_per_klasse = _klassefuncties(restrictiebron, subclasses)
-    geometry_errors: dict[str, str] = {}
-    # Dezelfde twee vragen die `GwswDataset.klassenhierarchie_bekend` stelt, met
-    # dezelfde functie: `None` hier betekent terugval op geometrie, en dat is precies
-    # wat het voorbehoud in de uitvoer zegt.
-    knooppunt = _bruikbare_afsluiting(subclasses, WORTEL_KNOOPPUNT)
-    verbinding = _bruikbare_afsluiting(subclasses, WORTEL_VERBINDING)
-    # De afsluiting, niet de kale klasse: zie `inlezen._deksel_kenmerk`. Zonder
-    # klassenkennis blijft het bij Putdeksel zelf, net als bij elke andere `closure()`.
-    deksel = _afsluiting(subclasses, "Putdeksel")
-    hulpstuk = _afsluiting(subclasses, WORTEL_HULPSTUKORIENTATIE)
-    nodes = _read_nodes(graph, geometry_errors, knooppunt, deksel)
-    conduits, herstel = _read_conduits(graph, nodes, geometry_errors, verbinding, hulpstuk)
+        restrictiebron = ontology if len(ontology) else graph
+        subclasses = _subclass_closure(restrictiebron)
+        kenmerk_property = _kenmerk_properties(restrictiebron, subclasses)
+        functie_per_klasse = _klassefuncties(restrictiebron, subclasses)
+        geometry_errors: dict[str, str] = {}
+        # Dezelfde twee vragen die `GwswDataset.klassenhierarchie_bekend` stelt, met
+        # dezelfde functie: `None` hier betekent terugval op geometrie, en dat is precies
+        # wat het voorbehoud in de uitvoer zegt.
+        knooppunt = _bruikbare_afsluiting(subclasses, WORTEL_KNOOPPUNT)
+        verbinding = _bruikbare_afsluiting(subclasses, WORTEL_VERBINDING)
+        # De afsluiting, niet de kale klasse: zie `inlezen._deksel_kenmerk`. Zonder
+        # klassenkennis blijft het bij Putdeksel zelf, net als bij elke andere `closure()`.
+        deksel = _afsluiting(subclasses, "Putdeksel")
+        hulpstuk = _afsluiting(subclasses, WORTEL_HULPSTUKORIENTATIE)
+        nodes = _read_nodes(graph, geometry_errors, knooppunt, deksel)
+        conduits, herstel = _read_conduits(graph, nodes, geometry_errors, verbinding, hulpstuk)
 
     if not nodes and not conduits:
         raise DatasetError(

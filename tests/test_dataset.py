@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import gc
 from pathlib import Path
 
 import pytest
 from rdflib import URIRef
 
+from gwsw_orox_helpers import dataset as dataset_module
 from gwsw_orox_helpers.dataset import GWSW, GwswDataset, aspects_of, load_dataset, parts_of
 from gwsw_orox_helpers.errors import DatasetError
 
@@ -553,6 +555,100 @@ def test_functie_per_klasse_komt_uit_de_restricties() -> None:
     # ... maar een eigen restrictie wint van wat de bovenklasse zou geven.
     assert dataset.functie_per_klasse[f"{GWSW}T_stuk"] == "VerbindenVanDrieLeidingen"
     assert dataset.functie_per_klasse[f"{GWSW}Verbindingsstuk"] == "VerbindenVanLeidingen"
+
+
+class _GcWaarnemer:
+    """Een `Voortgang` die bij elke melding noteert of de cyclische GC aanstond.
+
+    De voortgang is de enige terugkoppeling die `load_dataset` tijdens het lezen geeft en
+    dus de enige manier om van buitenaf te zien wat de GC daar doet. Voortgang is
+    weergave en geen logica -- deze waarnemer leest alleen en beinvloedt niets.
+    """
+
+    def __init__(self) -> None:
+        self.bij_stap: list[bool] = []
+
+    def start_fase(self, naam: str, totaal: int | None) -> None:
+        """Doet niets; de fase begint voor het leesblok en zegt hier dus niets."""
+
+    def stap(self, n: int = 1, label: str | None = None) -> None:
+        self.bij_stap.append(gc.isenabled())
+
+    def einde_fase(self) -> None:
+        """Doet niets; waar de fase afsluit is geen belofte aan de afnemer."""
+
+
+def test_cyclische_gc_ligt_stil_tijdens_het_lezen_en_komt_daarna_terug() -> None:
+    """Het gedocumenteerde neveneffect van `load_dataset`, aan beide kanten vastgelegd.
+
+    Tijdens de lezing ligt de cyclische GC van het hele proces stil -- niet alleen om het
+    vullen van de grafindex heen, maar om het hele leesblok. Daarna staat hij weer aan. De
+    afnemer moet op allebei kunnen rekenen; de docstring van `load_dataset` belooft het.
+
+    De voortgangsmelding is het enige moment binnen dat blok waarop de lader zich van
+    buitenaf laat zien, en dus de enige manier om de eerste helft van die belofte te
+    toetsen. Waar de fase *afsluit* wordt bewust niet vastgelegd -- dat is een keuze in de
+    aanroepvolgorde en geen toezegging.
+    """
+    assert gc.isenabled(), "voorwaarde: de testrun begint met een ingeschakelde GC"
+    waarnemer = _GcWaarnemer()
+
+    dataset = load_dataset(
+        TTL_DIR / "dataset_voorbeeld.ttl", ontology_paths=[], voortgang=waarnemer
+    )
+
+    assert dataset.nodes, "de fixture hoort knopen op te leveren"
+    # Een bestand, geen ontologie: precies een `stap`, en die valt tussen de twee parses
+    # in -- dus binnen het blok waar de GC stilligt en niet meer alleen om `_parse` heen.
+    assert waarnemer.bij_stap == [False]
+    assert gc.isenabled()
+
+
+def test_cyclische_gc_ligt_ook_stil_tijdens_de_objectopbouw(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """De verbreding zelf: de GC ligt ook stil ná de parses, bij `_read_nodes`.
+
+    De voortgangstest hierboven kijkt tussen de twee parses; die blijft groen als het
+    blok weer tot alleen het parseblok versmalt. Deze test kijkt op het moment dat de
+    waardeobjecten worden opgebouwd -- het deel dat issue #7 aan het venster toevoegde.
+    """
+    assert gc.isenabled(), "voorwaarde: de testrun begint met een ingeschakelde GC"
+    gezien: list[bool] = []
+    echte_read_nodes = dataset_module._read_nodes
+
+    def bespied(*args: object, **kwargs: object) -> object:
+        gezien.append(gc.isenabled())
+        return echte_read_nodes(*args, **kwargs)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(dataset_module, "_read_nodes", bespied)
+
+    dataset = load_dataset(TTL_DIR / "dataset_voorbeeld.ttl", ontology_paths=[])
+
+    assert dataset.nodes, "de fixture hoort knopen op te leveren"
+    assert gezien == [False]
+    assert gc.isenabled()
+
+
+@pytest.mark.parametrize("soort", ["ontbrekend", "onleesbaar"])
+def test_cyclische_gc_komt_ook_na_een_dataseterror_terug(tmp_path: Path, soort: str) -> None:
+    """Het herstel hangt aan een `finally`, dus een fout halverwege laat hem niet uit.
+
+    Zonder dit zou een enkele mislukte lezing de GC van het hele proces van de afnemer
+    uitgeschakeld achterlaten -- stil, en pas merkbaar aan het geheugen van alles wat
+    erna komt.
+    """
+    assert gc.isenabled(), "voorwaarde: de testrun begint met een ingeschakelde GC"
+    if soort == "ontbrekend":
+        pad = tmp_path / "bestaat_niet.ttl"
+    else:
+        pad = tmp_path / "stuk.ttl"
+        pad.write_text("dit is <geen geldige turtle", encoding="utf-8")
+
+    with pytest.raises(DatasetError):
+        load_dataset(pad, ontology_paths=[])
+
+    assert gc.isenabled()
 
 
 def test_stelsel_leden_scheidt_lokale_stelsels_van_buckets() -> None:

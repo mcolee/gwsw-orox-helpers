@@ -1,5 +1,8 @@
 # Project: gwsw-orox-helpers
 
+Lees vóór je code aanraakt `manifesto.md` in de repo-root (lokaal, git-ignored): het
+draagt de missie, de prioriteiten bij botsende doelen en wat we nadrukkelijk niet doen.
+
 Leeslaag voor GWSW-OroX (TTL): grafmodel, geometrie, klassenhierarchie, cache.
 Eerste afnemer: nlriochecker. Nederlandse identifiers, GWSW-conform.
 

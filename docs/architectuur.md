@@ -34,11 +34,15 @@ __init__   -> clip, schrijven
 ```
 
 `clip` is sinds de hersnit geen bestand maar een package met zeven fasen, en dezelfde
-regel geldt daarbinnen nog een keer: elke pijl wijst naar een regel boven zich.
+regel geldt daarbinnen nog een keer: elke pijl wijst naar een regel boven zich. Dezelfde
+tekening staat in de docstring van `gwsw_orox_helpers.clip`, voor wie het package opent
+in plaats van dit document; `test_de_clipsubmodules_houden_de_importrichting` toetst
+allebei tegen de echte imports, dus stille drift blijft niet stil.
 
 ```
-clip.termen     <- blad: de knip-naamruimte, de vaste pyoxigraph-termen, de stuknamen
-clip.grenzen    <- blad: de GeoJSON-vlakken en hun bestandsnaam
+clip.termen     <- blad binnen clip/: de knip-naamruimte, de vaste termen, de stuknamen
+                   (alleen `namen` van buiten het package)
+clip.grenzen    <- blad binnen clip/: de GeoJSON-vlakken en hun bestandsnaam
 
 clip.knip       -> clip.grenzen                          (+ errors, geometry)
 clip.plan       -> clip.grenzen, clip.knip, clip.termen  (+ errors, geometry, namen,
@@ -129,7 +133,10 @@ loopt over elke submodule, `test_de_clipsnit_ligt_vast` legt vast welke fasen er
 het `__init__.py` dun blijft, en `test_de_clipsubmodules_houden_de_importrichting` toetst
 allebei de randen -- alleen `errors`/`geometry`/`namen`/`schrijven` uit de package, en een
 zuster alleen als die *boven* de fase ligt. Zonder dat laatste kan een enkele import stil
-een lus sluiten en is de hersnit weer een bak. Ze delen wel de
+een lus sluiten en is de hersnit weer een bak. Die laatste test leest de **import-AST** en
+niet de regels van het bestand: een ingesprongen import in een functie,
+`from gwsw_orox_helpers import dataset` en `import gwsw_orox_helpers.graaf` glippen alle
+drie langs een `^from ...`-patroon. Ze delen wel de
 bladeren onder de leeslaag: `namen` en `errors` allebei, `codering` alleen `schrijven` (de
 UTF-8-terugval; `clip` ziet die enkel via `lees_orox`) en `geometry` alleen `clip` (de
 GML-lezers, die de knip nodig heeft en de serializer niet). Modules die onder allebei

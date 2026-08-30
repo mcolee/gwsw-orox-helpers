@@ -15,8 +15,11 @@
   herschreven. Bewaakt door drie tests in `tests/test_publieke_api.py` --
   `test_cliplaag_is_additief` (nu per submodule in plaats van alleen aan het oppervlak),
   `test_de_clipsnit_ligt_vast` en `test_de_clipsubmodules_houden_de_importrichting`, die
-  aan de brontekst toetst dat een fase alleen `errors`/`geometry`/`namen`/`schrijven` en
-  zusters *boven* zich importeert. Gedragsbehoud gemeten met de Juinen-round-trip (in CI)
+  aan de import-AST toetst dat een fase alleen `errors`/`geometry`/`namen`/`schrijven` en
+  zusters *boven* zich importeert -- aan de boom en niet aan een regex op regelbegin, want
+  een ingesprongen import in een functie, `from gwsw_orox_helpers import dataset` en
+  `import gwsw_orox_helpers.graaf` zijn alle drie manieren om de leeslaag alsnog binnen te
+  halen. Gedragsbehoud gemeten met de Juinen-round-trip (in CI)
   en eenmalig met de zware De Wolden/Hoogeveen-round-trip (112 MB): 1.877.729 triples in
   en uit, vingerafdruk gelijk, 650.470 objecten en 74 GWSW-klassen aan beide kanten, 13
   grenskruisende leidingen, 102.704.657 bytes tegen 102.704.657 (1,000x). Sterker nog:

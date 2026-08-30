@@ -19,11 +19,13 @@ klagen.
 Dit bestand draagt het verhaal en de her-export; het werk staat per fase apart. `A -> B`
 betekent weer "A importeert B", en elke pijl wijst naar een regel *boven* zich --
 `tests/test_publieke_api.py` (`test_de_clipsubmodules_houden_de_importrichting`) houdt die
-richting aan de brontekst bij, samen met de regel dat geen enkele fase de leeslaag ziet.
+richting aan de broncode bij, samen met de regel dat geen enkele fase de leeslaag ziet.
+Dezelfde tekening staat in `docs/architectuur.md`, waar ze naast die van de leeslaag hoort;
+loopt er ooit een uit elkaar, dan is de test de scheidsrechter.
 
 ```
-termen    <- blad: de knip-naamruimte, de vaste pyoxigraph-termen, de stuknamen
-grenzen   <- blad: de GeoJSON-vlakken en hun bestandsnaam
+termen    <- blad binnen clip/: de knip-naamruimte, de vaste termen, de stuknamen
+grenzen   <- blad binnen clip/: de GeoJSON-vlakken en hun bestandsnaam
 knip      -> grenzen                          (geometrie plaatsen en doorknippen; `_Stuk`)
 plan      -> grenzen, knip, termen            (de analyseronde; `_Plan`, `_maak_plan`)
 stroom    -> knip, plan, termen               (de gefilterde quadstroom per deel)

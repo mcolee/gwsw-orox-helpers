@@ -34,6 +34,7 @@ de foto.
 
 from __future__ import annotations
 
+import ast
 import dataclasses
 import importlib
 import inspect
@@ -69,9 +70,6 @@ CLIPLAGEN = ("termen", "grenzen", "knip", "plan", "stroom", "merge", "orkest")
 # een eigen pad naast de leeslaag en bouwt geen domeinmodel.
 CLIP_MAG_IMPORTEREN = frozenset({"clip", "errors", "geometry", "namen", "schrijven"})
 
-# Een `from gwsw_orox_helpers.<module> import ...`-regel, ook met haakjes op vervolgregels.
-IMPORTREGEL = re.compile(r"^from gwsw_orox_helpers\.([A-Za-z_.]+) import", re.MULTILINE)
-
 
 def _clipbronnen() -> dict[str, str]:
     """De broncode van het clip-package en van elke submodule, per naam."""
@@ -82,6 +80,35 @@ def _clipbronnen() -> dict[str, str]:
         module = importlib.import_module(f"gwsw_orox_helpers.clip.{naam}")
         bronnen_[f"clip.{naam}"] = inspect.getsource(module)
     return bronnen_
+
+
+def _pakketimporten(bron: str) -> set[str]:
+    """De modules van de package die deze bron importeert, hoe hij ze ook schrijft.
+
+    Aan de boom en niet aan een regex op regelbegin: een ingesprongen import in een functie,
+    `from gwsw_orox_helpers import dataset` en `import gwsw_orox_helpers.graaf` zijn alle
+    drie manieren om de leeslaag binnen te halen die een `^from ...`-patroon niet ziet.
+    Wat eruit komt is de naam onder de package (`dataset`, `clip.knip`).
+    """
+    gevonden: set[str] = set()
+    for knoop in ast.walk(ast.parse(bron)):
+        if isinstance(knoop, ast.ImportFrom):
+            if knoop.level:  # `from . import x` / `from .knip import y`, binnen clip/
+                gevonden.update(
+                    f"clip.{knoop.module}" if knoop.module else f"clip.{alias.name}"
+                    for alias in knoop.names
+                )
+            elif knoop.module == "gwsw_orox_helpers":
+                gevonden.update(alias.name for alias in knoop.names)
+            elif knoop.module and knoop.module.startswith("gwsw_orox_helpers."):
+                gevonden.add(knoop.module.removeprefix("gwsw_orox_helpers."))
+        elif isinstance(knoop, ast.Import):
+            gevonden.update(
+                alias.name.removeprefix("gwsw_orox_helpers.")
+                for alias in knoop.names
+                if alias.name.startswith("gwsw_orox_helpers.")
+            )
+    return gevonden
 
 
 def _op(naam: str) -> Any:
@@ -359,6 +386,7 @@ def test_cliplaag_is_additief() -> None:
     # leeslaag laten hangen zonder dat het her-exporterende `__init__.py` er iets van laat zien.
     for naam, bron in _clipbronnen().items():
         assert "from gwsw_orox_helpers.dataset import" not in bron, naam
+        assert "from gwsw_orox_helpers.graaf import" not in bron, naam
 
 
 def test_de_clipsnit_ligt_vast() -> None:
@@ -369,18 +397,25 @@ def test_de_clipsnit_ligt_vast() -> None:
     aanwezig = {pad.stem for pad in pakket.glob("*.py")} - {"__init__"}
 
     assert aanwezig == set(CLIPLAGEN)
-    # Het `__init__.py` is dun: het draagt het verhaal en de her-export, geen fase.
-    kop = inspect.getsource(clip)
     assert clip.__doc__ is not None and len(clip.__doc__.splitlines()) > 50, (
         "het verhaal van de clip hoort in de package-docstring te blijven staan"
     )
-    assert "def " not in kop, "een functiedefinitie in __init__.py hoort in een fase te staan"
+    # Het `__init__.py` is dun: het draagt het verhaal en de her-export, geen fase. Aan de
+    # boom en niet aan de tekst -- het verhaal noemt zelf functienamen, dus een kale
+    # `"def " not in bron` zou omvallen zodra iemand er `_maak_plan` in uitschrijft.
+    boom = ast.parse(inspect.getsource(clip))
+    definities = [
+        knoop.name
+        for knoop in boom.body
+        if isinstance(knoop, ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef)
+    ]
+    assert definities == [], f"{definities} horen in een fase te staan, niet in __init__.py"
 
 
 def test_de_clipsubmodules_houden_de_importrichting() -> None:
     """Elke fase importeert alleen de bladeren onder de cliplaag en zusters boven zich.
 
-    Twee dingen tegelijk, en allebei aan de brontekst: welke modules van de package een fase
+    Twee dingen tegelijk, en allebei aan de broncode: welke modules van de package een fase
     mag zien (`CLIP_MAG_IMPORTEREN` -- geen `dataset`/`graaf`/`inlezen`/`cache`), en dat de
     zusterranden binnen het package een richting houden. Die richting is de volgorde van
     `CLIPLAGEN`: `termen` weet van niemand, `orkest` weet van iedereen. Zonder deze test kan
@@ -388,7 +423,7 @@ def test_de_clipsubmodules_houden_de_importrichting() -> None:
     """
     for naam, bron in _clipbronnen().items():
         eigen = naam.removeprefix("clip.") if naam != "clip" else None
-        for pad in IMPORTREGEL.findall(bron):
+        for pad in sorted(_pakketimporten(bron)):
             kop, *rest = pad.split(".")
             assert kop in CLIP_MAG_IMPORTEREN, f"{naam} importeert {pad}"
             if kop != "clip" or not rest:
@@ -400,4 +435,3 @@ def test_de_clipsubmodules_houden_de_importrichting() -> None:
             assert CLIPLAGEN.index(zuster) < CLIPLAGEN.index(eigen), (
                 f"{naam} importeert {zuster}, dat onder hem ligt; de importrichting draait om"
             )
-    assert "from gwsw_orox_helpers.graaf import" not in bron

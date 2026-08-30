@@ -1,6 +1,8 @@
 # Changelog
 
 ## [Unreleased]
+
+## [0.2.0] - 2026-08-30
 - README herschreven als landingspagina met vaste opbouw (badges, Stand van zaken, Wat je
   krijgt, Snel proberen, Verder lezen, Ontwikkelen, Bijdragen, Licentie), naar het model
   van nlriochecker. Zelfde inhoud, geen apparatuur eromheen (geen getrackt voorbeeld,

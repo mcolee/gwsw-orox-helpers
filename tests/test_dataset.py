@@ -668,9 +668,10 @@ def test_functie_per_klasse_komt_uit_de_restricties() -> None:
 class _GcWaarnemer:
     """Een `Voortgang` die bij elke melding noteert of de cyclische GC aanstond.
 
-    De voortgang is de enige terugkoppeling die `load_dataset` tijdens het lezen geeft en
-    dus de enige manier om van buitenaf te zien wat de GC daar doet. Voortgang is
-    weergave en geen logica -- deze waarnemer leest alleen en beinvloedt niets.
+    De voortgang is de enige terugkoppeling die `load_dataset` -- en sinds issue #33 ook
+    `lees_ontologie` -- tijdens het lezen geeft, en dus de enige manier om van buitenaf
+    te zien wat de GC daar doet. Voortgang is weergave en geen logica: deze waarnemer
+    leest alleen en beinvloedt niets.
     """
 
     def __init__(self) -> None:
@@ -765,6 +766,13 @@ def test_cyclische_gc_komt_ook_na_een_dataseterror_terug(tmp_path: Path, soort: 
 # zie de Harde regels in `CLAUDE.md`). Het getal komt uit issue #19 en staat hier als
 # onafhankelijke ijkwaarde: het bewijst dat `lees_ontologie()` zonder argumenten de
 # gebundelde ontologie leest en niet per ongeluk een lege of halve index oplevert.
+#
+# **Bij een ontologie-upgrade schuift dit getal mee** en hoort het hier bijgewerkt te
+# worden -- naast `uv run python scripts/maak_gwsw_index.py` en de versieregel in
+# `CLAUDE.md`, de twee stappen die die Harde regel wél opsomt. Het is de derde plek, en
+# hij meldt zich vanzelf: deze test wordt rood. Dezelfde afhankelijkheid dragen
+# `AANTAL_DATATYPES` en `AANTAL_KENMERKKLASSEN` in `tests/test_ontologie.py` al sinds
+# issue #19.
 AANTAL_TRIPELS_GWSW16 = 63_614
 
 
@@ -784,9 +792,37 @@ def _tripels(index: GraafIndex) -> set[tuple[RdfNode, RdfNode, RdfNode]]:
     }
 
 
+class _Verslag:
+    """Een `Voortgang` die opschrijft wat er gemeld werd; leest alleen, stuurt niets."""
+
+    def __init__(self) -> None:
+        self.fasen: list[tuple[str, int | None]] = []
+        self.stappen: list[str | None] = []
+        self.eindes = 0
+
+    def start_fase(self, naam: str, totaal: int | None) -> None:
+        self.fasen.append((naam, totaal))
+
+    def stap(self, n: int = 1, label: str | None = None) -> None:
+        self.stappen.append(label)
+
+    def einde_fase(self) -> None:
+        self.eindes += 1
+
+
 def test_lees_ontologie_met_een_lege_lijst_geeft_een_lege_index() -> None:
-    """Een lege lijst is de expliciete keuze om zonder ontologie te lezen (`ontologiepaden`)."""
-    assert len(lees_ontologie([])) == 0
+    """Een lege lijst is de expliciete keuze om zonder ontologie te lezen (`ontologiepaden`).
+
+    De fase komt er ook dan, met totaal nul: wie fasen meetelt hoort de fase-indeling
+    niet van de inhoud van zijn argument te zien afhangen. Zie de docstring van
+    `lees_ontologie`; dit is de bewaker van die keuze (bevinding uit de review van #33).
+    """
+    verslag = _Verslag()
+
+    assert len(lees_ontologie([], voortgang=verslag)) == 0
+    assert verslag.fasen == [("Ontologie laden", 0)]
+    assert verslag.stappen == []
+    assert verslag.eindes == 1
 
 
 def test_lees_ontologie_levert_de_restrictiebron_van_load_dataset(
@@ -819,24 +855,6 @@ def test_lees_ontologie_levert_de_restrictiebron_van_load_dataset(
 
     assert len(los) == len(restrictiebron) == AANTAL_TRIPELS_GWSW16
     assert _tripels(los) == _tripels(restrictiebron)
-
-
-class _Verslag:
-    """Een `Voortgang` die opschrijft wat er gemeld werd; leest alleen, stuurt niets."""
-
-    def __init__(self) -> None:
-        self.fasen: list[tuple[str, int | None]] = []
-        self.stappen: list[str | None] = []
-        self.eindes = 0
-
-    def start_fase(self, naam: str, totaal: int | None) -> None:
-        self.fasen.append((naam, totaal))
-
-    def stap(self, n: int = 1, label: str | None = None) -> None:
-        self.stappen.append(label)
-
-    def einde_fase(self) -> None:
-        self.eindes += 1
 
 
 def test_lees_ontologie_meldt_een_eigen_fase_met_een_stap_per_bestand(tmp_path: Path) -> None:

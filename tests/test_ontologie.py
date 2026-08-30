@@ -19,7 +19,7 @@ from rdflib.collection import Collection
 
 from gwsw_orox_helpers import ontologie
 from gwsw_orox_helpers.bronnen import gebundelde_ontologie
-from gwsw_orox_helpers.dataset import GWSW
+from gwsw_orox_helpers.dataset import GWSW, lees_ontologie
 from gwsw_orox_helpers.graaf import GraafIndex, GraafLezer
 from gwsw_orox_helpers.inlezen import _parse
 from gwsw_orox_helpers.klassen import _afsluiting, _subclass_closure
@@ -481,6 +481,39 @@ def test_allebei_de_graafvormen_dragen_de_leden_van_het_protocol(vorm: str) -> N
     bron = _in_vorm(FIXTURE, vorm)
     for naam in PROTOCOLLEDEN:
         assert callable(getattr(bron, naam)), naam
+
+
+def test_de_publieke_leesweg_geeft_dezelfde_facet_en_kenmerklezing(
+    echte_index: GraafIndex,
+) -> None:
+    """`dataset.lees_ontologie()` is dezelfde bron als de `_parse`-weg van issue #19 (#33).
+
+    De twee tests hierboven draaien op `echte_index`, die met `inlezen._parse` gebouwd
+    wordt -- de privé-functie die de lader per ontologiebestand aanroept. Sinds issue #33
+    is er een publieke weg naar diezelfde index, en de belofte van dat issue is dat de
+    lezers erop *dezelfde* uitkomsten geven: 39 datatypes en 709 kenmerkklassen. Zonder
+    deze test geldt die gelijkheid alleen transitief ("allebei komen ze uiteindelijk uit
+    `_parse`") en zou een latere wijziging aan `lees_ontologie` -- een andere padkeuze,
+    een tweede bestand, een gefilterde index -- hier niets rood maken.
+
+    De vergelijking gaat over de hele lezing en niet over de twee aantallen alleen: een
+    index met evenveel datatypes maar andere bereiken zou anders langs de teller glippen.
+    """
+    los = lees_ontologie()
+
+    datatypes = sorted(
+        term for term in los.subjects(RDF.type, RDFS.Datatype) if isinstance(term, URIRef)
+    )
+    assert len(datatypes) == AANTAL_DATATYPES
+    assert {datatype: facetbereik(los, datatype) for datatype in datatypes} == {
+        datatype: facetbereik(echte_index, datatype) for datatype in datatypes
+    }
+
+    kenmerken = sorted(URIRef(uri) for uri in _afsluiting(_subclass_closure(los), "Kenmerk"))
+    assert len(kenmerken) == AANTAL_KENMERKKLASSEN
+    assert {kenmerk: kenmerkbereik(los, kenmerk) for kenmerk in kenmerken} == {
+        kenmerk: kenmerkbereik(echte_index, kenmerk) for kenmerk in kenmerken
+    }
 
 
 def test_de_ijkwaarden_uit_issue_35_komen_ook_uit_de_graafindex(echte_index: GraafIndex) -> None:

@@ -25,7 +25,15 @@
   `test_de_voortgang_van_load_dataset_blijft_een_enkele_ttl_fase` (fase, stappen en
   volgorde van de lader) en `test_lees_ontologie_levert_de_restrictiebron_van_load_dataset`
   (onderschept `_subclass_closure` en houdt de twee wegen op tripelaantal én tripelinhoud
-  gelijk). **Cachesleutel**: `dataset` staat in `cache.LADERMODULES`, dus deze wijziging
+  gelijk). `test_de_publieke_leesweg_geeft_dezelfde_facet_en_kenmerklezing` in
+  `tests/test_ontologie.py` houdt de facet- en kenmerklezing op `lees_ontologie()` gelijk
+  aan die op de `_parse`-weg van #19 (39 datatypes, 709 kenmerkklassen), zodat die
+  gelijkheid niet alleen transitief geldt. **Twee kleinere keuzes uit de review**: ook een
+  lege lijst levert één fase op (totaal nul, geen stappen) — de fase-indeling hoort niet
+  van de inhoud van het argument af te hangen; en het tripelaantal is een derde plek die
+  bij een ontologie-upgrade meeschuift, naast `scripts/maak_gwsw_index.py` en de
+  versieregel in `CLAUDE.md` (hij meldt zich vanzelf: de test wordt rood).
+  **Cachesleutel**: `dataset` staat in `cache.LADERMODULES`, dus deze wijziging
   verschuift de sleutel en bestaande caches worden één keer opnieuw opgebouwd — bedoelde
   werking, geen gedragswijziging. **Bewust níét meegenomen**: een ontologieveld op
   `GwswDataset`. Die dataclass staat gepind in `tests/test_publieke_api.py` en blijft

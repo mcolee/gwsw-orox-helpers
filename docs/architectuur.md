@@ -338,7 +338,23 @@ parseerpad" geen belofte in een docstring blijft.
 
 De GC ligt in allebei de gevallen stil (`inlezen._gc_uit`, hersteld in een `finally`), en
 de fout bij een onleesbaar of ongeldig bestand is dezelfde `DatasetError` als bij de
-lader. Wat er níét bij hoort: een veld op `GwswDataset` — zie de vorige sectie.
+lader. Twee kleinere keuzes eromheen, allebei uit de review van #33 en allebei tegen de
+intuïtie in:
+
+- **Ook een lege lijst levert een fase op**, met totaal nul en zonder stappen. Een
+  aanroeper die fasen meetelt — een balk per fase, een teller in een log — hoort de
+  fase-indeling niet van de *inhoud* van zijn argument te zien afhangen; "soms een fase,
+  soms geen" is het lastigere contract om tegenaan te programmeren dan een fase die
+  eerlijk nul zegt.
+- **Het tripelaantal staat gepind** (`AANTAL_TRIPELS_GWSW16` in `tests/test_dataset.py`).
+  Dat is een derde plek die bij een ontologie-upgrade meeschuift, naast
+  `scripts/maak_gwsw_index.py` en de versieregel in `CLAUDE.md` — hij meldt zich vanzelf,
+  want de test wordt rood. `tests/test_ontologie.py` draagt sinds #19 al twee zulke
+  getallen (39 datatypes, 709 kenmerkklassen), en
+  `test_de_publieke_leesweg_geeft_dezelfde_facet_en_kenmerklezing` houdt die lezing op
+  `lees_ontologie()` gelijk aan die op de `_parse`-weg.
+
+Wat er níét bij hoort: een veld op `GwswDataset` — zie de vorige sectie.
 
 ## De cache leest mee met de lader
 

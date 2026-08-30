@@ -660,6 +660,13 @@ def lees_ontologie(
     bestand. Dat is een andere fase dan de "TTL laden" van `load_dataset` -- die telt de
     ontologie bij de dataset in één fase, en dat blijft zo.
 
+    **Ook met een lege lijst is er precies één fase**, dan met totaal nul en zonder
+    stappen. Dat is een keuze en geen restje: een aanroeper die de fasen meetelt (een
+    balk per fase, een teller in een log) hoort de fase-indeling niet van de *inhoud* van
+    zijn argument te zien afhangen -- "soms een fase, soms geen" is het lastigere
+    contract om tegenaan te programmeren. `Voortgang.start_fase` neemt `totaal` als
+    `int | None` en nul is daar een geldige waarde.
+
     Hetzelfde neveneffect als bij `load_dataset`, en om dezelfde reden: tijdens het lezen
     ligt de cyclische garbage collector van het hele proces stil en komt hij daarna terug,
     ook na een fout (zie `inlezen._gc_uit`).

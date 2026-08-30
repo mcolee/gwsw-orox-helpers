@@ -10,8 +10,9 @@ zijn, wie wat importeert, en waar de kennis woont die meer dan één laag nodig 
 
 Wie wat importeert, binnen de package. `A -> B` betekent "A importeert B"; elke pijl
 wijst naar een regel *boven* zich en nooit andersom. Na te lopen met
-`grep -n "^from gwsw_orox_helpers" src/gwsw_orox_helpers/*.py` -- dit zijn alle randen
-die er zijn.
+`grep -rn "^from gwsw_orox_helpers" src/gwsw_orox_helpers/` -- `-r` en geen `*.py`-glob,
+want `clip` is een submap en die mist een glob op de wortel. Dit zijn alle randen die er
+zijn.
 
 ```
 errors   voortgang   bronnen   namen   geometry   domein    <- bladeren: geen import
@@ -28,9 +29,32 @@ cache      -> codering, dataset, domein, geometry, graaf, inlezen, klassen, name
               ontologie, voortgang
 
 schrijven  -> codering, errors, namen
-clip       -> errors, geometry, namen, schrijven
+clip/      -> errors, geometry, namen, schrijven   (een package; zie hieronder)
 __init__   -> clip, schrijven
 ```
+
+`clip` is sinds de hersnit geen bestand maar een package met zeven fasen, en dezelfde
+regel geldt daarbinnen nog een keer: elke pijl wijst naar een regel boven zich.
+
+```
+clip.termen     <- blad: de knip-naamruimte, de vaste pyoxigraph-termen, de stuknamen
+clip.grenzen    <- blad: de GeoJSON-vlakken en hun bestandsnaam
+
+clip.knip       -> clip.grenzen                          (+ errors, geometry)
+clip.plan       -> clip.grenzen, clip.knip, clip.termen  (+ errors, geometry, namen,
+                                                            schrijven)
+clip.stroom     -> clip.knip, clip.plan, clip.termen     (+ namen)
+clip.merge      -> clip.knip, clip.termen                (+ errors, geometry, namen,
+                                                            schrijven)
+clip.orkest     -> clip.grenzen, clip.plan, clip.stroom, clip.merge, clip.termen
+                                                         (+ errors, schrijven)
+clip.__init__   -> clip.orkest
+```
+
+Het `__init__.py` is dun: het draagt het verhaal (de docstring van 135 regels, die de
+vier stappen van de toewijzing, de knip en zijn omkering en de vaste namen voor blanke
+knopen uitlegt) en her-exporteert `clip_orox` en `merge_orox`. Voor een afnemer verandert
+er niets: `from gwsw_orox_helpers.clip import clip_orox, merge_orox` doet wat het deed.
 
 Twee dingen die de tekening makkelijk verkeerd om zet. `domein` is een blad: de
 waardeobjecten rekenen alleen met wat ze zelf dragen, dus ze importeren niets uit de
@@ -58,7 +82,7 @@ Elke module beantwoordt één vraag; in deze volgorde heeft niets ooit iets van 
 | `dataset` | Wat kun je een ingelezen dataset vragen? (`GwswDataset`, `load_dataset`) |
 | `cache` | Hoe sla je die lezing over? (pickle, sleutel op inhoud én broncode) |
 | `schrijven` | Hoe komt een quadstroom er als OroX-Turtle weer uit? |
-| `clip` | Hoe verdeel je die stroom over vlakken, en hoe draai je dat terug? |
+| `clip` | Hoe verdeel je die stroom over vlakken, en hoe draai je dat terug? (package) |
 
 ## Twee paden door pyoxigraph, en dat blijft zo
 
@@ -83,11 +107,12 @@ die anders uit elkaar loopt, en die staat één keer:
 
 | Gedeelde kennis | Woont in | Gelezen door |
 |---|---|---|
-| De IRI's: `GWSW` en de naamruimten, `hasAspect`/`hasPart`/`hasConnection`, `geo:gmlLiteral` | `namen` (tekst) | `inlezen` (als `URIRef`), `clip` (als `NamedNode`), `schrijven` (prefixkop), `graaf` (`xsd:string`), `ontologie`, `klassen` (`GWSW`, voor de korte namen), `dataset` (`GWSW`, en het exporteert hem) |
-| De prefixkop van een OroX-export | `schrijven.STANDAARD_PREFIXEN`, opgebouwd uit `namen` | `schrijven`, `clip` (krijgt ze via `lees_orox` en vult `knip:` aan) |
+| De IRI's: `GWSW` en de naamruimten, `hasAspect`/`hasPart`/`hasConnection`, `geo:gmlLiteral` | `namen` (tekst) | `inlezen` (als `URIRef`), `clip.termen` (als `NamedNode`), `clip.plan`/`clip.stroom`/`clip.merge` (als tekst), `schrijven` (prefixkop), `graaf` (`xsd:string`), `ontologie`, `klassen` (`GWSW`, voor de korte namen), `dataset` (`GWSW`, en het exporteert hem) |
+| De prefixkop van een OroX-export | `schrijven.STANDAARD_PREFIXEN`, opgebouwd uit `namen` | `schrijven`, `clip.orkest` (krijgt ze via `lees_orox` en vult `knip:` aan) |
 | UTF-8 met terugvalcodering, inclusief beide foutmeldingen | `codering.decodeer` | `inlezen._decode`, `schrijven._gedecodeerd` |
 | Het verslag van zo'n terugval (`DecodeFallback`) | `codering.terugvalverslag` | alleen `inlezen` |
-| De GML-lezers | `geometry` | `inlezen`, `clip`, `dataset` (doorgeefluik) |
+| De GML-lezers | `geometry` | `inlezen`, `clip.knip`, `clip.plan`, `clip.merge`, `dataset` (doorgeefluik) |
+| De `knip:`-naamruimte en de stuknamen (`<origineel>__knip<k>`) | `clip.termen` | `clip.plan`, `clip.stroom`, `clip.merge`, `clip.orkest` |
 
 Dat laatste onderscheid is opzettelijk: het verslag telt de afwijkende bytes en zoekt de
 regels waarin ze staan, en dat is een tweede gang over het hele bestand. Een lezing wordt
@@ -98,7 +123,13 @@ schrijfweg er ook niet voor.
 
 `schrijven` en `clip` staan naast de leeslaag en niet erop: ze bouwen geen domeinmodel en
 importeren `dataset` noch `graaf`. `tests/test_publieke_api.py` bewaakt dat aan de
-brontekst (`test_schrijflaag_is_additief`, `test_cliplaag_is_additief`). Ze delen wel de
+brontekst (`test_schrijflaag_is_additief`, `test_cliplaag_is_additief`). Sinds `clip` een
+package is, geldt die vraag daar niet aan het oppervlak maar per fase: `test_cliplaag_is_additief`
+loopt over elke submodule, `test_de_clipsnit_ligt_vast` legt vast welke fasen er zijn en dat
+het `__init__.py` dun blijft, en `test_de_clipsubmodules_houden_de_importrichting` toetst
+allebei de randen -- alleen `errors`/`geometry`/`namen`/`schrijven` uit de package, en een
+zuster alleen als die *boven* de fase ligt. Zonder dat laatste kan een enkele import stil
+een lus sluiten en is de hersnit weer een bak. Ze delen wel de
 bladeren onder de leeslaag: `namen` en `errors` allebei, `codering` alleen `schrijven` (de
 UTF-8-terugval; `clip` ziet die enkel via `lees_orox`) en `geometry` alleen `clip` (de
 GML-lezers, die de knip nodig heeft en de serializer niet). Modules die onder allebei
@@ -145,7 +176,9 @@ levert geen fout op maar een cache die na een wijziging de oude lezing blijft te
 Twee tests in `tests/test_cache.py` houden dat bij: de ene parametriseert over
 `LADERMODULES` en toont per module dat een gewijzigde broncode een andere sleutel geeft,
 de andere eist dat elke module van de package óf in die lijst staat óf met een reden in
-de uitzonderingsverzameling ernaast.
+de uitzonderingsverzameling ernaast. Die tweede telt met `rglob` en ziet dus ook de fasen
+in `clip/`; ze staan er alle acht met naam bij, want een nieuwe fase hoort zich net zo
+goed te melden als een nieuwe module in de wortel.
 
 Verplaatste code verandert die sleutel, dus na een hersnit worden bestaande caches één
 keer opnieuw opgebouwd. Dat is de bedoelde werking en geen gedragswijziging.

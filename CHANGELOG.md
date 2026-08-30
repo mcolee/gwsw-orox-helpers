@@ -1,6 +1,28 @@
 # Changelog
 
 ## [Unreleased]
+- `clip.py` is een `clip/`-package geworden (issue #11, modulariteit; geen
+  gedragswijziging). Het bestand was met 1299 regels bijna 29% van de package en droeg vijf
+  bannerblok-hoofdstukken achter elkaar; dat is nu zeven submodules van 56 tot 320 regels,
+  met een importrichting die niet terug kan wijzen: `termen` en `grenzen` zijn bladeren,
+  daarboven `knip` (geometrie plaatsen en doorknippen, `_Stuk`), `plan` (de analyseronde,
+  `_Plan`), `stroom` (de gefilterde quadstroom per deel), `merge` (de delen weer aaneen) en
+  `orkest` (`clip_orox`, `merge_orox`). Het `__init__.py` is dun: het draagt de docstring
+  van 135 regels die het verhaal vertelt, en her-exporteert de twee ingangen. **Voor een
+  afnemer verandert er niets** -- `from gwsw_orox_helpers.clip import clip_orox,
+  merge_orox` en `gwsw_orox_helpers.clip_orox` doen wat ze deden, en geen enkele
+  handtekening, retourvorm of foutmelding is aangeraakt. Alleen verplaatst: geen functie
+  herschreven. Bewaakt door drie tests in `tests/test_publieke_api.py` --
+  `test_cliplaag_is_additief` (nu per submodule in plaats van alleen aan het oppervlak),
+  `test_de_clipsnit_ligt_vast` en `test_de_clipsubmodules_houden_de_importrichting`, die
+  aan de brontekst toetst dat een fase alleen `errors`/`geometry`/`namen`/`schrijven` en
+  zusters *boven* zich importeert. Gedragsbehoud gemeten met de Juinen-round-trip (in CI)
+  en eenmalig met de zware De Wolden/Hoogeveen-round-trip (112 MB): 1.877.729 triples in
+  en uit, vingerafdruk gelijk, 650.470 objecten en 74 GWSW-klassen aan beide kanten, 13
+  grenskruisende leidingen, 102.704.657 bytes tegen 102.704.657 (1,000x). Sterker nog:
+  dezelfde knip op de Juinen-fixture levert vóór en ná de hersnit **byte-identieke**
+  bestanden op -- gelijke SHA-256 voor beide delen en voor de hereniging. De hersnit
+  verzet de cachesleutel niet (`clip` staat niet in `cache.LADERMODULES`).
 - Het warmste predicaat van de checkfase is circa 40% sneller (issue #12, performance;
   `dataset.py`, `klassen.py`). `GwswDataset.is_a` wordt via `klim_naar_knoop` en
   `of_class` ruim een miljoen keer per nlriochecker-run gesteld en bouwde per aanroep een

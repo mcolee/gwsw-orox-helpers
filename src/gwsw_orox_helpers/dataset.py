@@ -195,6 +195,19 @@ class GwswDataset:
     _resolved_nodes: dict[tuple[str, tuple[str, ...]], str | None] = field(
         default_factory=dict, init=False, repr=False, compare=False
     )
+    # Memo voor `types_of`, om dezelfde reden en volgens hetzelfde patroon als
+    # `_resolved_nodes` hierboven: `is_a` vraagt de typen van een object ruim een miljoen
+    # keer per run op, en voor een knoop is dat elke keer een verse unie van zijn eigen
+    # typen en die van zijn orientatie. Ook hier `init=False`, zodat een
+    # `replace()`-afgeleide (`subset`, `markeer_vulwaarden`, het cachepad) met een lege
+    # memo begint: die afgeleiden hebben andere `nodes`/`conduits`, dus een gedeelde memo
+    # zou typen melden voor een knoop die er niet meer in staat. De aanname is dat
+    # `nodes` en `conduits` van een eenmaal gemaakte dataset niet meer muteren -- de
+    # dataclass is bevroren en de lader vult ze voordat hij haar aanmaakt.
+    # `cache._schrijf` slaat ook dit veld bij het picklen over.
+    _types_memo: dict[str, frozenset[str]] = field(
+        default_factory=dict, init=False, repr=False, compare=False
+    )
 
     def is_a(self, uri: str, root: str) -> bool:
         """Geeft aan of dit domeinobject van het type `root` of een subklasse is.
@@ -229,13 +242,26 @@ class GwswDataset:
 
         Alleen knopen en strengen: een onderdeel dat via hasPart aan een put hangt
         levert hier een lege verzameling op. Daarvoor is `graph_types_of()`.
+
+        Gememoiseerd per URI (`_types_memo`), om dezelfde reden als
+        `resolve_network_node`: `is_a` stelt deze vraag ruim een miljoen keer per run en
+        voor een knoop kostte dat elke keer een verse unie. Ook een lege uitkomst wordt
+        onthouden -- een URI die geen knoop en geen streng is, is dat de hele run.
+        De memo neemt aan dat `nodes` en `conduits` na het aanmaken van de dataset niet
+        meer wijzigen; een `replace()`-afgeleide begint met een lege memo (zie het veld).
         """
+        onthouden = self._types_memo.get(uri)
+        if onthouden is not None:
+            return onthouden
         if uri in self.nodes:
             node = self.nodes[uri]
-            return node.types | node.orientation_types
-        if uri in self.conduits:
-            return self.conduits[uri].types
-        return frozenset()
+            typen = node.types | node.orientation_types
+        elif uri in self.conduits:
+            typen = self.conduits[uri].types
+        else:
+            typen = frozenset()
+        self._types_memo[uri] = typen
+        return typen
 
     def graph_types_of(self, uri: str) -> frozenset[str]:
         """De typen van een willekeurige URI, ook als hij geen knoop of streng is.

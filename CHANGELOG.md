@@ -1,6 +1,29 @@
 # Changelog
 
 ## [Unreleased]
+- Het warmste predicaat van de checkfase is circa 40% sneller (issue #12, performance;
+  `dataset.py`, `klassen.py`). `GwswDataset.is_a` wordt via `klim_naar_knoop` en
+  `of_class` ruim een miljoen keer per nlriochecker-run gesteld en bouwde per aanroep een
+  verse types-unie (`node.types | node.orientation_types`), terwijl `klassen._afsluiting`
+  op élke aanroep ook zijn terugval opbouwde -- een `dict.get`-default is een gewoon
+  argument, dus `subclasses.get(_uri(w), frozenset({_uri(w)}))` maakte die wegwerp-set en
+  die tweede `_uri`-aanroep ook op de treffer. `types_of` krijgt nu een `_types_memo`
+  volgens exact het patroon van `_resolved_nodes` (`init=False`, dus elke
+  `replace()`-afgeleide -- `subset`, `markeer_vulwaarden`, het cachepad -- begint met een
+  lege memo, en `cache._schrijf` houdt het veld buiten de pickle), en `_afsluiting` bouwt
+  frozenset en tweede `_uri`-aanroep alleen nog op de miss-tak. Gemeten op De Wolden en
+  Hoogeveen (112 MB, 23.485 knopen en 23.440 strengen) met het nieuwe
+  `scripts/benchmark_is_a.py`, dat de checkfase-lus nabootst met 24 GWSW-wortels en zo op
+  1.126.200 `is_a`-aanroepen per ronde komt: **2,26 s -> 1,32 s op het minimum van drie
+  rondes (-42%)**, met dezelfde 266.650 treffers vóór en ná en een ongewijzigd
+  geheugenhoogwatermerk (1219 MiB). Vier procesmetingen in beide volgordes (oud, nieuw,
+  nieuw, oud) gaven 2,26 / 1,52 / 1,32 / 2,32 s als minimum -- de machine was onrustig,
+  dus de spreiding binnen elke kant is aanzienlijk. Een meting die de oude en de nieuwe
+  implementatie in hetzelfde proces op dezelfde geladen dataset afwisselt, waar die ruis
+  niet in past, gaf -38% (2,15 -> 1,33 s). De winst ligt dus rond de 38 tot 42%;
+  incrementeel, geen orde van grootte. Signaturen en retourwaarden van
+  `is_a`, `types_of`, `graph_types_of`, `closure` en `of_class` zijn ongewijzigd: zuiver
+  additief, `tests/test_publieke_api.py` blijft groen.
 - Schrijflaag veiliger tijdelijk bestand (issue #15, security; `schrijven.py`).
   `schrijf_orox_quads` schreef naar de voorspelbare naam `<doel>.tmp` met een gewone
   `open('wb')`. Dat volgt een symlink (CWE-59/377): een vooraf geplante `uit.ttl.tmp` in

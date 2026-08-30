@@ -55,6 +55,76 @@ def test_klassenhierarchie_uit_de_ontologie(voorbeeld: GwswDataset) -> None:
     assert not voorbeeld.is_a(f"{TOETS}L1", "Put")
 
 
+def test_types_of_bouwt_de_typen_van_een_knoop_maar_een_keer(voorbeeld: GwswDataset) -> None:
+    """De typen van een knoop zijn een unie; die hoort niet per aanroep te ontstaan.
+
+    `is_a` is het warmste predicaat van de checkfase -- ruim een miljoen aanroepen per
+    nlriochecker-run via `klim_naar_knoop` en `of_class` -- en elke aanroep liep hier
+    langs `node.types | node.orientation_types`. Die unie is per definitie steeds
+    dezelfde: knopen en strengen wijzigen na het laden niet meer. De tweede aanroep
+    hoort dus hetzelfde object terug te geven en niet een verse kopie (issue #12).
+    """
+    uri = f"{TOETS}PutA"
+    node = voorbeeld.nodes[uri]
+
+    eerste = voorbeeld.types_of(uri)
+
+    assert eerste == node.types | node.orientation_types
+    assert voorbeeld.types_of(uri) is eerste
+
+
+def test_de_typenmemo_gaat_niet_mee_naar_een_uitgedunde_dataset(voorbeeld: GwswDataset) -> None:
+    """Een `replace()`-afgeleide krijgt een eigen memo, net als bij `_resolved_nodes`.
+
+    `subset()` maakt een dataset met minder knopen. Deelde zij de memo van haar
+    herkomst, dan zou zij typen blijven melden voor een knoop die zij niet meer heeft --
+    en dat is precies het antwoord waarop `of_class` en `klim_naar_knoop` selecteren.
+    """
+    uri = f"{TOETS}PutA"
+    assert voorbeeld.types_of(uri), "voorwaarde: de put draagt typen en vult dus de memo"
+
+    kleiner = voorbeeld.subset([ander for ander in voorbeeld.nodes if ander != uri])
+
+    assert uri not in kleiner.nodes
+    assert kleiner.types_of(uri) == frozenset()
+    # En andersom: de volle dataset houdt haar eigen antwoord.
+    assert voorbeeld.types_of(uri)
+
+
+def test_closure_bouwt_de_terugval_alleen_waar_de_hierarchie_hem_niet_kent(
+    voorbeeld: GwswDataset, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Op een treffer hoort er geen wegwerp-URI en geen wegwerp-afsluiting te ontstaan.
+
+    `closure` loopt via `klassen._afsluiting`, en die bouwde zijn terugval als eager
+    default van `dict.get`: ook op de treffer, en met een tweede `_uri`-aanroep erbij.
+    `is_a` vraagt hem ruim een miljoen keer per run (issue #12). Het gedrag blijft aan
+    beide kanten wat het was -- de afsluiting op een treffer, de wortel zelf waar de
+    hierarchie hem niet kent -- en dat is wat de tweede helft van elk blok vastlegt.
+    """
+    from gwsw_orox_helpers import klassen as klassen_module
+
+    aanroepen: list[str] = []
+    echte_uri = klassen_module._uri
+
+    def geteld(naam: str) -> str:
+        aanroepen.append(naam)
+        return echte_uri(naam)
+
+    monkeypatch.setattr(klassen_module, "_uri", geteld)
+
+    gesloten = voorbeeld.closure("Put")
+
+    assert aanroepen == ["Put"]
+    assert f"{GWSW}Inspectieput" in gesloten
+
+    aanroepen.clear()
+    onbekend = voorbeeld.closure("KlasseDieNietBestaat")
+
+    assert aanroepen == ["KlasseDieNietBestaat"]
+    assert onbekend == frozenset({f"{GWSW}KlasseDieNietBestaat"})
+
+
 def test_koppeling_aan_compartiment_wordt_naar_de_put_herleid(voorbeeld: GwswDataset) -> None:
     # Streng "2" koppelt aan een compartiment, niet aan de put zelf.
     streng = voorbeeld.conduits[f"{TOETS}L2"]

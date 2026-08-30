@@ -52,8 +52,16 @@ def _afsluiting(subclasses: dict[str, frozenset[str]], wortel: str) -> frozenset
     De enige plek waar die terugval opgeschreven staat. Stond hij er twee keer, dan
     zou een van beide bij een wijziging achterblijven zonder dat het opvalt: een
     afsluiting die stilzwijgend krimpt levert geen fout op maar een lege selectie.
+
+    Bewust geen `subclasses.get(_uri(wortel), frozenset({_uri(wortel)}))`: die default
+    is een gewoon argument en wordt dus ook opgebouwd op de treffer, met een tweede
+    `_uri`-aanroep erbij. `GwswDataset.closure` vraagt deze functie via `is_a` ruim een
+    miljoen keer per nlriochecker-run (issue #12), en dan telt een wegwerp-frozenset per
+    aanroep mee. Het antwoord is aan beide kanten hetzelfde als voorheen.
     """
-    return subclasses.get(_uri(wortel), frozenset({_uri(wortel)}))
+    uri = _uri(wortel)
+    afsluiting = subclasses.get(uri)
+    return frozenset({uri}) if afsluiting is None else afsluiting
 
 
 def _bruikbare_afsluiting(

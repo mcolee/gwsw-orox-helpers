@@ -1,6 +1,7 @@
 """De schrijver geeft een OroX-TTL terug die naar dezelfde RDF-graaf parseert."""
 
 from collections import Counter
+from collections.abc import Iterator
 from pathlib import Path
 
 import pyoxigraph
@@ -257,6 +258,65 @@ def test_fout_halverwege_laat_geen_afgekapt_doel_achter(tmp_path: Path) -> None:
 
     assert not doel.exists()
     assert list(doel.parent.iterdir()) == []
+
+
+def test_geslaagde_schrijf_laat_geen_tijdelijk_bestand_achter(tmp_path: Path) -> None:
+    """Na een geslaagde schrijf staat er alleen het doel in de map, geen tmp ernaast.
+
+    De hernoeming ruimt het tijdelijke bestand vanzelf op; deze test bewaakt dat het
+    daarbij blijft -- een `mkstemp` waarvan de naam níét hernoemd maar gekopieerd zou
+    worden, laat er een liggen en groeit de uitmap bij elke run vol.
+    """
+    doel = tmp_path / "uit" / "klaar.ttl"
+    schrijf_orox(MINI, doel)
+
+    assert [pad.name for pad in doel.parent.iterdir()] == ["klaar.ttl"]
+
+
+def test_fout_in_de_stroom_laat_een_bestaand_doel_ongemoeid(tmp_path: Path) -> None:
+    """Breekt de stroom af, dan blijft het oude `doel` staan en blijft de map schoon.
+
+    `test_fout_halverwege_laat_geen_afgekapt_doel_achter` doet dit voor een doel dat nog
+    niet bestond; hier ligt er al een export. Wie hem overschrijft met een bron die
+    halverwege afbreekt, hoort de vorige terug te krijgen -- niet een halve nieuwe, en ook
+    niet een tijdelijk bestand dat blijft rondslingeren.
+    """
+    doel = tmp_path / "uit" / "bestaat_al.ttl"
+    doel.parent.mkdir()
+    doel.write_text("de vorige export", encoding="utf-8")
+
+    def stroom() -> Iterator[pyoxigraph.Quad]:
+        for nummer, quad in enumerate(lees_orox(MINI).quads):
+            if nummer == 10:
+                raise RuntimeError("de bron breekt af")
+            yield quad
+
+    with pytest.raises(RuntimeError, match="de bron breekt af"):
+        schrijf_orox_quads(stroom(), doel)
+
+    assert doel.read_text(encoding="utf-8") == "de vorige export"
+    assert [pad.name for pad in doel.parent.iterdir()] == ["bestaat_al.ttl"]
+
+
+def test_geplante_tmp_symlink_wordt_niet_doorheen_geschreven(tmp_path: Path) -> None:
+    """Een vooraf geplante `<doel>.tmp` mag geen schrijfrecht elders opleveren (CWE-59/377).
+
+    Schrijft de serializer naar een voorspelbare naam met een gewone `open('wb')`, dan
+    volgt hij een symlink die daar al ligt: wie in een gedeelde uitmap `uit.ttl.tmp` naar
+    andermans bestand laat wijzen, laat de export dat bestand overschrijven. Het tijdelijke
+    bestand hoort daarom met `tempfile.mkstemp` gemaakt te worden -- die weigert een
+    bestaande naam en volgt dus niets.
+    """
+    slachtoffer = tmp_path / "slachtoffer.txt"
+    slachtoffer.write_text("niet aanraken", encoding="utf-8")
+    doel = tmp_path / "uit.ttl"
+    (tmp_path / "uit.ttl.tmp").symlink_to(slachtoffer)
+
+    schrijf_orox(MINI, doel)
+
+    assert slachtoffer.read_text(encoding="utf-8") == "niet aanraken"
+    assert not doel.is_symlink()
+    assert isomorphic(_graaf(doel), _graaf(MINI))
 
 
 @pytest.mark.parametrize("sleutel", ["kapot prefix", "1abc", "met:dubbelepunt", "eindigt."])

@@ -1,6 +1,26 @@
 # Changelog
 
 ## [Unreleased]
+- Schrijflaag veiliger tijdelijk bestand (issue #15, security; `schrijven.py`).
+  `schrijf_orox_quads` schreef naar de voorspelbare naam `<doel>.tmp` met een gewone
+  `open('wb')`. Dat volgt een symlink (CWE-59/377): een vooraf geplante `uit.ttl.tmp` in
+  een gedeelde uitmap werd doorgeschreven naar waar hij heen wees — gemeten vóór de
+  wijziging kreeg het slachtofferbestand de volledige export, ná de wijziging blijft het
+  byte-voor-byte ongemoeid. Twee gelijktijdige runs naar hetzelfde doel botsten bovendien
+  op diezelfde ene naam. Het tijdelijke bestand komt nu van `tempfile.mkstemp` in de
+  doelmap, met proces-ID en een willekeurig deel in de naam — hetzelfde recept als
+  `cache._schrijf_atomair`, dat dit al zo deed. Signatuur, retourvorm en de
+  atomariteitsbelofte (`os.replace` na de laatste quad, tmp opgeruimd bij een fout) zijn
+  ongewijzigd; `tests/test_publieke_api.py` blijft groen.
+  **Eén waarneembaar verschil, ter beoordeling van de auteur:** `mkstemp` maakt het
+  bestand met mode `0600`, dus de geschreven export draagt die rechten in plaats van de
+  umask-rechten (gemeten: `0644` → `0600`). Nergens in tests of docstrings stond de oude
+  mode beloofd en `cache._schrijf_atomair` laat `0600` ook staan, dus volgt de schrijflaag
+  dat precedent; de docstring van `schrijf_orox_quads` zegt het nu toe. Voor nlriochecker
+  verandert er niets aan wat het aanroept of terugleest (dezelfde gebruiker), maar wie een
+  geknipt bestand op een gedeelde machine aan een ander doorgeeft, moet de rechten voortaan
+  zelf verruimen. Wil de auteur de umask-rechten terug, dan is dat één `os.chmod` vóór de
+  hernoeming.
 - Afhankelijkheden krijgen een bovengrens (issue #14; `pyproject.toml`, geen
   `src`-wijziging): `pyoxigraph>=0.5,<0.6`, `rdflib>=7.0,<8`, `shapely>=2.0,<3`. Reden:
   `graaf._literal_string_snel` zet vier rdflib-interne velden (`_language`, `_datatype`,

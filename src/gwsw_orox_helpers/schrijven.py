@@ -60,6 +60,7 @@ import contextlib
 import itertools
 import os
 import re
+import tempfile
 from collections.abc import Iterable, Iterator, Mapping
 from dataclasses import dataclass
 from pathlib import Path
@@ -181,6 +182,16 @@ def schrijf_orox_quads(
     hernoemd. Een luie bron kan halverwege afbreken -- een syntaxfout op regel 900.000 --
     en dan hoort er geen afgekapte export achter te blijven die zich als een hele
     voordoet. Wie na een `DatasetError` naar `doel` kijkt, ziet het oude bestand of niets.
+
+    Dat tmp-bestand komt van `tempfile.mkstemp`, net als in `cache._schrijf_atomair` en om
+    dezelfde twee redenen. Het maakt een naam die er nog niet was en volgt dus geen
+    symlink: een vooraf geplante `<doel>.tmp` in een gedeelde uitmap zou anders
+    doorgeschreven worden naar waar hij heen wijst (CWE-59/377). En de naam draagt het
+    proces-ID plus een willekeurig deel, zodat twee gelijktijdige runs naar hetzelfde doel
+    niet in elkaars tijdelijke bestand schrijven. Het doel zelf houdt daarmee de rechten
+    die `mkstemp` geeft -- **0600, alleen leesbaar voor de eigenaar**, in plaats van de
+    umask-rechten die een gewone `open('wb')` opleverde. Wie het bestand breder gedeeld
+    wil hebben, zet de rechten na afloop zelf.
     """
     kop = dict(prefixen) if prefixen is not None else dict(STANDAARD_PREFIXEN)
     for sleutel in kop:
@@ -191,21 +202,28 @@ def schrijf_orox_quads(
                 "eindigt niet op een punt (de lege sleutel is de dataset-basis ':')."
             )
 
-    # Dezelfde map, want `os.replace` is alleen binnen één bestandssysteem atomair.
-    tijdelijk = doel.with_suffix(doel.suffix + ".tmp")
+    # Dezelfde map, want `replace` is alleen binnen één bestandssysteem atomair. `None`
+    # zolang `mkstemp` niet aan de beurt was: faalt het aanmaken van de doelmap, dan is er
+    # ook geen tijdelijk bestand om op te ruimen.
+    tijdelijk: Path | None = None
     try:
         doel.parent.mkdir(parents=True, exist_ok=True)
-        with tijdelijk.open("wb") as bestand:
+        beschrijving, tijdelijk_pad = tempfile.mkstemp(
+            prefix=f"{doel.name}.{os.getpid()}.", suffix=".tijdelijk", dir=doel.parent
+        )
+        tijdelijk = Path(tijdelijk_pad)
+        with os.fdopen(beschrijving, "wb") as bestand:
             pyoxigraph.serialize(quads, bestand, pyoxigraph.RdfFormat.TURTLE, prefixes=kop)
-        os.replace(tijdelijk, doel)
+        tijdelijk.replace(doel)
     except OSError as fout:
         raise DatasetError(f"{doel}: bestand kan niet geschreven worden ({fout}).") from fout
     finally:
         # Na een geslaagde hernoeming is er niets meer op te ruimen; na een fout onderweg
         # (parsefout, OSError, Ctrl-C) wel. Het opruimen mag de oorspronkelijke fout niet
         # overschreeuwen -- ligt `doel` onder een bestand, dan faalt ook deze `unlink`.
-        with contextlib.suppress(OSError):
-            tijdelijk.unlink(missing_ok=True)
+        if tijdelijk is not None:
+            with contextlib.suppress(OSError):
+                tijdelijk.unlink(missing_ok=True)
 
 
 def _gedecodeerd(bron: Path, fallback_encoding: str) -> str:

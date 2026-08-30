@@ -1,6 +1,57 @@
 # Changelog
 
 ## [Unreleased]
+- De netwerkwandeling staat los van de leeslaag: nieuwe module `netwerk` (issue #27,
+  modulariteit; **additief** — geen bevroren contract geraakt). `resolve_network_node`,
+  `klim_naar_knoop`, `_schakels` en `richting_van_geometrie` verhuizen van methoden op
+  `GwswDataset` naar vrije functies die hun context als parameter nemen: de knopen
+  (`nodes`), het typepredicaat (`is_a`) en waar er gememoiseerd wordt de memo zelf. De
+  verhuizing is **puur in de bodies**: elke body is per functie AST-gelijk aan a0bb934
+  modulo precies zes substituties (`self.nodes`→`nodes`, `self.is_a`→`is_a`,
+  `self._resolved_nodes`→`memo` en de drie zelfaanroepen naar hun vrije vorm), en de
+  parameterkop van elke vrije functie begint letterlijk met de parameters van de methode.
+  Wat er wél mee verschuift is de **dispatch**, en dat is aan geen enkele uitkomst te
+  zien: waar de methoden elkaar via `self.` aanriepen, roepen de vrije functies elkaar
+  rechtstreeks aan, dus een subklasse-override of een `monkeypatch.setattr` op
+  `GwswDataset` bereikt de wandeling binnenin niet meer (onderscheppen doe je voortaan op
+  `netwerk`). Nlriochecker kent geen subklasse van `GwswDataset` en patcht geen van de
+  drie methoden — geverifieerd met een AST-sweep over `src/`, `tests/` en `scripts/` van
+  de afnemer — dus in de praktijk raakt het niemand.
+  **De vier methoden blijven bestaan** en zijn doorgeefluiken geworden: dezelfde
+  handtekening (gepind in `tests/test_publieke_api.py`), dezelfde uitkomst en dezelfde
+  memo-semantiek — `GwswDataset._resolved_nodes` blijft een `init=False`-veld op de
+  dataclass, zodat een `replace()`-afgeleide (`subset`, `markeer_vulwaarden`, het
+  cachepad) met een lege memo begint; het doorgeefluik geeft die van zijn eigen instantie
+  mee en de vrije functie maakt er nooit zelf een aan. Wat het oplevert is dat de zwaarst
+  verweven logica van de leeslaag toetsbaar is zonder een ingelezen export: een
+  handgebouwd `nodes`-woordenboek en een `is_a`-lambda volstaan (`tests/test_netwerk.py`),
+  en daarmee komen ook de vier `None`-takken van `richting_van_geometrie` onder toets die
+  in geen enkele TTL-fixture voorkwamen. `netwerk` leunt alleen op `domein` en shapely;
+  `test_de_netwerksnit_ligt_vast` legt de vier namen, die ene toegestane import en de
+  *dunheid* van de doorgeefluiken vast (op de AST, want een teruggekopieerde wandeling
+  laat elke gedragstest groen). `docs/architectuur.md` draagt de nieuwe rij in de
+  lagentabel. `netwerk` staat in `cache.LADERMODULES`, net als elke leeslaagmodule: die
+  code telde tot nu toe via `dataset.py` al mee in de sleutel en dat blijft zo, dus
+  **bestaande caches worden één keer opnieuw opgebouwd** — de bedoelde werking van een
+  hersnit en geen gedragswijziging. **Eén meetbaar prijskaartje, en het staat er als
+  meting en niet als claim**: een gememoiseerde `resolve_network_node` doet nu één
+  Python-aanroeplaag extra (plus het binden van `self.is_a`). Geen van de twee
+  benchmarkscripts raakt dit pad — `benchmark.py` meet het laden, dat de wandeling niet
+  aanroept, en `benchmark_is_a.py` meet `is_a`/`of_class` — dus gemeten met een
+  wegwerpmeting: oud en nieuw om en om in één proces, op een synthetische dataset van
+  20.000 putten met een compartiment onder twee houders, minimum over veertig stootjes
+  (de machine droeg ander werk; een minimum overleeft dat, een gemiddelde niet). Uitkomst,
+  tweemaal reproduceerbaar: 352 → 473 ns per warme aanroep (+121 ns, +34% op een lus die
+  *niets anders* doet) en 7,2 → 7,4 µs per koude aanroep (+2%). Op de ruim een miljoen
+  aanroepen van een nlriochecker-run is dat circa +0,12 s, tegenover een lezing die op
+  dezelfde export 20 s kost. Als regressiecheck ook
+  gepaard nagemeten op de De Wolden- en Hoogeveen-export, back-to-back en op een machine
+  die ander werk droeg: `scripts/benchmark.py --paden load_dataset --herhalingen 3`
+  mediaan 20,29 s vóór tegen 20,39 s ná bij een gelijke piek (1219 MiB) en een identieke
+  lezing (1.877.729 triples, 23.485 knopen, 23.440 strengen), en `scripts/benchmark_is_a.py`
+  minimum 1,25 s vóór tegen 1,32 s ná bij exact dezelfde 1.126.200 aanroepen — allebei
+  paden die de wandeling niet aanraken, dus ruis. De twee `zwaar`-tests draaien groen op
+  dezelfde export.
 - Het parseerpad staat los van de domeinlezers: nieuwe module `bestand` (issue #26,
   modulariteit; **additief** — geen bevroren contract geraakt). `_parse`, `_decode`,
   `_quiet_rdflib` en `_gc_uit` verhuizen ongewijzigd van `inlezen` naar

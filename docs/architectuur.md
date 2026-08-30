@@ -25,10 +25,11 @@ ontologie  -> graaf, namen
 klassen    -> graaf, namen, ontologie
 bestand    -> codering, errors, graaf, rdfmotor
 inlezen    -> domein, geometry, graaf, klassen, namen
+netwerk    -> domein
 dataset    -> bestand, bronnen, codering, domein, errors, geometry, graaf, inlezen,
-              klassen, namen, voortgang
+              klassen, namen, netwerk, voortgang
 cache      -> bestand, codering, dataset, domein, geometry, graaf, inlezen, klassen,
-              namen, ontologie, rdfmotor, voortgang
+              namen, netwerk, ontologie, rdfmotor, voortgang
 
 schrijven  -> codering, errors, namen, rdfmotor
 clip/      -> errors, geometry, namen, schrijven   (een package; zie hieronder)
@@ -46,6 +47,21 @@ hier dus een rangschikking en geen afhankelijkheid. Dat is wat het testen van de
 van echte bestanden losmaakt, en `test_de_bestandssnit_ligt_vast` in
 `tests/test_publieke_api.py` legt de vier namen, de toegestane imports en die ontbrekende
 rand vast.
+
+`netwerk` is sinds issue #27 een eigen rij, en het is de dunste in de tekening: hij leunt
+alleen op `domein` (en op shapely). Wat erin staat is de wandeling langs hasPart omhoog
+(`klim_naar_knoop`, `resolve_network_node`) en de tekenrichting van een streng
+(`richting_van_geometrie`) — als **vrije functies** die hun context als parameter nemen:
+de knopen (`nodes`), het typepredicaat (`is_a`) en waar er gememoiseerd wordt de memo
+zelf. Ze stonden als methoden op `GwswDataset` en waren daardoor alleen via een volledig
+ingelezen dataset te toetsen; nu is een handgebouwd woordenboek genoeg
+(`tests/test_netwerk.py`). De drie publieke methoden bestaan nog en zijn wat ze moeten
+zijn: doorgeefluiken met dezelfde handtekening en hetzelfde gedrag, memo inbegrepen —
+`GwswDataset._resolved_nodes` blijft op de dataclass staan (zie "de memo hoort bij de
+dataset" hieronder) en gaat als argument mee.
+`test_de_netwerksnit_ligt_vast` in `tests/test_publieke_api.py` legt de vier functies, de
+enkele toegestane import en de dunheid van de doorgeefluiken vast — die laatste op de AST,
+want een teruggekopieerde wandeling laat elke gedragstest groen.
 
 `rdfmotor` ligt naast `codering`: allebei bladeren op `errors` na, en allebei door de
 leesweg én de schrijfweg gebruikt. De cliplaag komt er niet langs -- die parseert en
@@ -107,6 +123,7 @@ Elke module beantwoordt één vraag; in deze volgorde heeft niets ooit iets van 
 | `domein` | Wat *is* een knoop of streng? (waardeobjecten, zonder graaf) |
 | `bestand` | Hoe wordt een TTL-bestand een gevulde `GraafIndex`? (bytes, codering, parse, GC) |
 | `inlezen` | Hoe vul je die objecten uit een gevulde graaf? (hasPart/hasAspect, lezers) |
+| `netwerk` | Welke knoop hangt boven dit object, en loopt de lijn de goede kant op? (vrije functies op `nodes` + `is_a`) |
 | `dataset` | Wat kun je een ingelezen dataset vragen? (`GwswDataset`, `load_dataset`, `lees_ontologie`) |
 | `cache` | Hoe sla je die lezing over? (pickle, sleutel op inhoud én broncode) |
 | `schrijven` | Hoe komt een quadstroom er als OroX-Turtle weer uit? |
@@ -299,8 +316,8 @@ valt pas op als de twee lagen dezelfde bron verschillend lezen, en dan is het te
 
 ## `dataset` is het gezicht, niet de bak
 
-De leeslaag is intern in vijf modules verdeeld (`domein`, `bestand`, `inlezen`, `klassen`,
-`codering`), maar **het oppervlak ligt in `dataset`**: elke naam die nlriochecker uit
+De leeslaag is intern in zes modules verdeeld (`domein`, `bestand`, `inlezen`, `klassen`,
+`codering`, `netwerk`), maar **het oppervlak ligt in `dataset`**: elke naam die nlriochecker uit
 `gwsw_orox_helpers.dataset` importeert komt daar naar buiten, met dezelfde handtekening
 en hetzelfde gedrag. Dat is een Harde regel uit `CLAUDE.md` en `tests/test_publieke_api.py`
 is de scheidsrechter. Praktisch:
@@ -320,6 +337,16 @@ is de scheidsrechter. Praktisch:
   `domein`. Ze zijn er niets meer dan een doorgeefluik. De vraag "importeert een afnemer
   dit?" is niet met zekerheid te beantwoorden en het antwoord is dus de veilige kant:
   laten staan kost een regel, weghalen breekt stil.
+- hetzelfde geldt sinds issue #27 voor de wandeling: `klim_naar_knoop`,
+  `resolve_network_node` en `richting_van_geometrie` staan als vrije functies in
+  `netwerk` en blijven als **methode** op `GwswDataset` bestaan, met dezelfde
+  handtekening en hetzelfde gedrag — nlriochecker roept ze op de dataset aan
+  (`afbakening`, `checks/topologie`, `checks/netwerk`, `uitvoer/gpkg`), dus dat is het
+  contract en niet de vrije vorm. **De memo hoort bij de dataset**: `_resolved_nodes`
+  blijft een `init=False`-veld op de dataclass, zodat een `replace()`-afgeleide
+  (`subset`, `markeer_vulwaarden`, het cachepad) met een lege memo begint — een
+  uitgedunde dataset kan anders resolven dan de volle export, want de wandeling ziet
+  minder knopen. De vrije functie krijgt hem als argument en maakt er zelf nooit een aan.
 
 `dataset.__all__` is die lijst. Een naam met een underscore is intern aan de leeslaag en
 geen belofte aan de afnemer — ook waar hij een modulegrens oversteekt, zoals
@@ -376,8 +403,8 @@ Wat er níét bij hoort: een veld op `GwswDataset` — zie de vorige sectie.
 
 `cache.cachesleutel` hasht niet alleen de invoerbestanden en de bibliotheekversies maar
 ook **de broncode van de hele leeslaag**: `cache.LADERMODULES` -- `dataset`, `bestand`,
-`inlezen`, `domein`, `klassen`, `codering`, `namen`, `graaf`, `geometry`, `ontologie` en
-`rdfmotor`.
+`inlezen`, `domein`, `klassen`, `codering`, `namen`, `graaf`, `geometry`, `netwerk`,
+`ontologie` en `rdfmotor`.
 Dat is de garantie dat een cache nooit achterloopt op een wijziging in de lezing.
 `rdfmotor` staat erbij ook al deelt de schrijfweg hem: `bestand._parse` haalt zijn quads
 daarlangs, dus een andere aanroep van de motor is een andere lezing. Wie de leeslaag
@@ -393,7 +420,11 @@ goed te melden als een nieuwe module in de wortel.
 Verplaatste code verandert die sleutel, dus na een hersnit worden bestaande caches één
 keer opnieuw opgebouwd. Dat is de bedoelde werking en geen gedragswijziging -- de sleutel
 hasht *bestanden* en niet functies, dus ook een AST-gelijke verhuizing als die van issue
-#26 (`bestand` erbij) rekent één keer af en is daarna weer een treffer. `cache` zelf
+#26 (`bestand` erbij) of #27 (`netwerk` erbij) rekent één keer af en is daarna weer een
+treffer. `netwerk` draait weliswaar *ná* het laden en van zijn uitkomst wordt niets
+gepickeld, maar hij staat er om de sterkste reden die de lijst kent: die code zat tot #27
+in `dataset.py` en telde dus al mee. Hem er nu buiten laten zou de garantie stilzwijgend
+versmallen op het moment dat er alleen van bestand gewisseld wordt. `cache` zelf
 staat er nadrukkelijk **niet** in — de sleutel kan zichzelf niet hashen — dus een
 wijziging aan deze module laat bestaande caches met rust; `LADER_VERSIE` is de knop om
 dat alsnog af te dwingen.

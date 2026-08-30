@@ -39,6 +39,7 @@ import dataclasses
 import importlib
 import inspect
 import re
+import textwrap
 from pathlib import Path
 from typing import Any
 
@@ -70,6 +71,29 @@ CLIPLAGEN = ("termen", "grenzen", "knip", "plan", "stroom", "merge", "orkest")
 # `GraafIndex` consumeren. Alle vier de namen zijn privé; ze staan hier niet als contract
 # maar als *snit*, net als `CLIPLAGEN` hierboven.
 BESTAND_FUNCTIES = ("_decode", "_gc_uit", "_parse", "_quiet_rdflib")
+
+# De snit van de netwerkkant (issue #27): `netwerk` draagt de wandeling langs hasPart
+# omhoog en de tekenrichting van een streng, als vrije functies op `nodes` en een
+# typepredicaat. `dataset` houdt er drie gepinde methoden voor over die niets anders doen
+# dan doorgeven. Net als `BESTAND_FUNCTIES` staan deze namen hier als *snit* en niet als
+# contract -- de drie methoden staan als contract al in `HANDTEKENINGEN` hierboven.
+# Eén tuple en niet twee: de vier functies van `netwerk` en de vier doorgeefluiken op
+# `GwswDataset` heten hetzelfde, en dat is precies wat de bewaker toetst. `_schakels` staat
+# erbij als *functie* maar wordt als methode niet afgedwongen -- die is privé en wordt
+# binnen de package door niemand meer aangeroepen, dus de auteur mag hem schrappen zonder
+# deze test rood te maken (zie de docstring van de methode). De drie andere kunnen niet
+# stilletjes verdwijnen: die staan hierboven in `HANDTEKENINGEN`.
+NETWERK_FUNCTIES = (
+    "_schakels",
+    "klim_naar_knoop",
+    "resolve_network_node",
+    "richting_van_geometrie",
+)
+
+# De modules die `netwerk` mag zien. Alleen `domein`: hij rekent met de waardeobjecten en
+# met shapely, en weet van `dataset`, `cache`, `graaf` en de ontologie niets. Zou daar een
+# rand bij komen, dan is de wandeling weer alleen via een volledige dataset toetsbaar.
+NETWERK_MAG_IMPORTEREN = frozenset({"domein"})
 
 # De modules die `bestand` mag zien. Hij staat in de lagentabel onder `inlezen` omdat hij
 # alleen op deze bladeren leunt, en hij weet dus niets van de lezers, van `dataset` of van
@@ -124,6 +148,15 @@ def _pakketimporten(bron: str) -> set[str]:
                 if alias.name.startswith("gwsw_orox_helpers.")
             )
     return gevonden
+
+
+def _is_docstring(regel: ast.stmt) -> bool:
+    """Of dit de docstring van een functie is; die telt niet als lichaam."""
+    return (
+        isinstance(regel, ast.Expr)
+        and isinstance(regel.value, ast.Constant)
+        and isinstance(regel.value.value, str)
+    )
 
 
 def _op(naam: str) -> Any:
@@ -502,6 +535,58 @@ def test_de_bestandssnit_ligt_vast() -> None:
     assert "bestand" not in _pakketimporten(inspect.getsource(inlezen)), (
         "tussen `bestand` en `inlezen` hoort geen rand te lopen, ook niet als her-import"
     )
+
+
+def test_de_netwerksnit_ligt_vast() -> None:
+    """De wandeling woont in `netwerk`; `dataset` houdt er doorgeefluiken over (issue #27).
+
+    Drie dingen tegelijk, elk op de AST en niet op de tekst -- dezelfde soort bewaker als
+    `test_de_bestandssnit_ligt_vast`. Welke functies `netwerk` draagt, precies de vier.
+    Dat hij alleen op `domein` leunt, zodat de wandeling toetsbaar blijft zonder een
+    ingelezen export (dat is de hele winst van de verhuizing; een enkele import van
+    `dataset` of `graaf` maakt haar weer ongedaan). En dat de methoden op `GwswDataset`
+    **dun** zijn gebleven: één `return netwerk.<zelfde naam>(...)` en niets anders.
+
+    Die derde is de belangrijkste en hij is niet aan het antwoord te zien. Zou iemand de
+    wandeling terugkopiëren in `dataset.py` -- of er "even" een extra stap voor zetten --
+    dan blijven alle gedragstests groen terwijl er weer twee exemplaren van dezelfde
+    logica staan, precies de toestand die #27 opruimde.
+
+    Wat hier niet staat maar er wel bij hoort: de handtekeningen van de drie publieke
+    methoden liggen in `HANDTEKENINGEN` vast, en `netwerk` hoort in `cache.LADERMODULES`
+    (`tests/test_cache.py::test_de_ladermodulelijst_dekt_de_hele_leeslaag` bewaakt dat).
+    """
+    from gwsw_orox_helpers import netwerk
+
+    boom = ast.parse(inspect.getsource(netwerk))
+    definities = tuple(
+        sorted(
+            knoop.name
+            for knoop in boom.body
+            if isinstance(knoop, ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef)
+        )
+    )
+    assert definities == tuple(sorted(NETWERK_FUNCTIES))
+
+    assert _pakketimporten(inspect.getsource(netwerk)) <= NETWERK_MAG_IMPORTEREN
+
+    for naam in NETWERK_FUNCTIES:
+        methode_op_de_dataset = getattr(dataset.GwswDataset, naam, None)
+        if methode_op_de_dataset is None:  # alleen `_schakels` mag ooit verdwijnen
+            continue
+        bron = textwrap.dedent(inspect.getsource(methode_op_de_dataset))
+        (methode,) = [
+            knoop for knoop in ast.walk(ast.parse(bron)) if isinstance(knoop, ast.FunctionDef)
+        ]
+        lijf = [regel for regel in methode.body if not _is_docstring(regel)]
+        assert len(lijf) == 1, f"{naam} doet meer dan doorgeven"
+        (regel,) = lijf
+        assert isinstance(regel, ast.Return)
+        aanroep = regel.value
+        assert isinstance(aanroep, ast.Call), f"{naam} geeft niet een aanroep terug"
+        doel = aanroep.func
+        assert isinstance(doel, ast.Attribute) and isinstance(doel.value, ast.Name)
+        assert (doel.value.id, doel.attr) == ("netwerk", naam), f"{naam} wijst ergens anders heen"
 
 
 def test_de_clipsubmodules_houden_de_importrichting() -> None:

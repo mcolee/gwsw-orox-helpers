@@ -40,6 +40,7 @@ from gwsw_orox_helpers import graaf as graaf_module
 from gwsw_orox_helpers import inlezen as inlezen_module
 from gwsw_orox_helpers import klassen as klassen_module
 from gwsw_orox_helpers import namen as namen_module
+from gwsw_orox_helpers import netwerk as netwerk_module
 from gwsw_orox_helpers import ontologie as ontologie_module
 from gwsw_orox_helpers import rdfmotor as rdfmotor_module
 from gwsw_orox_helpers.dataset import GwswDataset, load_dataset, ontologiepaden
@@ -56,7 +57,8 @@ BESTAND_GRAAF = "graaf.pickle"
 
 # "De lader" is niet één bestand maar de hele leeslaag: `dataset` biedt hem aan,
 # `bestand` maakt van een TTL-bestand een gevulde index, `inlezen` leest die index uit,
-# `domein` draagt de objecten die gecachet worden,
+# `domein` draagt de objecten die gecachet worden, `netwerk` beantwoordt de netwerkvragen
+# die de checks daarna over die objecten stellen,
 # `klassen` leidt de afsluitingen af, `codering` bepaalt hoe de bytes tekst worden,
 # `geometry` hoe een GML-literaal een shapely-object wordt en `namen` welke IRI's dat
 # allemaal opzoekt. `ontologie` staat erbij sinds `load_dataset` er `kenmerk_property`
@@ -74,11 +76,18 @@ BESTAND_GRAAF = "graaf.pickle"
 # `tests/test_cache.py` parametriseert over deze tuple en bewaakt daarmee elke module erin
 # én de lijst zelf.
 #
-# `bestand` kwam er bij issue #26 bij, toen het parseerpad uit `inlezen` verhuisde. Dat is
+# `bestand` kwam er bij issue #26 bij, toen het parseerpad uit `inlezen` verhuisde, en
+# `netwerk` bij issue #27, toen de wandeling omhoog uit `dataset` verhuisde. Dat is allebei
 # verplaatste en niet gewijzigde code, maar de sleutel hasht *bestanden* en niet functies:
 # de hersnit verandert hem dus één keer en bestaande caches worden één keer opnieuw
 # opgebouwd. Dat is de bedoelde werking (zie `docs/architectuur.md`, "De cache leest mee
 # met de lader") en geen gedragswijziging -- de tweede run is weer een treffer.
+#
+# `netwerk` draait weliswaar ná het laden -- van zijn uitkomst wordt niets gepickeld -- maar
+# hij hoort hier toch, en wel om de sterkste reden die deze lijst kent: tot #27 stond die
+# code ín `dataset.py` en telde zij dus al mee. Hem er nu buiten laten zou de garantie
+# stilzwijgend versmallen op het moment dat de code alleen van bestand wisselt. Te vaak
+# herbouwen kost één lezing; te weinig herbouwen geeft stil een verouderd antwoord.
 LADERMODULES = (
     bestand_module,
     codering_module,
@@ -89,6 +98,7 @@ LADERMODULES = (
     inlezen_module,
     klassen_module,
     namen_module,
+    netwerk_module,
     ontologie_module,
     rdfmotor_module,
 )

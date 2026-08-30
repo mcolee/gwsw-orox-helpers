@@ -3,7 +3,7 @@
 Dit is het gezicht van de leeslaag: `load_dataset` leest bestand en ontologie in,
 `GwswDataset` beantwoordt de vragen die de checks erover stellen en `markeer_vulwaarden`
 zet een hoogtekenmerk binnen de vulwaardeband op "niet geregistreerd". Wat eronder ligt
-is in vijf modules verdeeld, elk met een eigen vraag:
+is in zes modules verdeeld, elk met een eigen vraag:
 
 - `domein` -- de waardeobjecten (`Node`, `Conduit`, `Aspect`, ...), zonder graaf;
 - `bestand` -- van een TTL-bestand naar een gevulde `GraafIndex`: het parsen zelf, de
@@ -11,7 +11,10 @@ is in vijf modules verdeeld, elk met een eigen vraag:
 - `inlezen` -- alles wat die gevulde graaf bevraagt om de objecten te vullen, inclusief
   de twee schrijfrichtingen van hasPart en hasAspect;
 - `klassen` -- de subklasse-afsluiting en de woordenboeken die daaruit volgen;
-- `codering` -- UTF-8 met terugval, gedeeld met de schrijflaag.
+- `codering` -- UTF-8 met terugval, gedeeld met de schrijflaag;
+- `netwerk` -- de wandeling langs hasPart omhoog en de tekenrichting van een streng,
+  als vrije functies op `nodes` en een typepredicaat (sinds issue #27 los van deze
+  module; de drie methoden hieronder zijn er doorgeefluiken naartoe).
 
 Die verdeling is intern. **Het oppervlak blijft hier**: elke naam die nlriochecker uit
 `gwsw_orox_helpers.dataset` importeert, komt hier ook naar buiten -- de klassen, de
@@ -27,8 +30,11 @@ from pathlib import Path
 
 from rdflib import RDFS, BNode, URIRef
 from rdflib.term import Node as RdfNode
-from shapely.geometry import LineString, Point
 
+# Als module en niet als losse namen (issue #27): de drie doorgeefluiken hieronder heten
+# net zo als de vrije functies waar ze naartoe wijzen, en `netwerk.klim_naar_knoop(...)`
+# in een methode `klim_naar_knoop` laat geen twijfel over waar de aanroep heen gaat.
+from gwsw_orox_helpers import netwerk
 from gwsw_orox_helpers.bestand import _gc_uit, _parse
 from gwsw_orox_helpers.bronnen import gebundelde_ontologie
 from gwsw_orox_helpers.codering import DecodeFallback
@@ -200,7 +206,12 @@ class GwswDataset:
     # resolven dan de volle export (de wandeling ziet minder knopen), en een via
     # `replace()` gedeelde dict zou antwoorden tussen de twee laten lekken.
     # `cache._schrijf` slaat dit veld bij het picklen over.
-    _resolved_nodes: dict[tuple[str, tuple[str, ...]], str | None] = field(
+    #
+    # De wandeling zelf woont sinds issue #27 in `netwerk` en de memo *niet*: die hoort
+    # bij de dataset waarop geklommen wordt, precies om de reden hierboven. Het
+    # doorgeefluik geeft hem als argument mee; de vorm staat als `netwerk.Knoopmemo`
+    # één keer opgeschreven.
+    _resolved_nodes: netwerk.Knoopmemo = field(
         default_factory=dict, init=False, repr=False, compare=False
     )
     # Memo voor `types_of`, volgens hetzelfde patroon als `_resolved_nodes` hierboven;
@@ -356,61 +367,38 @@ class GwswDataset:
         horen in de sleutel -- in de praktijk zijn ze constant binnen een run, maar
         een memo die dat stilzwijgend aanneemt zou bij een afwijkende aanroep het
         verkeerde antwoord teruggeven.
+
+        Doorgeefluik naar `netwerk.resolve_network_node`, met de memo van *deze*
+        instantie erbij: `_resolved_nodes` blijft op de dataclass staan (zie het veld),
+        zodat een `replace()`-afgeleide met een lege memo begint.
         """
-        if uri is None:
-            return None
-        sleutel = (uri, tuple(roots))
-        if sleutel not in self._resolved_nodes:
-            self._resolved_nodes[sleutel] = self.klim_naar_knoop(uri, roots)[0]
-        return self._resolved_nodes[sleutel]
+        return netwerk.resolve_network_node(uri, roots, self.nodes, self.is_a, self._resolved_nodes)
 
     def klim_naar_knoop(
         self, uri: str | None, roots: list[str]
     ) -> tuple[str | None, frozenset[str]]:
         """De knoop boven dit object, plus de knopen die de wandeling erheen tegenkwam.
 
-        In de breedte en niet langs een enkel pad: een onderdeel kan meer dan een
-        houder hebben (`Node.parents`), en de eerste die rdflib oplevert hoeft niet
-        de houder te zijn die op een knoop uitkomt. Een enkelpadswandeling zou dan
-        leeg teruggeven terwijl er wel degelijk een put boven hangt, en welke houder
-        "de eerste" is hangt af van de schrijfvolgorde van de export.
-        `nulbevinding._Joiner` loopt om diezelfde reden al in de breedte omhoog.
-
-        Bij gelijke diepte wint de kleinste URI: willekeurig maar deterministisch,
-        en dat is wat telt -- twee runs op dezelfde bestanden moeten dezelfde
-        meldingen opleveren.
-
-        De tweede uitkomst is de verzameling bezochte schakels die zelf in `nodes`
-        staan; `afbakening` heeft die nodig om ze in de analyseset te houden, anders
-        loopt dezelfde wandeling op de uitgedunde dataset dood. Bewust ruimer dan het
-        gevonden pad: het zijn alle bezochte knopen, dus ook broers op de laag waar de
-        knoop gevonden werd en takken die doodliepen. Met enkelvoudige houders vallen
-        de twee samen; met meervoudige houders is dit een superset. Dat is de veilige
-        kant -- de lezer gebruikt hem om de wandeling herhaalbaar te houden op een
-        uitgedunde dataset, en een schakel te veel bewaren kost hoogstens ruimte,
-        terwijl er een te weinig de wandeling laat doodlopen.
+        Doorgeefluik naar `netwerk.klim_naar_knoop`, dat de wandeling zelf beschrijft:
+        in de breedte, deterministisch bij gelijke diepte, en met de bezochte schakels
+        als tweede uitkomst. Wat de wandeling nodig heeft gaat hier mee -- de knopen en
+        het typepredicaat -- en verder niets.
         """
-        if uri is None:
-            return None, frozenset()
-        gezien = {uri}
-        laag = [uri]
-        while laag:
-            for huidig in laag:
-                if any(self.is_a(huidig, root) for root in roots):
-                    return huidig, self._schakels(gezien)
-            hoger: set[str] = set()
-            for huidig in laag:
-                node = self.nodes.get(huidig)
-                if node is not None:
-                    hoger.update(node.parents)
-            volgende = sorted(hoger - gezien)
-            gezien.update(volgende)
-            laag = volgende
-        return None, self._schakels(gezien)
+        return netwerk.klim_naar_knoop(uri, roots, self.nodes, self.is_a)
 
     def _schakels(self, bezocht: set[str]) -> frozenset[str]:
-        """De bezochte URI's die een knoop zijn; de rest hoort niet in een analyseset."""
-        return frozenset(uri for uri in bezocht if uri in self.nodes)
+        """De bezochte URI's die een knoop zijn; de rest hoort niet in een analyseset.
+
+        Doorgeefluik naar `netwerk._schakels`, en het enige van de vier dat binnen deze
+        package door niemand meer aangeroepen wordt: `klim_naar_knoop` roept sinds issue
+        #27 de vrije vorm aan. Hij blijft staan omdat #27 een *additieve* wijziging is en
+        een methode weghalen een aftrekkende -- niet omdat een afnemer hem zou kunnen
+        aanroepen, want een naam met een underscore is geen belofte (zie
+        `docs/architectuur.md`) en nlriochecker roept hem nergens aan. Schrappen is
+        daarmee een auteursbeslissing van één regel: de bewaker
+        `test_de_netwerksnit_ligt_vast` slaat een methode die er niet meer is over.
+        """
+        return netwerk._schakels(bezocht, self.nodes)
 
     def richting_van_geometrie(
         self, conduit: Conduit, roots: list[str]
@@ -423,25 +411,14 @@ class GwswDataset:
         putten, of putten zonder punt. TOP-020 en de kaartlaag met richtingspijlen
         lezen allebei deze methode, zodat het kaartbeeld en de bevinding niet uit
         elkaar kunnen lopen.
+
+        Doorgeefluik naar `netwerk.richting_van_geometrie`, met dezelfde memo als
+        `resolve_network_node` hierboven: de twee koppelingen van de streng worden er
+        net zo goed langs herleid en horen dezelfde antwoorden te krijgen.
         """
-        if conduit.line is None or conduit.line.is_empty:
-            return None
-        if not isinstance(conduit.line, LineString):
-            # Een GML-literaal in de leidinggeometrie hoeft geen lijn te zijn (zie
-            # TOP-016 en `checks.meetkunde.coords_of`); zonder lijn is er geen
-            # tekenrichting om te vergelijken.
-            return None
-        begin = self.nodes.get(self.resolve_network_node(conduit.start_node, roots) or "")
-        eind = self.nodes.get(self.resolve_network_node(conduit.end_node, roots) or "")
-        if begin is None or eind is None or begin.point is None or eind.point is None:
-            return None
-        if begin.uri == eind.uri:
-            return None
-        punten = list(conduit.line.coords)
-        eerste, laatste = Point(punten[0][:2]), Point(punten[-1][:2])
-        juist = eerste.distance(begin.point) + laatste.distance(eind.point)
-        omgekeerd = eerste.distance(eind.point) + laatste.distance(begin.point)
-        return omgekeerd < juist, begin, eind
+        return netwerk.richting_van_geometrie(
+            conduit, roots, self.nodes, self.is_a, self._resolved_nodes
+        )
 
     def closure(self, root: str) -> frozenset[str]:
         """De klasse zelf plus al haar subklassen, als volledige URI's."""

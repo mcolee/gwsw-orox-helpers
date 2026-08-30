@@ -1,6 +1,25 @@
 # Changelog
 
 ## [Unreleased]
+- Het parseerpad staat los van de domeinlezers: nieuwe module `bestand` (issue #26,
+  modulariteit; **additief** — geen bevroren contract geraakt). `_parse`, `_decode`,
+  `_quiet_rdflib` en `_gc_uit` verhuizen ongewijzigd van `inlezen` naar
+  `gwsw_orox_helpers.bestand`; alle vier blijven privé en geen enkele naam die
+  nlriochecker importeert verandert van plaats, handtekening of gedrag (foutteksten
+  inbegrepen). De verhuizing is **puur**: per functie AST-gelijk aan bea96a7, en de 31
+  moduleniveau-symbolen van het oude `inlezen` zijn nu 27 + 4 met nul verschillen. Wat
+  het oplevert is dat de twee clusters die alleen de `GraafIndex` deelden ook echt los
+  staan — `inlezen` kent sindsdien geen paden, bytes of coderingen meer (zijn imports
+  gaan van acht naar vijf) en is te testen zonder een echt bestand, terwijl `bestand`
+  alleen op `codering`/`errors`/`graaf`/`rdfmotor` leunt. Er loopt met opzet **geen** rand
+  tussen de twee: `inlezen` her-importeert niets, `dataset` haalt `_parse` en `_gc_uit`
+  rechtstreeks bij `bestand`. `tests/test_publieke_api.py::test_de_bestandssnit_ligt_vast`
+  legt de vier namen, de toegestane imports en die ontbrekende rand vast, en
+  `docs/architectuur.md` draagt de nieuwe rij in de lagentabel. `bestand` staat in
+  `cache.LADERMODULES`, zoals elke leeslaagmodule: de sleutel hasht bestanden en niet
+  functies, dus **bestaande caches worden één keer opnieuw opgebouwd** — de bedoelde
+  werking van een hersnit en geen gedragswijziging. Geen perf-claim; gepaard nagemeten op
+  de De Wolden- en Hoogeveen-export lag `load_dataset` binnen de ruis van bea76a7.
 - `cache.LuieGraaf` draagt het leescontract expliciet (issue #34, typeveiligheid;
   **additief** — geen bevroren contract geraakt). De vijf bewerkingen die `GraafIndex`
   aanbiedt (`objects`, `subjects`, `value`, `subject_objects`, `heeft_subject`) staan nu

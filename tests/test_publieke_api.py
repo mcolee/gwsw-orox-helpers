@@ -65,6 +65,16 @@ ADRES = re.compile(r" object at 0x[0-9a-f]+>")
 # komt langs `test_de_clipsnit_ligt_vast` en `test_de_clipsubmodules_houden_de_importrichting`.
 CLIPLAGEN = ("termen", "grenzen", "knip", "plan", "stroom", "merge", "orkest")
 
+# De snit van de leeskant (issue #26): `bestand` draagt het parseerpad -- IO, codering en
+# de procesbrede GC -- en `inlezen` houdt de domeinlezers, die uitsluitend een gevulde
+# `GraafIndex` consumeren. Alle vier de namen zijn privé; ze staan hier niet als contract
+# maar als *snit*, net als `CLIPLAGEN` hierboven.
+BESTANDSNAMEN = ("_decode", "_gc_uit", "_parse", "_quiet_rdflib")
+
+# De modules die `bestand` mag zien. Hij ligt onder `inlezen` en weet dus niets van de
+# lezers, van `dataset` of van `cache`; wat hij nodig heeft zijn de bladeren eronder.
+BESTAND_MAG_IMPORTEREN = frozenset({"codering", "errors", "graaf", "rdfmotor"})
+
 # De enige modules van de package die de cliplaag mag importeren. `dataset`, `graaf`,
 # `inlezen`, `klassen`, `ontologie` en `cache` staan er nadrukkelijk niet bij: de clip heeft
 # een eigen pad naast de leeslaag en bouwt geen domeinmodel. `rdfmotor` staat er evenmin
@@ -439,6 +449,51 @@ def test_de_clipsnit_ligt_vast() -> None:
         if isinstance(knoop, ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef)
     ]
     assert definities == [], f"{definities} horen in een fase te staan, niet in __init__.py"
+
+
+def test_de_bestandssnit_ligt_vast() -> None:
+    """Het parseerpad staat in `bestand`, de domeinlezers in `inlezen` (issue #26).
+
+    Dezelfde soort bewaker als `test_de_clipsnit_ligt_vast`, en om dezelfde reden: de
+    twee clusters in `inlezen` deelden alleen de `GraafIndex` en zijn nu gescheiden, maar
+    zonder test is dat een zin in een docstring en belet niets dat de volgende lezer weer
+    een `path.read_bytes()` naast een kenmerklezer zet.
+
+    Drie dingen tegelijk, elk op de AST en niet op de tekst. Welke functies `bestand`
+    draagt -- precies de vier, niet meer -- zodat een domeinlezer er niet stilzwijgend bij
+    komt te staan. Dat `inlezen` ze niet meer kent, ook niet als her-import: hij raakt geen
+    bestand meer aan, en dat is de winst van de snit. En de importrichting: `bestand` ligt
+    *onder* `inlezen` (hij mag op `codering`/`errors`/`graaf`/`rdfmotor` leunen) en
+    `inlezen` wijst niet terug naar beneden. Zou een van die twee randen omdraaien, dan zou
+    het testen van de lezers weer een echt bestand vergen.
+
+    Wat hier niet staat maar er wel bij hoort: `bestand` hoort in `cache.LADERMODULES`,
+    anders blijft een cache na een wijziging aan het parseerpad de oude lezing teruggeven.
+    `tests/test_cache.py::test_de_ladermodulelijst_dekt_de_hele_leeslaag` is daar de
+    bewaker van -- die eist van elke module van de package dat hij gehasht of met een reden
+    uitgezonderd is, dus een tweede assert hier zou dezelfde regel nog eens zijn.
+    """
+    from gwsw_orox_helpers import bestand, inlezen
+
+    boom = ast.parse(inspect.getsource(bestand))
+    definities = tuple(
+        sorted(
+            knoop.name
+            for knoop in boom.body
+            if isinstance(knoop, ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef)
+        )
+    )
+    assert definities == BESTANDSNAMEN
+
+    achtergebleven = sorted(naam for naam in BESTANDSNAMEN if naam in vars(inlezen))
+    assert achtergebleven == [], (
+        f"{achtergebleven} hoort in `bestand` te wonen; `inlezen` leest geen bestanden meer"
+    )
+
+    assert _pakketimporten(inspect.getsource(bestand)) <= BESTAND_MAG_IMPORTEREN
+    assert "bestand" not in _pakketimporten(inspect.getsource(inlezen)), (
+        "`bestand` ligt onder `inlezen`; die rand hoort niet terug te wijzen"
+    )
 
 
 def test_de_clipsubmodules_houden_de_importrichting() -> None:

@@ -1,7 +1,7 @@
 """De ene plek waar deze package pyoxigraph aanroept: ontleden, serialiseren, versiepoort.
 
 pyoxigraph is de motor onder allebei de paden door deze package -- de leesweg
-(`inlezen._parse`, die de quadstroom in een `GraafIndex` giet) en de schrijfweg
+(`bestand._parse`, die de quadstroom in een `GraafIndex` giet) en de schrijfweg
 (`schrijven.lees_orox` naar `schrijf_orox_quads`, die de stroom rechtstreeks doorgeeft).
 Die twee paden blijven verschillend, want ze stellen verschillende vragen (zie
 `docs/architectuur.md`); wat ze deelden was de **aanroep** van de motor, en die stond tot
@@ -27,7 +27,7 @@ hij kan omzeild worden (`pip install --no-deps`, een conda-omgeving, een handmat
 upgrade in een bestaande venv) en dan is er niets meer dat waarschuwt. De poort hieronder
 is die waarschuwing. Ze staat **bij het importeren van deze module en niet per aanroep**,
 om twee redenen. Ze kost dan niets in de hete lus. En ze valt vóór het eerste bestand:
-een fout bij de aanroep zou in de `except Exception` van `inlezen._parse` belanden en er
+een fout bij de aanroep zou in de `except Exception` van `bestand._parse` belanden en er
 als "geen geldige Turtle" uitkomen -- precies de misleiding die deze module wegneemt.
 `ONDERSTEUNDE_REEKS` en de cap worden aan elkaar geknoopt door
 `test_de_reeks_is_dezelfde_als_de_cap_in_pyproject`, zodat ze niet uit elkaar lopen.
@@ -104,7 +104,7 @@ def ontleed_turtle(bron: bytes | str) -> pyoxigraph.QuadParser:
     naast de stroom ook `parser.prefixes` nodig, dat pas gevuld is als de kop gelezen is.
 
     Er wordt hier **niets afgevangen**: een syntaxfout onderweg komt er als de fout van de
-    motor uit. `inlezen._parse` en `schrijven._gecontroleerd` maken daar hun eigen
+    motor uit. `bestand._parse` en `schrijven._gecontroleerd` maken daar hun eigen
     `DatasetError` van, elk met de formulering die hun afnemers kennen.
     """
     return pyoxigraph.parse(bron, format=_TURTLE)

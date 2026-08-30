@@ -3,7 +3,7 @@
 Twee dingen worden hier bewaakt. Ten eerste dat de adapter een **doorgeefluik** is:
 dezelfde quads, dezelfde bytes en dezelfde uitzonderingen als een rechtstreekse
 `pyoxigraph.parse` / `pyoxigraph.serialize`. Zou hij onderweg iets omzetten of een fout
-opvangen, dan verandert het gedrag van `inlezen._parse`, `schrijven.lees_orox` en
+opvangen, dan verandert het gedrag van `bestand._parse`, `schrijven.lees_orox` en
 `schrijf_orox_quads` -- en die drie dragen contractvaste foutmeldingen.
 
 Ten tweede de versiepoort. De cap in `pyproject.toml` (`pyoxigraph>=0.5,<0.6`) houdt een
@@ -53,7 +53,7 @@ def _genormaliseerd(quads: Iterable[pyoxigraph.Quad]) -> list[str]:
 
 
 def test_ontleed_turtle_uit_bytes_geeft_dezelfde_quads() -> None:
-    """De bytesweg: wat `inlezen._parse` doet met de al gedecodeerde tekst."""
+    """De bytesweg: wat `bestand._parse` doet met de al gedecodeerde tekst."""
     rauw = MINI.read_bytes()
     verwacht = _genormaliseerd(pyoxigraph.parse(rauw, format=pyoxigraph.RdfFormat.TURTLE))
 
@@ -136,7 +136,7 @@ def test_serialiseer_turtle_geeft_een_fout_uit_de_stroom_ongemoeid_door(tmp_path
 def test_een_syntaxfout_komt_als_pyoxigraph_fout_uit_de_adapter(tmp_path: Path) -> None:
     """De adapter vertaalt parsefouten niet; dat doen `inlezen` en `schrijven` zelf.
 
-    Zou hij hier al een `DatasetError` maken, dan zou `inlezen._parse` die in zijn
+    Zou hij hier al een `DatasetError` maken, dan zou `bestand._parse` die in zijn
     `except Exception` opnieuw inpakken ("geen geldige Turtle (...)") en stond de
     boodschap er twee keer in.
     """
@@ -228,7 +228,7 @@ def test_de_versiepoort_staat_aan_bij_het_importeren(monkeypatch: pytest.MonkeyP
 
     Bij import en niet per aanroep, om twee redenen. Het kost dan niets in de hete lus,
     en de fout valt vóór het eerste bestand: aan de aanroepkant zou hij in de
-    `except Exception` van `inlezen._parse` belanden en als "geen geldige Turtle"
+    `except Exception` van `bestand._parse` belanden en als "geen geldige Turtle"
     naar buiten komen -- precies de misleiding die dit issue wegneemt.
     """
     monkeypatch.setattr(pyoxigraph, "__version__", "0.6.0")

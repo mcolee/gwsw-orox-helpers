@@ -23,16 +23,26 @@ codering   -> errors
 rdfmotor   -> errors
 ontologie  -> graaf, namen
 klassen    -> graaf, namen, ontologie
-inlezen    -> codering, domein, errors, geometry, graaf, klassen, namen, rdfmotor
-dataset    -> bronnen, codering, domein, errors, geometry, graaf, inlezen, klassen,
-              namen, voortgang
-cache      -> codering, dataset, domein, geometry, graaf, inlezen, klassen, namen,
-              ontologie, rdfmotor, voortgang
+bestand    -> codering, errors, graaf, rdfmotor
+inlezen    -> domein, geometry, graaf, klassen, namen
+dataset    -> bestand, bronnen, codering, domein, errors, geometry, graaf, inlezen,
+              klassen, namen, voortgang
+cache      -> bestand, codering, dataset, domein, geometry, graaf, inlezen, klassen,
+              namen, ontologie, rdfmotor, voortgang
 
 schrijven  -> codering, errors, namen, rdfmotor
 clip/      -> errors, geometry, namen, schrijven   (een package; zie hieronder)
 __init__   -> clip, schrijven
 ```
+
+`bestand` en `inlezen` zijn sinds issue #26 twee rijen en niet één. Ze deelden alleen de
+`GraafIndex`: `bestand` máákt er een (de bytes van schijf, de codering, de parser en de
+procesbrede GC eromheen), `inlezen` bevráágt hem (hasPart/hasAspect, de kenmerklezers,
+`_read_nodes` en `_read_conduits`). Er loopt daarom géén rand tussen de twee -- `inlezen`
+importeert `bestand` niet en her-exporteert hem ook niet; `dataset` haalt `_parse` en
+`_gc_uit` rechtstreeks bij `bestand`. Dat is wat het testen van de lezers van echte
+bestanden losmaakt, en `test_de_bestandssnit_ligt_vast` in `tests/test_publieke_api.py`
+legt de vier namen, de toegestane imports en die ontbrekende rand vast.
 
 `rdfmotor` ligt naast `codering`: allebei bladeren op `errors` na, en allebei door de
 leesweg én de schrijfweg gebruikt. De cliplaag komt er niet langs -- die parseert en
@@ -71,7 +81,7 @@ er niets: `from gwsw_orox_helpers.clip import clip_orox, merge_orox` doet wat he
 
 Twee dingen die de tekening makkelijk verkeerd om zet. `domein` is een blad: de
 waardeobjecten rekenen alleen met wat ze zelf dragen, dus ze importeren niets uit de
-package -- `inlezen` is degene die ze *vult* en dus naar `domein` wijst, samen met de zes
+package -- `inlezen` is degene die ze *vult* en dus naar `domein` wijst, samen met de vier
 andere modules die hij nodig heeft. En de cliplaag hangt aan de schrijflaag en niet
 andersom: `clip` leest en schrijft met `schrijven.lees_orox` / `schrijf_orox_quads`, en
 `schrijven` weet van `clip` niets. Dat `cache` zoveel randen heeft, is geen verstrengeling
@@ -92,7 +102,8 @@ Elke module beantwoordt één vraag; in deze volgorde heeft niets ooit iets van 
 | `ontologie` | Wat zegt een `owl:Restriction` over een klasse of kenmerk? (op allebei de graafvormen; zie hieronder) |
 | `klassen` | Wat volgt daaruit? (subklasse-afsluiting, `kenmerk_property`, functies) |
 | `domein` | Wat *is* een knoop of streng? (waardeobjecten, zonder graaf) |
-| `inlezen` | Hoe vul je die objecten uit een graaf? (parsen, hasPart/hasAspect, lezers) |
+| `bestand` | Hoe wordt een TTL-bestand een gevulde `GraafIndex`? (bytes, codering, parse, GC) |
+| `inlezen` | Hoe vul je die objecten uit een gevulde graaf? (hasPart/hasAspect, lezers) |
 | `dataset` | Wat kun je een ingelezen dataset vragen? (`GwswDataset`, `load_dataset`, `lees_ontologie`) |
 | `cache` | Hoe sla je die lezing over? (pickle, sleutel op inhoud én broncode) |
 | `schrijven` | Hoe komt een quadstroom er als OroX-Turtle weer uit? |
@@ -174,18 +185,18 @@ iets wat een agent er zelf bij doet.
 
 Wat er sinds issue #33 wél is, is de andere helft van datzelfde probleem: de afnemer
 hoefde die index niet op de dataset te krijgen, hij moest hem alleen kúnnen bouwen zonder
-`inlezen._parse` (privé) na te bootsen. `dataset.lees_ontologie()` is die weg; zie
+`bestand._parse` (privé) na te bootsen. `dataset.lees_ontologie()` is die weg; zie
 [`lees_ontologie` naast `load_dataset`](#lees_ontologie-naast-load_dataset) hieronder.
 
 ## Twee paden door pyoxigraph, en dat blijft zo
 
 Er zijn twee wegen van een TTL-bestand naar triples, en ze zijn met opzet verschillend:
 
-- **De leesweg** (`inlezen._parse`) decodeert het bestand, parseert het en giet de quads
+- **De leesweg** (`bestand._parse`) decodeert het bestand, parseert het en giet de quads
   in een `GraafIndex` met rdflib-termen. Wie leest, moet daarna kunnen opzoeken; die
   index kost tijd en geheugen en is precies wat de checks nodig hebben. Over die hele
   lezing -- ook over de klassenafleiding en de objectopbouw ná het vullen van de index --
-  ligt de cyclische GC van het proces stil (`inlezen._gc_uit`, aangeroepen vanuit
+  ligt de cyclische GC van het proces stil (`bestand._gc_uit`, aangeroepen vanuit
   `dataset.load_dataset`, dat het neveneffect in zijn docstring toezegt en de oude stand
   in een `finally` herstelt).
 - **De schrijfweg** (`schrijven.lees_orox` → `schrijf_orox_quads`) laat de quads van de
@@ -200,10 +211,10 @@ die anders uit elkaar loopt, en die staat één keer:
 
 | Gedeelde kennis | Woont in | Gelezen door |
 |---|---|---|
-| De aanroep van de motor zelf: `pyoxigraph.parse` en `pyoxigraph.serialize` op Turtle, plus de reeks pyoxigraph-versies waarop de package getoetst is | `rdfmotor` | `inlezen._parse` (bytes), `schrijven.lees_orox` (een pad, of tekst bij een terugvalcodering) en `schrijven.schrijf_orox_quads` (de serializer) |
+| De aanroep van de motor zelf: `pyoxigraph.parse` en `pyoxigraph.serialize` op Turtle, plus de reeks pyoxigraph-versies waarop de package getoetst is | `rdfmotor` | `bestand._parse` (bytes), `schrijven.lees_orox` (een pad, of tekst bij een terugvalcodering) en `schrijven.schrijf_orox_quads` (de serializer) |
 | De IRI's: `GWSW` en de naamruimten, `hasAspect`/`hasPart`/`hasConnection`, `geo:gmlLiteral` | `namen` (tekst) | `inlezen` (als `URIRef`), `clip.termen` (als `NamedNode`), `clip.plan`/`clip.stroom`/`clip.merge` (als tekst), `schrijven` (prefixkop), `graaf` (`xsd:string`), `ontologie`, `klassen` (`GWSW`, voor de korte namen), `dataset` (`GWSW`, en het exporteert hem) |
 | De prefixkop van een OroX-export | `schrijven.STANDAARD_PREFIXEN`, opgebouwd uit `namen` | `schrijven`, `clip.orkest` (krijgt ze via `lees_orox` en vult `knip:` aan) |
-| UTF-8 met terugvalcodering, inclusief beide foutmeldingen | `codering.decodeer` | `inlezen._decode`, `schrijven._gedecodeerd` |
+| UTF-8 met terugvalcodering, inclusief beide foutmeldingen | `codering.decodeer` | `bestand._decode`, `schrijven._gedecodeerd` |
 | Het verslag van zo'n terugval (`DecodeFallback`) | `codering.terugvalverslag` | alleen `inlezen` |
 | De GML-lezers | `geometry` | `inlezen` (`parse_gml_met_z`), `clip.knip`, `clip.plan`, `clip.merge` (`parse_gml` / `parse_gml_z`), `dataset` (doorgeefluik) |
 | De tekstkant van diezelfde literaal: de coordinatenlijst als tokens, het terugleggen ervan in het omhulsel, en hoeveel getallen er op een punt gaan (`coordinaattokens`, `vervang_coordinaten`, `tokens_per_punt`) | `geometry` | `clip.knip` (de knip), `clip.stroom` (het stuk wegschrijven), `clip.merge` (de omkering) |
@@ -227,7 +238,7 @@ ondersteunde versiereeks: die staat **naast** de cap in `pyproject.toml`
 poort vangt een omzeilde cap (`pip install --no-deps`, een conda-omgeving, een
 handmatige upgrade) met een leesbare `DatasetError`. De poort valt **bij het importeren
 van `rdfmotor`, één keer**: dat kost niets in de hete lus, en aan de aanroepkant zou de
-fout in de `except Exception` van `inlezen._parse` belanden en er als "geen geldige
+fout in de `except Exception` van `bestand._parse` belanden en er als "geen geldige
 Turtle" uitkomen. Beide plekken worden aan elkaar geknoopt door
 `test_de_reeks_is_dezelfde_als_de_cap_in_pyproject`.
 
@@ -317,7 +328,7 @@ geen belofte aan de afnemer — ook waar hij een modulegrens oversteekt, zoals
 levert de ontologie-`GraafIndex` waarop de lezers van `ontologie` werken — dezelfde index
 die `load_dataset` intern als `restrictiebron` opbouwt en daarna weggooit. Zonder haar
 moest een afnemer die `facetbereik` of `kenmerkbereik` op een geladen dataset wilde
-gebruiken de ontologie zelf parsen, en de enige weg daarheen (`inlezen._parse`) is privé.
+gebruiken de ontologie zelf parsen, en de enige weg daarheen (`bestand._parse`) is privé.
 De padkeuze is die van `ontologiepaden` en dus letterlijk dezelfde als bij de lader: `None`
 is de gebundelde GWSW 1.6 (63.614 triples, circa 0,4 s), een lege lijst is de expliciete
 keuze om zonder ontologie te lezen, en meerdere bestanden stapelen in volgorde in één
@@ -325,7 +336,7 @@ index.
 
 **De snit zit onder de fase, niet erop.** Beide functies lopen langs één privé-hulp,
 `_stapel_ontologie(paden, fallback_encoding, voortgang)`: de lus die per bestand
-`inlezen._parse(pad, ..., index=...)` doet en daarna een voortgangsstap met de
+`bestand._parse(pad, ..., index=...)` doet en daarna een voortgangsstap met de
 bestandsnaam meldt. Die hulp opent zelf geen fase, en dat is precies de reden dat hij
 bestaat. `load_dataset` telt de ontologiebestanden mee in zijn eigen fase `"TTL laden"`
 met `1 + len(paden)` stappen (de dataset eerst), en die voortgang is bevroren; zou
@@ -338,7 +349,7 @@ bestand. `test_de_voortgang_van_load_dataset_blijft_een_enkele_ttl_fase` in
 `_subclass_closure` en houdt de twee wegen op tripelinhoud gelijk, zodat "hetzelfde
 parseerpad" geen belofte in een docstring blijft.
 
-De GC ligt in allebei de gevallen stil (`inlezen._gc_uit`, hersteld in een `finally`), en
+De GC ligt in allebei de gevallen stil (`bestand._gc_uit`, hersteld in een `finally`), en
 de fout bij een onleesbaar of ongeldig bestand is dezelfde `DatasetError` als bij de
 lader. Twee kleinere keuzes eromheen, allebei uit de review van #33 en allebei tegen de
 intuïtie in:
@@ -361,10 +372,11 @@ Wat er níét bij hoort: een veld op `GwswDataset` — zie de vorige sectie.
 ## De cache leest mee met de lader
 
 `cache.cachesleutel` hasht niet alleen de invoerbestanden en de bibliotheekversies maar
-ook **de broncode van de hele leeslaag**: `cache.LADERMODULES` -- `dataset`, `inlezen`,
-`domein`, `klassen`, `codering`, `namen`, `graaf`, `geometry`, `ontologie` en `rdfmotor`.
+ook **de broncode van de hele leeslaag**: `cache.LADERMODULES` -- `dataset`, `bestand`,
+`inlezen`, `domein`, `klassen`, `codering`, `namen`, `graaf`, `geometry`, `ontologie` en
+`rdfmotor`.
 Dat is de garantie dat een cache nooit achterloopt op een wijziging in de lezing.
-`rdfmotor` staat erbij ook al deelt de schrijfweg hem: `inlezen._parse` haalt zijn quads
+`rdfmotor` staat erbij ook al deelt de schrijfweg hem: `bestand._parse` haalt zijn quads
 daarlangs, dus een andere aanroep van de motor is een andere lezing. Wie de leeslaag
 opnieuw indeelt, moet de nieuwe modules aan die lijst toevoegen: een vergeten module
 levert geen fout op maar een cache die na een wijziging de oude lezing blijft teruggeven.
@@ -376,7 +388,9 @@ in `clip/`; ze staan er alle acht met naam bij, want een nieuwe fase hoort zich 
 goed te melden als een nieuwe module in de wortel.
 
 Verplaatste code verandert die sleutel, dus na een hersnit worden bestaande caches één
-keer opnieuw opgebouwd. Dat is de bedoelde werking en geen gedragswijziging. `cache` zelf
+keer opnieuw opgebouwd. Dat is de bedoelde werking en geen gedragswijziging -- de sleutel
+hasht *bestanden* en niet functies, dus ook een AST-gelijke verhuizing als die van issue
+#26 (`bestand` erbij) rekent één keer af en is daarna weer een treffer. `cache` zelf
 staat er nadrukkelijk **niet** in — de sleutel kan zichzelf niet hashen — dus een
 wijziging aan deze module laat bestaande caches met rust; `LADER_VERSIE` is de knop om
 dat alsnog af te dwingen.

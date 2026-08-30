@@ -3,11 +3,13 @@
 Dit is het gezicht van de leeslaag: `load_dataset` leest bestand en ontologie in,
 `GwswDataset` beantwoordt de vragen die de checks erover stellen en `markeer_vulwaarden`
 zet een hoogtekenmerk binnen de vulwaardeband op "niet geregistreerd". Wat eronder ligt
-is in vier modules verdeeld, elk met een eigen vraag:
+is in vijf modules verdeeld, elk met een eigen vraag:
 
 - `domein` -- de waardeobjecten (`Node`, `Conduit`, `Aspect`, ...), zonder graaf;
-- `inlezen` -- alles wat de graaf aanraakt om die objecten te vullen, inclusief het
-  parsen zelf en de twee schrijfrichtingen van hasPart en hasAspect;
+- `bestand` -- van een TTL-bestand naar een gevulde `GraafIndex`: het parsen zelf, de
+  codering en de GC eromheen (sinds issue #26 los van `inlezen`);
+- `inlezen` -- alles wat die gevulde graaf bevraagt om de objecten te vullen, inclusief
+  de twee schrijfrichtingen van hasPart en hasAspect;
 - `klassen` -- de subklasse-afsluiting en de woordenboeken die daaruit volgen;
 - `codering` -- UTF-8 met terugval, gedeeld met de schrijflaag.
 
@@ -27,6 +29,7 @@ from rdflib import RDFS, BNode, URIRef
 from rdflib.term import Node as RdfNode
 from shapely.geometry import LineString, Point
 
+from gwsw_orox_helpers.bestand import _gc_uit, _parse
 from gwsw_orox_helpers.bronnen import gebundelde_ontologie
 from gwsw_orox_helpers.codering import DecodeFallback
 from gwsw_orox_helpers.domein import (
@@ -76,8 +79,6 @@ from gwsw_orox_helpers.inlezen import (
     KLASSE_WIJZE_VAN_INWINNING,
     KLASSEN_BEGINPUNT,
     KLASSEN_EINDPUNT,
-    _gc_uit,
-    _parse,
     _read_aspects,
     _read_conduits,
     _read_nodes,
@@ -650,10 +651,12 @@ def _stapel_ontologie(
     fase gebeuren, dan zou `load_dataset` er een tweede fase bij krijgen en dus een
     andere voortgang tonen dan voorheen -- en die is bevroren (`CLAUDE.md`, Harde
     regels). Wat hier staat is precies de lus die `load_dataset` altijd al had: per
-    bestand een `_parse` in de gedeelde index en daarna een `stap` met de bestandsnaam.
+    bestand een `bestand._parse` in de gedeelde index en daarna een `stap` met de
+    bestandsnaam.
 
     Ook de GC blijft buiten deze functie: allebei de aanroepers zetten hem zelf stil
-    (`_gc_uit`), `load_dataset` om zijn hele leesblok en `lees_ontologie` om deze lus.
+    (`bestand._gc_uit`), `load_dataset` om zijn hele leesblok en `lees_ontologie` om deze
+    lus.
     """
     ontology = GraafIndex()
     for pad in paden:
@@ -700,7 +703,7 @@ def lees_ontologie(
 
     Hetzelfde neveneffect als bij `load_dataset`, en om dezelfde reden: tijdens het lezen
     ligt de cyclische garbage collector van het hele proces stil en komt hij daarna terug,
-    ook na een fout (zie `inlezen._gc_uit`).
+    ook na een fout (zie `bestand._gc_uit`).
     """
     ontologie_paden = ontologiepaden(paden)
     voortgang.start_fase("Ontologie laden", len(ontologie_paden))
@@ -735,17 +738,17 @@ def load_dataset(
 
     Eén neveneffect om te weten: tijdens de lezing ligt de cyclische garbage collector van
     het hele proces stil en komt hij daarna terug, ook na een fout -- de referentietelling
-    blijft aan, dus wat vrijkomt gaat nog altijd meteen weg (zie `inlezen._gc_uit`).
+    blijft aan, dus wat vrijkomt gaat nog altijd meteen weg (zie `bestand._gc_uit`).
     """
     dataset_path = Path(dataset_path)
     ontologie_paden = ontologiepaden(ontology_paths)
     voortgang.start_fase("TTL laden", 1 + len(ontologie_paden))
-    # Om het hele leesblok en niet alleen om het vullen van de index (`_parse`): ook de
-    # objectopbouw hieronder maakt miljoenen dicts, tuples en dataclasses aan, en bij elke
-    # paar duizend daarvan zou de GC opnieuw door de al gevulde index lopen. Er ontstaat
-    # per constructie geen kringetje -- de index, de termen en de waardeobjecten wijzen
-    # alleen naar beneden. De binnenste `_gc_uit` in `_parse` blijft staan en is
-    # neveneffectvrij: die kijkt naar `gc.isenabled()` en laat deze stand met rust.
+    # Om het hele leesblok en niet alleen om het vullen van de index (`bestand._parse`):
+    # ook de objectopbouw hieronder maakt miljoenen dicts, tuples en dataclasses aan, en
+    # bij elke paar duizend daarvan zou de GC opnieuw door de al gevulde index lopen. Er
+    # ontstaat per constructie geen kringetje -- de index, de termen en de waardeobjecten
+    # wijzen alleen naar beneden. De binnenste `_gc_uit` in `bestand._parse` blijft staan
+    # en is neveneffectvrij: die kijkt naar `gc.isenabled()` en laat deze stand met rust.
     with _gc_uit():
         try:
             graph, fallback = _parse(dataset_path, fallback_encoding)

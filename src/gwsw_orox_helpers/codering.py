@@ -3,7 +3,7 @@
 Turtle hoort volgens de spec UTF-8 te zijn, maar niet elke exporttool houdt zich daaraan:
 de BrutIS-export van De Wolden en Hoogeveen draagt een handvol cp850-bytes in een
 straatnaam (`"cavaljeweg"`). Twee lagen lopen daar tegenaan -- de leeslaag die er een
-domeinmodel van maakt (`inlezen._parse`) en de schrijflaag die hem terugschrijft
+domeinmodel van maakt (`bestand._parse`) en de schrijflaag die hem terugschrijft
 (`schrijven.lees_orox`) -- en ze moeten hem allebei op precies dezelfde manier lezen.
 Stond de regel op twee plaatsen, dan zou een verschil erin niet als fout opvallen maar
 als een dataset die aan de ene kant anders leest dan aan de andere.

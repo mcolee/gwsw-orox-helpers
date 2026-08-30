@@ -85,7 +85,7 @@ def _uriref_snel(value: str) -> URIRef:
     de bewaker voor een rdflib-upgrade die `URIRef.__new__` meer laat doen dan valideren.
 
     Wat wél wegvalt is de `logger.warning` die `_is_valid_uri` bij een vreemd ogende IRI
-    zou loggen. Bij het *vullen* was die er toch al niet -- `inlezen._parse` dempt
+    zou loggen. Bij het *vullen* was die er toch al niet -- `bestand._parse` dempt
     `rdflib.term` met `_quiet_rdflib` -- maar wie `GraafIndex.vul_uit` rechtstreeks
     aanroept, ziet hem voortaan ook niet. Sinds issue #23 geldt dat ook voor twee
     *opvraag*plekken buiten die demping: `dataset.GwswDataset.graph_types_of` en

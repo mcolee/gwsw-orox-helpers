@@ -31,6 +31,7 @@ import rdflib
 import shapely
 from rdflib.term import Node as RdfNode
 
+from gwsw_orox_helpers import bestand as bestand_module
 from gwsw_orox_helpers import codering as codering_module
 from gwsw_orox_helpers import dataset as dataset_module
 from gwsw_orox_helpers import domein as domein_module
@@ -54,14 +55,15 @@ BESTAND_STRUCTUREN = "structuren.pickle"
 BESTAND_GRAAF = "graaf.pickle"
 
 # "De lader" is niet één bestand maar de hele leeslaag: `dataset` biedt hem aan,
-# `inlezen` leest de graaf uit, `domein` draagt de objecten die gecachet worden,
+# `bestand` maakt van een TTL-bestand een gevulde index, `inlezen` leest die index uit,
+# `domein` draagt de objecten die gecachet worden,
 # `klassen` leidt de afsluitingen af, `codering` bepaalt hoe de bytes tekst worden,
 # `geometry` hoe een GML-literaal een shapely-object wordt en `namen` welke IRI's dat
 # allemaal opzoekt. `ontologie` staat erbij sinds `load_dataset` er `kenmerk_property`
 # uit afleidt (ATTR-014): die waarde wordt mee gecachet, dus een wijziging aan de
 # afleiding moet de sleutel veranderen. `graaf` draagt sinds de eigen graafindexen de
 # termconversie en de volgordegarantie van de gecachete graaf. `rdfmotor` staat erbij
-# omdat `inlezen._parse` zijn quads daarlangs haalt: wie daar de aanroep van de motor
+# omdat `bestand._parse` zijn quads daarlangs haalt: wie daar de aanroep van de motor
 # verandert (een ander formaat, een andere invoervorm, een `lenient`-vlag) verandert wat
 # er gelezen wordt, en dus hoort dat een andere sleutel te zijn. Dat de schrijfweg dezelfde
 # module gebruikt, betekent dat een wijziging aan alléén `serialiseer_turtle` de leescache
@@ -71,7 +73,14 @@ BESTAND_GRAAF = "graaf.pickle"
 # die na een wijziging aan de lader de oude lezing blijft teruggeven;
 # `tests/test_cache.py` parametriseert over deze tuple en bewaakt daarmee elke module erin
 # én de lijst zelf.
+#
+# `bestand` kwam er bij issue #26 bij, toen het parseerpad uit `inlezen` verhuisde. Dat is
+# verplaatste en niet gewijzigde code, maar de sleutel hasht *bestanden* en niet functies:
+# de hersnit verandert hem dus één keer en bestaande caches worden één keer opnieuw
+# opgebouwd. Dat is de bedoelde werking (zie `docs/architectuur.md`, "De cache leest mee
+# met de lader") en geen gedragswijziging -- de tweede run is weer een treffer.
 LADERMODULES = (
+    bestand_module,
     codering_module,
     dataset_module,
     domein_module,

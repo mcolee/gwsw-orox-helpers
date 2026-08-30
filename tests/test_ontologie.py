@@ -18,10 +18,10 @@ from rdflib import OWL, RDF, RDFS, Graph, URIRef
 from rdflib.collection import Collection
 
 from gwsw_orox_helpers import ontologie
+from gwsw_orox_helpers.bestand import _parse
 from gwsw_orox_helpers.bronnen import gebundelde_ontologie
 from gwsw_orox_helpers.dataset import GWSW, lees_ontologie
 from gwsw_orox_helpers.graaf import GraafIndex, GraafLezer
-from gwsw_orox_helpers.inlezen import _parse
 from gwsw_orox_helpers.klassen import _afsluiting, _subclass_closure
 from gwsw_orox_helpers.ontologie import (
     Facetbereik,
@@ -244,7 +244,7 @@ def test_functie_van_klasse_uit_de_echte_ontologie(
 def echte_index() -> GraafIndex:
     """De totaal-ontologie als `GraafIndex`, langs precies de weg van `load_dataset`.
 
-    `inlezen._parse` is de functie die de lader zelf voor elk ontologiebestand aanroept;
+    `bestand._parse` is de functie die de lader zelf voor elk ontologiebestand aanroept;
     wat hij oplevert is de `restrictiebron` waarop `load_dataset` de klassenafleiding
     doet. Deze fixture is dus geen nabootsing van de leesweg maar die weg zelf -- en
     daarmee het bewijs dat issue #19 vraagt.
@@ -488,7 +488,7 @@ def test_de_publieke_leesweg_geeft_dezelfde_facet_en_kenmerklezing(
 ) -> None:
     """`dataset.lees_ontologie()` is dezelfde bron als de `_parse`-weg van issue #19 (#33).
 
-    De twee tests hierboven draaien op `echte_index`, die met `inlezen._parse` gebouwd
+    De twee tests hierboven draaien op `echte_index`, die met `bestand._parse` gebouwd
     wordt -- de privé-functie die de lader per ontologiebestand aanroept. Sinds issue #33
     is er een publieke weg naar diezelfde index, en de belofte van dat issue is dat de
     lezers erop *dezelfde* uitkomsten geven: 39 datatypes en 709 kenmerkklassen. Zonder

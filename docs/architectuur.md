@@ -20,18 +20,27 @@ errors   voortgang   bronnen   namen   geometry   domein    <- bladeren: geen im
 
 graaf      -> namen
 codering   -> errors
+rdfmotor   -> errors
 ontologie  -> graaf, namen
 klassen    -> graaf, namen, ontologie
-inlezen    -> codering, domein, errors, geometry, graaf, klassen, namen
+inlezen    -> codering, domein, errors, geometry, graaf, klassen, namen, rdfmotor
 dataset    -> bronnen, codering, domein, errors, geometry, graaf, inlezen, klassen,
               namen, voortgang
 cache      -> codering, dataset, domein, geometry, graaf, inlezen, klassen, namen,
-              ontologie, voortgang
+              ontologie, rdfmotor, voortgang
 
-schrijven  -> codering, errors, namen
+schrijven  -> codering, errors, namen, rdfmotor
 clip/      -> errors, geometry, namen, schrijven   (een package; zie hieronder)
 __init__   -> clip, schrijven
 ```
+
+`rdfmotor` ligt naast `codering`: allebei bladeren op `errors` na, en allebei door de
+leesweg én de schrijfweg gebruikt. De cliplaag komt er niet langs -- die parseert en
+serialiseert niet zelf maar leent `lees_orox` / `schrijf_orox_quads` van `schrijven` --
+en `CLIP_MAG_IMPORTEREN` in `tests/test_publieke_api.py` laat `rdfmotor` dus met opzet
+niet toe -- die lijst noemt hem bij de bewust geweerde modules. De term-fabrieken die
+`clip/` wél rechtstreeks bij pyoxigraph haalt (`NamedNode`, `BlankNode`, `Literal`,
+`Quad`, `Triple`) gaan niet door de adapter; zie hieronder.
 
 `clip` is sinds de hersnit geen bestand maar een package met zeven fasen, en dezelfde
 regel geldt daarbinnen nog een keer: elke pijl wijst naar een regel boven zich. Dezelfde
@@ -79,6 +88,7 @@ Elke module beantwoordt één vraag; in deze volgorde heeft niets ooit iets van 
 | `geometry` | Wat staat er in een GML-literaal? (shapely; z apart van xy of allebei in een gang; en de coordinatentekst zelf, voor wie hem letterlijk moet terugleggen) |
 | `graaf` | Hoe vraag je een graaf iets? (`GraafIndex`: twee dicts, rdflib-termen) |
 | `codering` | Hoe worden de bytes van een TTL tekst? (UTF-8 met terugval) |
+| `rdfmotor` | Hoe roepen we pyoxigraph aan? (`ontleed_turtle`, `serialiseer_turtle`, plus de poort op de ondersteunde versiereeks) |
 | `ontologie` | Wat zegt een `owl:Restriction` over een klasse of kenmerk? |
 | `klassen` | Wat volgt daaruit? (subklasse-afsluiting, `kenmerk_property`, functies) |
 | `domein` | Wat *is* een knoop of streng? (waardeobjecten, zonder graaf) |
@@ -111,6 +121,7 @@ die anders uit elkaar loopt, en die staat één keer:
 
 | Gedeelde kennis | Woont in | Gelezen door |
 |---|---|---|
+| De aanroep van de motor zelf: `pyoxigraph.parse` en `pyoxigraph.serialize` op Turtle, plus de reeks pyoxigraph-versies waarop de package getoetst is | `rdfmotor` | `inlezen._parse` (bytes), `schrijven.lees_orox` (een pad, of tekst bij een terugvalcodering) en `schrijven.schrijf_orox_quads` (de serializer) |
 | De IRI's: `GWSW` en de naamruimten, `hasAspect`/`hasPart`/`hasConnection`, `geo:gmlLiteral` | `namen` (tekst) | `inlezen` (als `URIRef`), `clip.termen` (als `NamedNode`), `clip.plan`/`clip.stroom`/`clip.merge` (als tekst), `schrijven` (prefixkop), `graaf` (`xsd:string`), `ontologie`, `klassen` (`GWSW`, voor de korte namen), `dataset` (`GWSW`, en het exporteert hem) |
 | De prefixkop van een OroX-export | `schrijven.STANDAARD_PREFIXEN`, opgebouwd uit `namen` | `schrijven`, `clip.orkest` (krijgt ze via `lees_orox` en vult `knip:` aan) |
 | UTF-8 met terugvalcodering, inclusief beide foutmeldingen | `codering.decodeer` | `inlezen._decode`, `schrijven._gedecodeerd` |
@@ -123,6 +134,38 @@ Dat laatste onderscheid is opzettelijk: het verslag telt de afwijkende bytes en 
 regels waarin ze staan, en dat is een tweede gang over het hele bestand. Een lezing wordt
 gerapporteerd (`GwswDataset.decode_fallback`), een terugschrijving niet — dus betaalt de
 schrijfweg er ook niet voor.
+
+**De motor heeft één naad, de paden blijven twee.** De eerste rij van die tabel is de
+jongste: `pyoxigraph.parse` en `pyoxigraph.serialize` stonden op vier plekken
+uitgeschreven en staan nu één keer, in `rdfmotor`. Dat verandert aan de twee paden
+niets — de leesweg vult nog steeds een index, de schrijfweg stroomt nog steeds door —
+maar het maakt een minor-bump van de motor een een-naadswijziging in plaats van een
+zoektocht. pyoxigraph is pre-1.0 (0.3 → 0.4 brak de parse-signatuur al eens), en zo'n
+breuk meldt zich anders als een `TypeError` op de plek waar de eerste quad opgehaald
+wordt in plaats van waar de aanroep staat. Dezelfde module draagt daarom de poort op de
+ondersteunde versiereeks: die staat **naast** de cap in `pyproject.toml`
+(`pyoxigraph>=0.5,<0.6`) en niet in plaats daarvan — de cap voorkomt de installatie, de
+poort vangt een omzeilde cap (`pip install --no-deps`, een conda-omgeving, een
+handmatige upgrade) met een leesbare `DatasetError`. De poort valt **bij het importeren
+van `rdfmotor`, één keer**: dat kost niets in de hete lus, en aan de aanroepkant zou de
+fout in de `except Exception` van `inlezen._parse` belanden en er als "geen geldige
+Turtle" uitkomen. Beide plekken worden aan elkaar geknoopt door
+`test_de_reeks_is_dezelfde_als_de_cap_in_pyproject`.
+
+Wat er **niet** doorheen gaat, is even bewust: de term-fabrieken (`NamedNode`,
+`BlankNode`, `Literal`, `Quad`, `Triple`). Die staan op tientallen plekken in `clip/` en
+in `graaf`, ze zijn sinds 0.3 ongewijzigd, en een wrapper eromheen zou een laag zijn
+zonder werk. Wie ze nodig heeft importeert pyoxigraph rechtstreeks; dat is de grens van
+de adapter en geen omissie.
+
+Dat de naad er één blijft, staat niet alleen hier: `test_alleen_rdfmotor_roept_de_motor_aan`
+loopt de AST van elke module in de package af en laat `pyoxigraph.parse` of
+`pyoxigraph.serialize` buiten `rdfmotor` niet toe. Zonder die sweep was "één naad" een
+belofte in een docstring en belette niets een vijfde aanroep. De adapter heeft daarom
+**twee** ontleedingangen en geen typeswitch: `ontleed_turtle_bestand(pad)` geeft altijd
+`path=` door (de motor opent het bestand zelf en leest het streamend),
+`ontleed_turtle(bytes | str)` geeft altijd de inhoud door. Op één parameter samengevoegd
+zou een `str`-pad in de inhoudstak vallen en zou de *padtekst* als Turtle ontleed worden.
 
 **Drie GML-lezers, omdat de twee lagen niet dezelfde vraag stellen.** `parse_gml` (de
 meetkunde in het platte vlak) en `parse_gml_z` (de z-waarde per punt) zijn de losse
@@ -153,9 +196,10 @@ een lus sluiten en is de hersnit weer een bak. Die laatste test leest de **impor
 niet de regels van het bestand: een ingesprongen import in een functie,
 `from gwsw_orox_helpers import dataset` en `import gwsw_orox_helpers.graaf` glippen alle
 drie langs een `^from ...`-patroon. Ze delen wel de
-bladeren onder de leeslaag: `namen` en `errors` allebei, `codering` alleen `schrijven` (de
-UTF-8-terugval; `clip` ziet die enkel via `lees_orox`) en `geometry` alleen `clip` (de
-GML-lezers, die de knip nodig heeft en de serializer niet). Modules die onder allebei
+bladeren onder de leeslaag: `namen` en `errors` allebei, `codering` en `rdfmotor` alleen
+`schrijven` (de UTF-8-terugval en de aanroep van de motor; `clip` ziet allebei enkel via
+`lees_orox` en `schrijf_orox_quads`) en `geometry` alleen `clip` (de GML-lezers, die de
+knip nodig heeft en de serializer niet). Modules die onder allebei
 liggen en van geen van beide iets weten. Dat is geen gat in het eigen pad maar de reden
 dat het er een blijft: een tweede exemplaar van de `gwsw:`-IRI of van de UTF-8-terugval
 valt pas op als de twee lagen dezelfde bron verschillend lezen, en dan is het te laat.
@@ -192,8 +236,10 @@ geen belofte aan de afnemer — ook waar hij een modulegrens oversteekt, zoals
 
 `cache.cachesleutel` hasht niet alleen de invoerbestanden en de bibliotheekversies maar
 ook **de broncode van de hele leeslaag**: `cache.LADERMODULES` -- `dataset`, `inlezen`,
-`domein`, `klassen`, `codering`, `namen`, `graaf`, `geometry` en `ontologie`. Dat is de
-garantie dat een cache nooit achterloopt op een wijziging in de lezing. Wie de leeslaag
+`domein`, `klassen`, `codering`, `namen`, `graaf`, `geometry`, `ontologie` en `rdfmotor`.
+Dat is de garantie dat een cache nooit achterloopt op een wijziging in de lezing.
+`rdfmotor` staat erbij ook al deelt de schrijfweg hem: `inlezen._parse` haalt zijn quads
+daarlangs, dus een andere aanroep van de motor is een andere lezing. Wie de leeslaag
 opnieuw indeelt, moet de nieuwe modules aan die lijst toevoegen: een vergeten module
 levert geen fout op maar een cache die na een wijziging de oude lezing blijft teruggeven.
 Twee tests in `tests/test_cache.py` houden dat bij: de ene parametriseert over

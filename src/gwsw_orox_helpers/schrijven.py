@@ -16,10 +16,11 @@ naar de serializer, zodat een export van honderden megabytes niet eerst als dome
 in het geheugen hoeft. Wie de dataset ook wil *lezen*, gebruikt daarnaast `load_dataset`.
 
 Wat ze wel met de leeslaag deelt is de kennis die anders uit elkaar zou lopen, en die
-staat onder allebei: de IRI's in `namen` en de coderingsregel in `codering`. Dat is geen
-gat in het eigen pad maar de reden dat het er een blijft -- een tweede exemplaar van de
-`gwsw:`-IRI of van de UTF-8-terugval zou pas opvallen als de twee lagen dezelfde bron
-verschillend lazen.
+staat onder allebei: de IRI's in `namen`, de coderingsregel in `codering` en de aanroep
+van de motor in `rdfmotor` (`ontleed_turtle` / `serialiseer_turtle`, plus de poort op de
+ondersteunde pyoxigraph-reeks). Dat is geen gat in het eigen pad maar de reden dat het er
+een blijft -- een tweede exemplaar van de `gwsw:`-IRI of van de UTF-8-terugval zou pas
+opvallen als de twee lagen dezelfde bron verschillend lazen.
 
 Twee ingangen, want een clip (fase 3) wil de twee helften wegschrijven zonder de bron
 een tweede keer te parsen:
@@ -69,7 +70,7 @@ from typing import Final
 
 import pyoxigraph
 
-from gwsw_orox_helpers import namen
+from gwsw_orox_helpers import namen, rdfmotor
 from gwsw_orox_helpers.codering import decodeer
 from gwsw_orox_helpers.errors import DatasetError
 from gwsw_orox_helpers.namen import GWSW
@@ -132,11 +133,9 @@ def lees_orox(bron: Path, fallback_encoding: str | None = None) -> OroxBron:
     """
     try:
         if fallback_encoding is None:
-            parser = pyoxigraph.parse(path=bron, format=pyoxigraph.RdfFormat.TURTLE)
+            parser = rdfmotor.ontleed_turtle_bestand(bron)
         else:
-            parser = pyoxigraph.parse(
-                _gedecodeerd(bron, fallback_encoding), format=pyoxigraph.RdfFormat.TURTLE
-            )
+            parser = rdfmotor.ontleed_turtle(_gedecodeerd(bron, fallback_encoding))
     except OSError as fout:
         raise DatasetError(f"{bron}: bestand kan niet gelezen worden ({fout}).") from fout
 
@@ -220,7 +219,7 @@ def schrijf_orox_quads(
             # aanmaken, wordt het pad opruimbaar. De `finally` mag alleen weghalen wat hij
             # zelf maakte -- weigert de `x` de naam, dan is dat bestand van iemand anders.
             tijdelijk = kandidaat
-            pyoxigraph.serialize(quads, bestand, pyoxigraph.RdfFormat.TURTLE, prefixes=kop)
+            rdfmotor.serialiseer_turtle(quads, bestand, prefixen=kop)
         tijdelijk.replace(doel)
         # Na de hernoeming bestaat het tijdelijke pad niet meer; de `finally` mag er dan
         # ook niet meer naar grijpen (een minuscule TOCTOU als de naam intussen hergebruikt

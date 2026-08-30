@@ -11,7 +11,8 @@ daarmee een `GraafIndex` met rdflib-termen. Dat is bewust een ander pad dan dat 
 serializer: wie leest heeft een index nodig en betaalt daarvoor de termconversie, wie
 terugschrijft heeft die index juist niet nodig en zou hem op een export van honderden
 megabytes niet eens in het geheugen krijgen. De twee delen wat ze wel kunnen delen: de
-naamruimten (`namen`) en de coderingsregel (`codering`).
+naamruimten (`namen`), de coderingsregel (`codering`) en de aanroep van de motor zelf
+(`rdfmotor`, dat ook de ondersteunde pyoxigraph-reeks bewaakt).
 
 De IRI's staan hier als `URIRef`, gemaakt uit de tekst in `namen`. Ze komen via `dataset`
 naar buiten -- dat is het oppervlak dat nlriochecker kent -- en horen daarom bij de laag
@@ -27,11 +28,10 @@ from contextlib import contextmanager
 from datetime import date
 from pathlib import Path
 
-import pyoxigraph
 from rdflib import RDF, RDFS, URIRef
 from rdflib.term import Node as RdfNode
 
-from gwsw_orox_helpers import namen
+from gwsw_orox_helpers import namen, rdfmotor
 from gwsw_orox_helpers.codering import DecodeFallback, decodeer, terugvalverslag
 from gwsw_orox_helpers.domein import Aspect, Conduit, Inwinning, Koppelingsherstel, Node, _as_date
 from gwsw_orox_helpers.errors import DatasetError
@@ -158,7 +158,8 @@ def _parse(
     """Leest een enkel TTL-bestand in, desnoods via een terugvalcodering.
 
     Het parsen zelf gaat via pyoxigraph's Rust-parser (ordegrootten sneller dan rdflib's
-    pure-Python `notation3`); de triples vullen in stream-volgorde een `GraafIndex` met
+    pure-Python `notation3`), aangeroepen via `rdfmotor` -- de ene naad waarlangs deze
+    package die motor bereikt; de triples vullen in stream-volgorde een `GraafIndex` met
     rdflib-termen, zodat de checks en de rest van de lader hun vergelijkingen houden.
     pyoxigraph verlangt UTF-8-bytes, dus de al gedecodeerde tekst wordt opnieuw als
     UTF-8 gecodeerd -- niet de ruwe bytes, die immers cp850 kunnen zijn. Een meegegeven
@@ -173,7 +174,7 @@ def _parse(
 
     index = index if index is not None else GraafIndex()
     try:
-        quads = pyoxigraph.parse(tekst.encode("utf-8"), format=pyoxigraph.RdfFormat.TURTLE)
+        quads = rdfmotor.ontleed_turtle(tekst.encode("utf-8"))
         # rdflib waarschuwt bij het bouwen van een literaal met een ongeldige lexicale
         # vorm (de meegeleverde ontologie draagt een xsd:date "20210830" zonder streepjes);
         # net als bij de oude parse hoort die traceback niet in de CLI-uitvoer thuis.

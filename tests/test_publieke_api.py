@@ -67,7 +67,10 @@ CLIPLAGEN = ("termen", "grenzen", "knip", "plan", "stroom", "merge", "orkest")
 
 # De enige modules van de package die de cliplaag mag importeren. `dataset`, `graaf`,
 # `inlezen`, `klassen`, `ontologie` en `cache` staan er nadrukkelijk niet bij: de clip heeft
-# een eigen pad naast de leeslaag en bouwt geen domeinmodel.
+# een eigen pad naast de leeslaag en bouwt geen domeinmodel. `rdfmotor` staat er evenmin
+# bij, en om een andere reden: de clip ontleedt en serialiseert niet zelf maar leent
+# `lees_orox` / `schrijf_orox_quads` van `schrijven`. De term-fabrieken die `clip/` wél
+# rechtstreeks bij pyoxigraph haalt, gaan sowieso niet door die adapter.
 CLIP_MAG_IMPORTEREN = frozenset({"clip", "errors", "geometry", "namen", "schrijven"})
 
 

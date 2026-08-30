@@ -39,6 +39,7 @@ from gwsw_orox_helpers import inlezen as inlezen_module
 from gwsw_orox_helpers import klassen as klassen_module
 from gwsw_orox_helpers import namen as namen_module
 from gwsw_orox_helpers import ontologie as ontologie_module
+from gwsw_orox_helpers import rdfmotor as rdfmotor_module
 from gwsw_orox_helpers.dataset import GwswDataset, load_dataset, ontologiepaden
 from gwsw_orox_helpers.graaf import GraafIndex
 from gwsw_orox_helpers.voortgang import NUL_VOORTGANG, Voortgang
@@ -58,10 +59,17 @@ BESTAND_GRAAF = "graaf.pickle"
 # allemaal opzoekt. `ontologie` staat erbij sinds `load_dataset` er `kenmerk_property`
 # uit afleidt (ATTR-014): die waarde wordt mee gecachet, dus een wijziging aan de
 # afleiding moet de sleutel veranderen. `graaf` draagt sinds de eigen graafindexen de
-# termconversie en de volgordegarantie van de gecachete graaf. Wie hier een module
-# vergeet, krijgt geen fout maar een cache die na een wijziging aan de lader de oude
-# lezing blijft teruggeven; `tests/test_cache.py` parametriseert over deze tuple en
-# bewaakt daarmee elke module erin én de lijst zelf.
+# termconversie en de volgordegarantie van de gecachete graaf. `rdfmotor` staat erbij
+# omdat `inlezen._parse` zijn quads daarlangs haalt: wie daar de aanroep van de motor
+# verandert (een ander formaat, een andere invoervorm, een `lenient`-vlag) verandert wat
+# er gelezen wordt, en dus hoort dat een andere sleutel te zijn. Dat de schrijfweg dezelfde
+# module gebruikt, betekent dat een wijziging aan alléén `serialiseer_turtle` de leescache
+# ook ongeldig maakt; dat is de goede kant om op te vergissen -- te vaak herbouwen kost één
+# lezing, te weinig herbouwen geeft stil een verouderd antwoord. Wie hier een module
+# vergeet, krijgt geen fout maar een cache
+# die na een wijziging aan de lader de oude lezing blijft teruggeven;
+# `tests/test_cache.py` parametriseert over deze tuple en bewaakt daarmee elke module erin
+# én de lijst zelf.
 LADERMODULES = (
     codering_module,
     dataset_module,
@@ -72,6 +80,7 @@ LADERMODULES = (
     klassen_module,
     namen_module,
     ontologie_module,
+    rdfmotor_module,
 )
 
 

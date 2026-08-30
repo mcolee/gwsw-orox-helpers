@@ -1,6 +1,71 @@
 # Changelog
 
 ## [Unreleased]
+- Eén naad naar pyoxigraph: de nieuwe interne module `gwsw_orox_helpers.rdfmotor`
+  (issue #18, upgradebaarheid; geen gedragswijziging). **Alle vier de parse/serialize-
+  callsites gaan er nu doorheen** — `inlezen._parse` (bytes), `schrijven.lees_orox` (een
+  pad, of tekst bij een `fallback_encoding`) en `schrijven.schrijf_orox_quads` (de
+  serializer) — waar er vier keer een eigen `pyoxigraph.parse(...)` /
+  `pyoxigraph.serialize(...)` met `RdfFormat.TURTLE` stond. Na de wijziging staat
+  `pyoxigraph.parse`/`serialize` nog op **nul** plekken buiten `rdfmotor`
+  (`grep -rn "pyoxigraph.parse\|pyoxigraph.serialize" src/`). **Nieuw, intern en
+  additief**: `ontleed_turtle(bron: bytes | str) -> QuadParser` voor Turtle die al in het
+  geheugen staat, `ontleed_turtle_bestand(pad: Path) -> QuadParser` voor een bestand dat
+  streamend van schijf gelezen wordt,
+  `serialiseer_turtle(quads, doel: IO[bytes], *, prefixen: dict[str, str]) -> None` en
+  `controleer_versie(versie: str) -> None` met `ONDERSTEUNDE_REEKS` (`>=0.5,<0.6`). De
+  namen zijn Nederlands (CLAUDE.md) waar het issue `parse_turtle`/`serialize_turtle`
+  schreef. `test_alleen_rdfmotor_roept_de_motor_aan` houdt de naad enkelvoudig: die loopt
+  de AST van elke module in de package af, zodat "één naad" een test is en niet een
+  belofte in een docstring. **Twee ontleedingangen en geen typeswitch**, want het verschil
+  is niet cosmetisch: `path=` laat de motor het bestand zelf openen en streamend lezen,
+  terwijl dezelfde waarde als `input` de *padtekst* als Turtle zou ontleden. Eén functie
+  met `isinstance(bron, Path)` liet een `str`-pad in de inhoudstak vallen, en omdat
+  `lees_orox` vóór deze module altijd `path=bron` doorgaf (waar pyoxigraph ook een `str`
+  accepteert) zou dat een stille versmalling van een bevroren functie zijn geweest —
+  gevonden door beide review-assen, hersteld vóór de commit, en bewaakt door
+  `test_een_str_pad_leest_het_bestand_en_niet_de_padtekst`. De adapter is verder een
+  doorgeefluik: hij vangt niets af, dus `OSError`, de
+  syntaxfout van de motor en een fout uit een luie quadstroom komen er onveranderd uit
+  en `inlezen._parse`, `schrijven._gecontroleerd` en `schrijf_orox_quads` houden hun
+  eigen, contractvaste `DatasetError`-teksten. De **term-fabrieken** (`NamedNode`,
+  `BlankNode`, `Literal`, `Quad`, `Triple`) gaan er met opzet *niet* doorheen: die staan
+  op tientallen plekken in `clip/` en `graaf`, zijn sinds 0.3 ongewijzigd, en een wrapper
+  eromheen zou een laag zonder werk zijn. Nieuw is verder een **versiepoort**: draait de
+  package op een pyoxigraph buiten `>=0.5,<0.6`, dan valt bij het importeren van
+  `rdfmotor` één leesbare `DatasetError` ("pyoxigraph 0.6.0 valt buiten de reeks
+  >=0.5,<0.6 ... installeer een pyoxigraph binnen de reeks") in plaats van een rauwe
+  `TypeError` diep in de quadstroom. Die poort staat *naast* de cap in `pyproject.toml`
+  en niet in plaats daarvan — de cap voorkomt de installatie, de poort vangt een
+  omzeilde cap (`pip install --no-deps`, conda, een handmatige upgrade) — en
+  `test_de_reeks_is_dezelfde_als_de_cap_in_pyproject` knoopt de twee aan elkaar zodat ze
+  niet uit elkaar lopen. Bij import en niet per aanroep, omdat de fout aan de aanroepkant
+  in de `except Exception` van `inlezen._parse` zou belanden en er als "geen geldige
+  Turtle" uit zou komen. Gevolg voor de auteur om te weten: `import gwsw_orox_helpers` kan
+  daardoor met een `DatasetError` falen in plaats van te slagen — alleen op een pyoxigraph
+  buiten de reeks, waar het alternatief een rauwe `TypeError` bij de eerste quad is.
+  `rdfmotor` staat in `cache.LADERMODULES` (de lezing gaat
+  erlangs), dus **de cachesleutel verschuift** en bestaande caches worden één keer
+  opnieuw opgebouwd; dat is de bedoelde werking van die sleutel en geen
+  gedragswijziging. Dat de schrijfweg dezelfde module deelt, betekent dat een wijziging
+  aan alléén `serialiseer_turtle` de leescache mee ongeldig maakt: te vaak herbouwen kost
+  één lezing, te weinig herbouwen geeft stil een verouderd antwoord. **Gedragsbehoud gepaard gemeten** op `tests/fixtures/ttl/
+  juinen_voorbeeld_v1_6.ttl` (f58a5b2 in een aparte worktree tegen HEAD, zelfde invoer):
+  de twee clipdelen en de hereniging zijn **byte-identiek**
+  (`3e49228d…`, `ee3e55a6…`, merge `b2b682c0…`), en `schrijf_orox` levert dezelfde
+  1.621 triples met dezelfde genormaliseerde quadstroom (`cf0e8f3c…`; de kále bytes van
+  `schrijf_orox` verschillen ook op f58a5b2 van run tot run, want pyoxigraph mint per
+  lezing nieuwe labels voor blanke knopen — de knip niet, die geeft ze vaste namen).
+  Daarnaast `uv run pytest -m zwaar` groen (2 passed, 337,95 s) op de 112 MB-export.
+  Geen perfbelofte, en gemeten is er ook geen meetbaar verschil: `scripts/benchmark.py
+  --paden load_dataset --herhalingen 1`, zes keer **om en om** (f58a5b2, HEAD, f58a5b2,
+  …) op de export van De Wolden/Hoogeveen gaf vóór 21,278 / 27,669 / 21,414 s en ná
+  21,884 / 21,778 / 21,039 s — mediaan 21,41 → 21,78 s (+1,7%), minimum 21,28 → 21,04 s
+  (−1,1%). De spreiding bínnen de vóór-kant (21,3–27,7 s) is een orde groter dan het
+  verschil ertussen, dus dit is ruis en geen effect; dat past bij wat de wijziging is —
+  één extra Python-aanroep per bestand, niet per quad. Geheugen gelijk (piek 1.248.676
+  KiB vóór tegen 1.248.180 KiB ná) en de lezing levert aan beide kanten dezelfde
+  1.877.729 triples, 23.485 knopen, 23.440 strengen en 0 geometriefouten.
 - De leeslaag leest een GML-literaal nog één keer in plaats van twee (issue #13,
   performance; geen gedragswijziging). `inlezen._geometry` riep per geometrie zowel
   `parse_gml` als `parse_gml_z` aan, en die twee liepen elk hun eigen regex en

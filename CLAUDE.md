@@ -42,8 +42,20 @@ Eerste afnemer: nlriochecker. Nederlandse identifiers, GWSW-conform.
   --check .` controleert óók Python-codeblokken in Markdown; een README-only commit kan
   de poort dus rood zetten (gebeurde 27-08), draai die check ook bij docs met codeblokken.
 - Kleine stappen; na elke groene stap een commit met een duidelijke boodschap. Werk op
-  `dev`. Deze repo kent (nog) geen release-splitsing: geen merge naar `main`, geen
-  `scripts/uitgave.py`; het versienummer in `pyproject.toml` bumpt de auteur.
+  `dev`; `main` draagt alleen uitgebrachte, getagde versies en is GitHub-beschermd (PR
+  verplicht, ook voor de eigenaar).
+- **Een versie uitbrengen** (handwerk, deze repo heeft geen `scripts/uitgave.py`): op `dev`,
+  met een schone en groene werkboom, `uv version --bump patch|minor|major` (raakt
+  `pyproject.toml` én `uv.lock`), dan in `CHANGELOG.md` de sectie `## [Unreleased]` omzetten
+  naar `## [X.Y.Z] - <datum>` met een verse lege `Unreleased` erboven, de volledige poort
+  draaien, committen als `Versie X.Y.Z` (alleen `pyproject.toml`, `uv.lock`, `CHANGELOG.md`)
+  en taggen als `vX.Y.Z`. Landen op `main` via een **merge-commit-PR** (geen squash/rebase,
+  anders hangt de tag naast `main`); zet `dev` daarna weer gelijk aan `main`. Pushen met
+  `git push --follow-tags` en `timeout 45 git push …`. **De wheel komt vanzelf**:
+  `.github/workflows/release.yml` gaat af op de tag `v*`, draait `uv build` en hangt de
+  wheel + sdist aan een GitHub Release — nooit met de hand `gh release create` draaien.
+  Cijfers: patch = reparaties; minor = een afgerond blok/fase of een breuk in de publieke
+  API vóór 1.0; major pas ná 1.0.
 - Kies de review naar het **risico** van de wijziging, niet naar de omvang:
   - **Docs/config** (geen `src/**.py`, bv. deze regel): geen poort en geen review,
     alleen de drifttests die de wijziging raakt — voor `CLAUDE.md` is dat

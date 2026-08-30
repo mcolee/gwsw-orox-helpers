@@ -105,14 +105,23 @@ def _uniek[T](items: Iterable[T]) -> Iterator[T]:
     De drie orientatiebronnen verderop (`_orientations_of_class`, `_orientations_with`
     en `_leiding_orientations`) lopen elk een genest paar lussen af waarin dezelfde
     orientatie meer dan eens langskomt, en hielden daarvoor tot issue #30 elk een eigen
-    gezien-set aan. Dit is die set, een keer, met precies hetzelfde gedrag: dezelfde
-    elementen in dezelfde volgorde, en even lui -- de bron wordt niet verder afgelopen
-    dan de afnemer vraagt, want op een gemeentebrede export is deze lus de buitenrand
-    van de knopen- en de strengenlezing.
+    gezien-set aan. Dit is die set, een keer: dezelfde elementen in dezelfde volgorde.
 
-    `_beide_richtingen` hieronder blijft ernaast staan en is nadrukkelijk *niet*
-    hetzelfde patroon: die ontdubbelt alleen de inverse richting tegen de voorwaartse en
-    laat een herhaling binnen een van beide richtingen ongemoeid.
+    Hij blijft een generator, zodat de bron niet verder afgelopen wordt dan de afnemer
+    vraagt; een `dict.fromkeys`-variant zou dezelfde reeks geven maar de hele bron
+    eerst inlezen. Eén verschil met de lussen die hij vervangt, en het is er precies
+    een: de drie bronnen zijn geen generatorfuncties meer maar gewone functies die een
+    generatorexpressie doorgeven, en van zo'n expressie wordt de *buitenste* iterabele
+    al bij de aanroep geëvalueerd -- bij `_orientations_with` dus meteen
+    `graph.subjects(...)`, wat op een `GraafIndex` een `iter()` op een bestaande lijst
+    is. Aan de opgeleverde elementen en aan hun volgorde verandert dat niets.
+
+    `_beide_richtingen` hieronder gaat nadrukkelijk *niet* door deze helper: die toetst
+    alleen de inverse richting tegen de voorwaartse en slaat de membershiptest op de
+    voorwaartse helft over. Op een duplicaatvrije bron -- en dat zijn
+    `GraafIndex.objects` en `.subjects` allebei -- levert hij daarmee hetzelfde op als
+    `_uniek` over beide richtingen achter elkaar; wat hij bespaart is die test zelf, op
+    een pad dat per object en per aspect langskomt.
     """
     gezien: set[T] = set()
     for item in items:

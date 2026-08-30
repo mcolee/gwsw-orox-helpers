@@ -5,11 +5,17 @@
   (issue #30, beheerbaarheid; **additief** — privé helper, geen bevroren contract
   geraakt). `_orientations_of_class`, `_orientations_with` en `_leiding_orientations`
   hielden elk hun eigen `gezien`-set aan met hetzelfde patroon; ze leveren nu dezelfde
-  elementen in dezelfde volgorde (eerste voorkomen) uit `_uniek`, dat net zo lui is als
-  de lussen die het vervangt. `_beide_richtingen` blijft er nadrukkelijk buiten: dat is
-  een ánder patroon — het ontdubbelt alleen de inverse richting tegen de voorwaartse en
-  laat een herhaling bínnen een richting staan. Geen perf-claim; de drie functies kregen
-  wel hun `-> Iterator[RdfNode]` erbij, waarmee mypy hun bodies voortaan meeleest.
+  elementen in dezelfde volgorde (eerste voorkomen) uit `_uniek`, dat net als de lussen
+  die het vervangt een generator blijft. Eén verschil, en het is er precies een: de drie
+  zijn geen generatorfuncties meer maar gewone functies die een generatorexpressie
+  doorgeven, dus de buitenste iterabele daarvan wordt bij de aanroep geëvalueerd in
+  plaats van bij de eerste `next()` — op een `GraafIndex` een `iter()` op een bestaande
+  lijst, en aan de elementen en hun volgorde verandert het niets.
+  `_beide_richtingen` blijft er nadrukkelijk buiten: die toetst alleen de inverse
+  richting tegen de voorwaartse en slaat de membershiptest op de voorwaartse helft over.
+  Geen perf-claim; de drie functies kregen wel hun `-> Iterator[RdfNode]` erbij — hun
+  retour was impliciet `Any`, dus `bron` in `_read_nodes` en `_read_conduits` is nu
+  getypeerd.
   `inlezen` staat in `cache.LADERMODULES`, dus **de cachesleutel roteert**: bestaande
   caches worden één keer opnieuw opgebouwd en zijn daarna weer een treffer.
 - De twee spellingshelpers `_uri` en `_short` verhuizen van `klassen` naar `namen` (issue

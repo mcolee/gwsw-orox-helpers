@@ -124,7 +124,9 @@ Sinds issue #21 staat die vrijheid niet meer als union `Graph | GraafIndex` in z
 handtekeningen maar als één protocol: **`graaf.GraafLezer`**, een `typing.Protocol` met
 precies twee leden -- `objects(subject, predicate, /)` en `value(subject, predicate, /)`.
 `GraafIndex` en `rdflib.Graph` vervullen het allebei *structureel*: geen van beide erft
-ervan, geen van beide weet ervan. Voor de aanroeper is dat verbreding en geen breuk --
+ervan, geen van beide weet ervan. Sinds issue #34 doet `cache.LuieGraaf` dat ook, en om
+diezelfde reden expliciet: zie "De cache leest mee met de lader" hieronder. Voor de
+aanroeper is dat verbreding en geen breuk --
 elke `Graph` en elke `GraafIndex` die paste, past nog -- en aan de kant van `ontologie`
 verschuift er iets wezenlijks: de laaggrens is mypy-bewaakt geworden. Een lezer die daar
 een derde bewerking gaat gebruiken, loopt op een `attr-defined` vast tot het protocol
@@ -148,9 +150,9 @@ Drie keuzes eromheen zijn de moeite waard, want ze zijn tegen de intuïtie in:
   die dat overleeft.
 - **Het bewijs staat in de poort.** Structurele vervulling is een typebegrip en met een
   `assert` niet te toetsen, dus `pyproject.toml` zet `tests/typecheck` in
-  `[tool.mypy] files`: `tests/typecheck/graaflezer.py` geeft een `Graph` én een
-  `GraafIndex` aan een `GraafLezer`-parameter (positief) en biedt twee objecten aan die
-  het protocol *niet* vervullen, met `# type: ignore[arg-type]` erop (negatief). Omdat
+  `[tool.mypy] files`: `tests/typecheck/graaflezer.py` geeft een `Graph`, een `GraafIndex`
+  én een `LuieGraaf` aan een `GraafLezer`-parameter (positief) en biedt twee objecten aan
+  die het protocol *niet* vervullen, met `# type: ignore[arg-type]` erop (negatief). Omdat
   `warn_unused_ignores = true` aanstaat, valt mypy ook om als die negatieve gevallen ooit
   geaccepteerd worden -- bijvoorbeeld doordat rdflib zijn typen kwijtraakt en `Graph`
   `Any` wordt. Een protocol dat alles accepteert ziet er anders groen uit.
@@ -374,7 +376,33 @@ in `clip/`; ze staan er alle acht met naam bij, want een nieuwe fase hoort zich 
 goed te melden als een nieuwe module in de wortel.
 
 Verplaatste code verandert die sleutel, dus na een hersnit worden bestaande caches één
-keer opnieuw opgebouwd. Dat is de bedoelde werking en geen gedragswijziging.
+keer opnieuw opgebouwd. Dat is de bedoelde werking en geen gedragswijziging. `cache` zelf
+staat er nadrukkelijk **niet** in — de sleutel kan zichzelf niet hashen — dus een
+wijziging aan deze module laat bestaande caches met rust; `LADER_VERSIE` is de knop om
+dat alsnog af te dwingen.
+
+Bij een cachetreffer krijgt `GwswDataset.graph` geen `GraafIndex` maar `cache.LuieGraaf`:
+de graafpickle is op een gemeentebrede export tientallen seconden en honderden megabytes,
+en de meeste runs raken hem niet aan. Hij komt pas van schijf bij de eerste leesbewerking
+(`_geladen`), en is hij dan beschadigd, dan leest `_herstel` hem alsnog uit de brondata en
+schrijft de cache opnieuw weg in plaats van de run te laten crashen — `cache.py` stelt die
+functie samen, `LuieGraaf` kent zelf geen paden en geen `load_dataset`.
+
+Sinds issue #34 draagt die plaatsvervanger **het leescontract expliciet**: `objects`,
+`subjects`, `value`, `subject_objects` en `heeft_subject` staan als methode op de klasse,
+met dezelfde handtekening als op `GraafIndex` en elk niets anders doend dan doorgeven
+(`__len__` en `__contains__` stonden er al). Voor de aanroeper verandert er niets — via
+`__getattr__` kwam hetzelfde antwoord — maar voor mypy wel: een doorgifte via
+`__getattr__` heeft type `object`, en dan is een typefout in een doorgegeven aanroep pas
+zichtbaar als hij op de leesweg als `AttributeError` valt. Met de methoden erop vervult
+`LuieGraaf` `graaf.GraafLezer` structureel, naast `Graph` en `GraafIndex`;
+`tests/typecheck/graaflezer.py` draagt dat bewijs en `tests/test_cache.py` houdt per
+bewerking zowel het antwoord als het laadmoment gelijk aan een verse `GraafIndex`.
+`__getattr__` blijft als vangnet voor alles buiten het contract. Wat er **niet** mee
+verschoven is: de `cast(GraafIndex, ...)` in `laad_met_cache`. `GwswDataset.graph` staat
+gepind op de concrete `GraafIndex` (`tests/test_publieke_api.py`) en dat veld verbreden
+naar een protocol raakt een contract dat nlriochecker importeert — een auteursbeslissing
+(`CLAUDE.md`, Harde regels), niet iets wat er bij deze stap bij hoort.
 
 ## Waar de terugval op geometrie zit
 

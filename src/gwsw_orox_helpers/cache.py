@@ -19,7 +19,7 @@ import os
 import pickle
 import tempfile
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from dataclasses import dataclass, fields, replace
 from functools import partial
 from hashlib import sha256
@@ -29,6 +29,7 @@ from typing import Any, cast
 import pyoxigraph
 import rdflib
 import shapely
+from rdflib.term import Node as RdfNode
 
 from gwsw_orox_helpers import codering as codering_module
 from gwsw_orox_helpers import dataset as dataset_module
@@ -107,6 +108,18 @@ class LuieGraaf:
     de graaf alsnog uit de brondata en de cache wordt opnieuw weggeschreven, zodat
     de volgende aanraking weer de snelle weg neemt. `cache.py` stelt die functie
     samen; deze klasse kent zelf geen paden naar de brondata en geen `load_dataset`.
+
+    **Het leescontract staat er expliciet op** (issue #34): de vijf bewerkingen uit de
+    moduledocstring van `graaf` -- `objects`, `subjects`, `value`, `subject_objects` en
+    `heeft_subject` -- plus `__len__` en `__contains__`, elk met dezelfde handtekening
+    als op `GraafIndex` en elk niets anders doend dan doorgeven. Dat is geen dienst aan
+    de aanroeper (die kreeg via `__getattr__` hetzelfde antwoord) maar aan mypy: een
+    doorgifte via `__getattr__` typeert elke leesbewerking als `object`, en dan is een
+    typefout in zo'n aanroep pas zichtbaar als hij op de leesweg als `AttributeError`
+    valt. Met de methoden erop vervult `LuieGraaf` `graaf.GraafLezer` structureel;
+    `tests/typecheck/graaflezer.py` is daar het bewijs van en
+    `tests/test_cache.py::test_de_luie_graaf_geeft_per_leesbewerking_hetzelfde_als_een_echte_graafindex`
+    houdt antwoord én laadmoment per bewerking gelijk aan een verse `GraafIndex`.
     """
 
     def __init__(self, pad: Path, herstel: Callable[[], GraafIndex]) -> None:
@@ -137,8 +150,35 @@ class LuieGraaf:
             )
         return self._graaf
 
+    def objects(self, subject: RdfNode, predicate: RdfNode) -> Iterator[RdfNode]:
+        """De objecten van (subject, predicate), in eerste-toevoegvolgorde."""
+        return self._geladen().objects(subject, predicate)
+
+    def subjects(self, predicate: RdfNode, object_: RdfNode) -> Iterator[RdfNode]:
+        """De subjecten van (predicate, object), in eerste-toevoegvolgorde."""
+        return self._geladen().subjects(predicate, object_)
+
+    def value(self, subject: RdfNode, predicate: RdfNode) -> RdfNode | None:
+        """Het eerste object van (subject, predicate), of None."""
+        return self._geladen().value(subject, predicate)
+
+    def subject_objects(self, predicate: RdfNode) -> Iterator[tuple[RdfNode, RdfNode]]:
+        """Alle (subject, object)-paren van dit predicaat, in pos-groepering."""
+        return self._geladen().subject_objects(predicate)
+
+    def heeft_subject(self, term: RdfNode) -> bool:
+        """Of deze term als subject in de graaf voorkomt."""
+        return self._geladen().heeft_subject(term)
+
     def __getattr__(self, naam: str) -> object:
-        """Alles wat een graaf kan, kan deze plaatsvervanger ook."""
+        """Vangnet voor alles buiten het leescontract hierboven.
+
+        Sinds issue #34 gaan de zeven bewerkingen van het contract niet meer hierlangs;
+        wat overblijft is de rest -- een `__getstate__`-achtige aanraking, `voeg_toe` of
+        `vul_uit` van een afnemer die de plaatsvervanger als volwaardige index gebruikt,
+        en elk lid dat `GraafIndex` er in de toekomst bij krijgt. Die blijven doorgegeven
+        (en dus getypeerd als `object`), zodat er aan het gedrag niets verandert.
+        """
         return getattr(self._geladen(), naam)
 
     def __len__(self) -> int:
@@ -245,6 +285,12 @@ def laad_met_cache(
             herstel = partial(_herlees_graaf, dataset_path, ontology_paths, fallback_encoding)
             # `LuieGraaf` is geen GraafIndex-subklasse maar een plaatsvervanger die
             # alles doorgeeft; het veld verwacht een GraafIndex en krijgt hier zijn gedrag.
+            # Sinds issue #34 draagt hij het leescontract expliciet en vervult hij
+            # `graaf.GraafLezer` structureel, maar dat protocol is niet wat hier gevraagd
+            # wordt: `GwswDataset.graph` staat gepind op de concrete `GraafIndex`
+            # (`tests/test_publieke_api.py`), en dat veld verbreden naar een protocol is
+            # een auteursbeslissing (`CLAUDE.md`, Harde regels; apart geparkeerd). Deze
+            # cast blijft dus staan tot die stap gezet is.
             luie = cast(GraafIndex, LuieGraaf(pad_graaf, herstel))
             dataset = replace(GwswDataset(graph=GraafIndex(), **velden), graph=luie)
             return dataset, CacheUitslag("cache", sleutel, time.perf_counter() - begin)

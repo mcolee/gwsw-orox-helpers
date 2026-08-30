@@ -7,18 +7,50 @@ in de sleutel.
 
 from __future__ import annotations
 
+import logging
+from collections.abc import Callable
 from pathlib import Path
 from types import ModuleType
 
 import pytest
+from rdflib import URIRef
 
 from gwsw_orox_helpers import cache as cache_module
 from gwsw_orox_helpers.bronnen import gebundelde_ontologie
-from gwsw_orox_helpers.cache import BESTAND_GRAAF, LADERMODULES, cachesleutel, laad_met_cache
+from gwsw_orox_helpers.cache import (
+    BESTAND_GRAAF,
+    LADERMODULES,
+    LuieGraaf,
+    cachesleutel,
+    laad_met_cache,
+)
 from gwsw_orox_helpers.dataset import load_dataset
+from gwsw_orox_helpers.graaf import GraafIndex
+from gwsw_orox_helpers.namen import GWSW, RDF, RDFS
 
 TTL_DIR = Path(__file__).parent / "fixtures" / "ttl"
 VOORBEELD = TTL_DIR / "schoon.ttl"
+
+# Termen uit `schoon.ttl`: de minimale klassenhierarchie bovenin en de eerste put.
+SUBCLASS_OF = URIRef(RDFS + "subClassOf")
+TYPE = URIRef(RDF + "type")
+INSPECTIEPUT = URIRef(GWSW + "Inspectieput")
+PUT = URIRef(GWSW + "Put")
+PUT_A = URIRef("http://example.org/toets#PutA")
+ONBEKEND = URIRef("http://example.org/toets#BestaatNiet")
+
+# Het volledige leescontract van `GraafIndex` (zie de moduledocstring van `graaf`) als
+# vijf aanroepen, elk op termen die in `schoon.ttl` voorkomen. De drie iteratorlevende
+# bewerkingen worden tot een lijst uitgeput, zodat ook de volgordegarantie meevergeleken
+# wordt; `__len__` en `__contains__` staan er niet bij omdat
+# `test_de_graaf_werkt_ook_uit_de_cache` en het herstelpad die al aanraken.
+LEESCONTRACT: dict[str, Callable[[GraafIndex], object]] = {
+    "objects": lambda graaf: list(graaf.objects(INSPECTIEPUT, SUBCLASS_OF)),
+    "subjects": lambda graaf: list(graaf.subjects(SUBCLASS_OF, PUT)),
+    "value": lambda graaf: graaf.value(PUT_A, TYPE),
+    "subject_objects": lambda graaf: list(graaf.subject_objects(SUBCLASS_OF)),
+    "heeft_subject": lambda graaf: (graaf.heeft_subject(PUT_A), graaf.heeft_subject(ONBEKEND)),
+}
 
 # De modules van de package die bewust buiten de cachesleutel blijven, elk met de reden.
 # Deze verzameling is de tegenhanger van `cache.LADERMODULES`: samen horen ze precies de
@@ -67,6 +99,48 @@ def test_de_graaf_werkt_ook_uit_de_cache(tmp_path: Path) -> None:
     uri = next(iter(warm.nodes))
     assert set(warm.subjects_of_class("Put")) == set(vers.subjects_of_class("Put"))
     assert warm.beheerobjecttype(uri) == vers.beheerobjecttype(uri)
+
+
+def _graafleesregels(caplog: pytest.LogCaptureFixture) -> int:
+    """Hoe vaak `LuieGraaf._geladen` de graaf werkelijk van schijf heeft gehaald."""
+    return sum("Graaf van schijf gelezen" in bericht for bericht in caplog.messages)
+
+
+@pytest.mark.parametrize("naam", sorted(LEESCONTRACT))
+def test_de_luie_graaf_geeft_per_leesbewerking_hetzelfde_als_een_echte_graafindex(
+    naam: str, tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Het leescontract expliciet, en het laadmoment ongewijzigd (issue #34).
+
+    Twee dingen per bewerking, want ze kunnen los stukgaan. Ten eerste het *antwoord*:
+    de plaatsvervanger uit de cache hoort exact te geven wat een verse `GraafIndex` op
+    dezelfde termen geeft, volgorde inbegrepen. Ten tweede het *moment*: een cachetreffer
+    mag de graafpickle (op een gemeentebrede export tientallen seconden en honderden MB)
+    niet aanraken, de eerste aanroep wél, en een tweede aanroep niet opnieuw. Dat moment
+    is aan de logregel van `_geladen` af te lezen en niet aan een privéveld.
+
+    De naam staat er ook als sleutel bij: sinds issue #34 draagt `LuieGraaf` deze vijf
+    methoden *expliciet* en komen ze niet meer uit `__getattr__`. Dat is geen smaak maar
+    het verschil tussen mypy die er een term uit ziet komen en mypy die er `object` uit
+    ziet komen; het typebewijs staat in `tests/typecheck/graaflezer.py`, en deze regel
+    houdt de lijst hier aan die van de klasse gelijk.
+    """
+    vraag = LEESCONTRACT[naam]
+    assert naam in vars(LuieGraaf), "het leescontract hoort expliciet op de klasse te staan"
+
+    verwacht = vraag(load_dataset(VOORBEELD, []).graph)
+    laad_met_cache(VOORBEELD, [], cache_dir=tmp_path)
+    with caplog.at_level(logging.INFO, logger=cache_module.__name__):
+        warm, uitslag = laad_met_cache(VOORBEELD, [], cache_dir=tmp_path)
+        assert uitslag.bron == "cache"
+        assert isinstance(warm.graph, LuieGraaf)
+        assert _graafleesregels(caplog) == 0, "een cachetreffer mag de graaf niet inlezen"
+
+        assert vraag(warm.graph) == verwacht
+        assert _graafleesregels(caplog) == 1, "de eerste aanraking leest hem van schijf"
+
+        assert vraag(warm.graph) == verwacht
+        assert _graafleesregels(caplog) == 1, "en een tweede aanraking leest niet opnieuw"
 
 
 def test_de_sleutel_verandert_mee_met_de_lader(tmp_path: Path, monkeypatch) -> None:

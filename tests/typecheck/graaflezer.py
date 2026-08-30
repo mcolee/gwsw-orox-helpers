@@ -1,19 +1,23 @@
 """Typebewijs voor `graaf.GraafLezer`: dit bestand draait niet, mypy leest het.
 
-`graaf.GraafLezer` belooft dat `rdflib.Graph` én `graaf.GraafIndex` het leescontract van
-de ontologielezers structureel vervullen. Die belofte is niet met een `assert` te toetsen
--- structurele subtypering bestaat alleen bij het typen -- dus staat het bewijs hier, in
-een module die de poort meeneemt: `pyproject.toml` zet `tests/typecheck` in
-`[tool.mypy] files`, dus `uv run mypy` checkt hem en `Success: no issues found` is het
-bewijs. Er staat geen test in en pytest verzamelt hem niet (de naam begint niet met
-`test_`); wie hem toch importeert, krijgt drie definities en twee no-ops.
+`graaf.GraafLezer` belooft dat `rdflib.Graph`, `graaf.GraafIndex` én `cache.LuieGraaf` het
+leescontract van de ontologielezers structureel vervullen. Die belofte is niet met een
+`assert` te toetsen -- structurele subtypering bestaat alleen bij het typen -- dus staat
+het bewijs hier, in een module die de poort meeneemt: `pyproject.toml` zet
+`tests/typecheck` in `[tool.mypy] files`, dus `uv run mypy` checkt hem en `Success: no
+issues found` is het bewijs. Er staat geen test in en pytest verzamelt hem niet (de naam
+begint niet met `test_`); wie hem toch importeert, krijgt drie definities en twee no-ops.
 
 Het bewijst twee kanten, en de tweede is de belangrijkste:
 
-- **positief** -- `_neemt_een_lezer(Graph())` en `_neemt_een_lezer(GraafIndex())` mogen
-  geen fout geven, en de vijf lezers van `ontologie` nemen allebei de vormen. Valt dat
-  om, dan is het protocol te breed geworden (of heeft een rdflib-upgrade een handtekening
-  veranderd) en is de laaggrens stuk;
+- **positief** -- `_neemt_een_lezer(Graph())`, `_neemt_een_lezer(GraafIndex())` en
+  `_neemt_een_lezer(LuieGraaf(...))` mogen geen fout geven, en de vijf lezers van
+  `ontologie` nemen alle drie de vormen. Valt dat om, dan is het protocol te breed
+  geworden (of heeft een rdflib-upgrade een handtekening veranderd) en is de laaggrens
+  stuk. De `LuieGraaf`-regel bewaakt bovendien iets eigens: die klasse gaf tot issue #34
+  alles door via `__getattr__` en leverde mypy dus `object` per leesbewerking, waarmee
+  ze het protocol *niet* vervulde. Wie de vijf expliciete methoden er weer af haalt,
+  loopt hier vast in plaats van pas bij een `AttributeError` op de leesweg;
 - **negatief** -- `HalveGraaf` (alleen `value`) en `VerkeerdeGraaf` (`objects` levert
   tekst) horen te worden afgewezen. Dat staat er als `# type: ignore[arg-type]` en
   `pyproject.toml` zet `warn_unused_ignores = true`: verdwijnt de fout, dan wordt de
@@ -35,10 +39,12 @@ binnen die reeks die de aliassen versmalt, meldt zich pas als de poort hier draa
 from __future__ import annotations
 
 from collections.abc import Iterator
+from pathlib import Path
 
 from rdflib import Graph, URIRef
 from rdflib.term import Node as RdfNode
 
+from gwsw_orox_helpers.cache import LuieGraaf
 from gwsw_orox_helpers.graaf import GraafIndex, GraafLezer
 from gwsw_orox_helpers.namen import GWSW
 from gwsw_orox_helpers.ontologie import (
@@ -77,21 +83,30 @@ def _neemt_een_lezer(bron: GraafLezer) -> None:
 
 
 def _bewijs() -> None:
-    """De vier gevallen; alleen mypy voert dit uit, en dan nog alleen op papier."""
+    """De gevallen; alleen mypy voert dit uit, en dan nog alleen op papier."""
     kenmerk = URIRef(GWSW + "LengteLeiding")
     datatype = URIRef(GWSW + "Dt_LengteLeiding")
+    # Er wordt niets van gelezen: mypy kijkt alleen naar het type. `GraafIndex` is zelf de
+    # herstelfunctie -- een `Callable[[], GraafIndex]` die een lege index oplevert.
+    luie = LuieGraaf(Path("graaf.pickle"), GraafIndex)
 
-    # Positief: allebei de graafvormen vervullen het protocol structureel.
+    # Positief: alle drie de graafvormen vervullen het protocol structureel.
     _neemt_een_lezer(Graph())
     _neemt_een_lezer(GraafIndex())
+    _neemt_een_lezer(luie)
 
-    # Positief: en dus nemen de vijf lezers van `ontologie` ze allebei.
+    # Positief: en dus nemen de vijf lezers van `ontologie` ze alle drie.
     for bron in (Graph(), GraafIndex()):
         facetbereik(bron, datatype)
         datatype_van_kenmerk(bron, kenmerk)
         kenmerkbereik(bron, kenmerk)
         verwachte_property(bron, kenmerk)
         functie_van_klasse(bron, kenmerk)
+    facetbereik(luie, datatype)
+    datatype_van_kenmerk(luie, kenmerk)
+    kenmerkbereik(luie, kenmerk)
+    verwachte_property(luie, kenmerk)
+    functie_van_klasse(luie, kenmerk)
 
     # Negatief: een object zonder `objects`, en een met de verkeerde opbrengst.
     _neemt_een_lezer(HalveGraaf())  # type: ignore[arg-type]

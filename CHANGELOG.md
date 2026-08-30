@@ -1,6 +1,29 @@
 # Changelog
 
 ## [Unreleased]
+- `cache.LuieGraaf` draagt het leescontract expliciet (issue #34, typeveiligheid;
+  **additief** — geen bevroren contract geraakt). De vijf bewerkingen die `GraafIndex`
+  aanbiedt (`objects`, `subjects`, `value`, `subject_objects`, `heeft_subject`) staan nu
+  als methode op de klasse, met dezelfde handtekening en niets anders doend dan
+  `self._geladen().<methode>(...)`; `__len__` en `__contains__` stonden er al.
+  `__getattr__` blijft als vangnet voor alles daarbuiten, dus aan het gedrag verandert er
+  niets: dezelfde antwoorden, hetzelfde laadmoment (pas de eerste aanraking leest de
+  pickle) en hetzelfde zelfherstel bij een beschadigde graafcache. Wat wél verandert is
+  wat mypy ziet: een doorgifte via `__getattr__` typeert elke leesbewerking als `object`,
+  waardoor een typefout in zo'n aanroep pas als `AttributeError` op de leesweg zichtbaar
+  werd. `LuieGraaf` vervult daarmee `graaf.GraafLezer` structureel — bewezen in
+  `tests/typecheck/graaflezer.py`, naast `Graph` en `GraafIndex`. De `cast(GraafIndex,
+  ...)` blijft staan: `GwswDataset.graph` is op de concrete `GraafIndex` gepind en dat
+  veld verbreden is een auteursbeslissing (stap 2, apart geparkeerd). De cachesleutel
+  verschuift niet — `cache` staat met reden in `BUITEN_DE_SLEUTEL` en niet in
+  `LADERMODULES` — dus bestaande caches blijven geldig; nagemeten op de De Wolden- en
+  Hoogeveen-export (sleutel `17fed55b…` vóór en ná). **Geen meetbaar verschil**, zoals het
+  hoort: gepaard gemeten op diezelfde export, met een al warme cachemap, geeft een
+  cache-hit via `laad_met_cache` 2,59/2,56 s vóór tegen 2,51/2,52/2,55 s ná, en de eerste
+  graafaanraking 8,63/8,60 s vóór tegen 8,55/8,55/8,72 s ná. (Een eerste, ongepaarde
+  meting gaf 1,54 s / 10,5 s vóór; die run volgde direct op een koude parse en meet dus de
+  paginacache, niet de wijziging — de cache-treffer voert na deze stap letterlijk dezelfde
+  regels uit.)
 - `tests/test_schrijven.py::test_juinen_blijft_isomorf` leest de sinds #10 gebundelde
   Juinen-fixture in plaats van een pad buiten de repo (uitgestelde minor uit #10). Aanleiding:
   de externe map `nlriochecker/data/gwsw_orox_ttl` was op 30-08 tussentijds afwezig, waardoor

@@ -1,6 +1,11 @@
 # Changelog
 
 ## [Unreleased]
+- README herschreven als landingspagina met vaste opbouw (badges, Stand van zaken, Wat je
+  krijgt, Snel proberen, Verder lezen, Ontwikkelen, Bijdragen, Licentie), naar het model
+  van nlriochecker. Zelfde inhoud, geen apparatuur eromheen (geen getrackt voorbeeld,
+  rooktest of schermafdrukken): de bibliotheek heeft al een runbaar voorbeeld en
+  `docs/architectuur.md`.
 - Leesweg sneller (intern; geen API-wijziging, gedrag bevroren; issue #7): twee losse
   stappen die elkaar niet raken. De cyclische GC ligt nu stil over het hele leesblok van
   `load_dataset` -- beide parses, de klassenafleiding en de objectopbouw van

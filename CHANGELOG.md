@@ -1,6 +1,11 @@
 # Changelog
 
 ## [Unreleased]
+- Ontwikkelstraat: de multi-lens review-swarm (`.claude/workflows/orox-10x-swarm.js`) is nu
+  een **verplichte release-poort** — vóór elke versie draaien en de bevindingen wegen
+  (overnemen niet verplicht), zie `CLAUDE.md`, Werkwijze. De additieve bevindingen van de
+  eerste run staan als `ready-for-agent`-issues (#10–#31); de contract-rakers zijn bewust
+  buiten scope gelaten als auteursbeslissing.
 
 ## [0.2.0] - 2026-08-30
 - README herschreven als landingspagina met vaste opbouw (badges, Stand van zaken, Wat je

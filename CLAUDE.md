@@ -44,6 +44,17 @@ Eerste afnemer: nlriochecker. Nederlandse identifiers, GWSW-conform.
 - Kleine stappen; na elke groene stap een commit met een duidelijke boodschap. Werk op
   `dev`; `main` draagt alleen uitgebrachte, getagde versies en is GitHub-beschermd (PR
   verplicht, ook voor de eigenaar).
+- **Verplichte release-poort: de review-swarm.** Vóór élke versie-release (patch, minor of
+  major) draai je de multi-lens review-swarm en **beoordeel je de uitkomst** — dit is een
+  poort, geen suggestie. Het script staat geborgd in `.claude/workflows/orox-10x-swarm.js`;
+  draai `Workflow({name: 'orox-10x-swarm'})` (8 lens-agents → adversariële verify →
+  Fable-regisseur met ≤25 aanbevelingen, additief-vs-contract gelabeld). Verplicht is het
+  **draaien en wegen** van de bevindingen, niet het overnemen ervan: je mag alles parkeren,
+  maar je legt in de release-notitie (of een comment op de release-PR) kort vast dát je hem
+  hebt gedraaid en wat je met de top-bevindingen doet (oppakken, als `ready-for-agent`-issue
+  wegzetten, of bewust laten liggen). Contract-rakers gaan nooit stilzwijgend mee: die zijn
+  een auteursbeslissing (`CLAUDE.md`, Harde regels). Kost tokens en ~50 min wall-clock; plan
+  dat in.
 - **Een versie uitbrengen** (handwerk, deze repo heeft geen `scripts/uitgave.py`): op `dev`,
   met een schone en groene werkboom, `uv version --bump patch|minor|major` (raakt
   `pyproject.toml` én `uv.lock`), dan in `CHANGELOG.md` de sectie `## [Unreleased]` omzetten

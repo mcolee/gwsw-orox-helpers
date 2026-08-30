@@ -241,6 +241,18 @@ HANDTEKENINGEN: dict[str, str] = {
         "(self, subject: 'RdfNode', predicate: 'RdfNode', object_: 'RdfNode') -> 'None'"
     ),
     "graaf.GraafIndex.vul_uit": "(self, quads: 'Iterable[pyoxigraph.Quad]') -> 'None'",
+    # De termomzetting waarmee de index gevuld wordt. Hij staat hier omdat de auteur hem
+    # aanwees bij issue #21/#23: nlriochecker importeert hem rechtstreeks
+    # (`scripts/maak_voorbeeld.py:57`, `from gwsw_orox_helpers.graaf import naar_rdflib`)
+    # om een pyoxigraph-parse in rdflib-termen te lezen zonder de index te bouwen. Dat is
+    # dezelfde tweede categorie als `dataset.lees_ontologie` hierboven: geen naam die uit
+    # de AST-sweep over `src/` en `tests/` van de afnemer komt, maar wel een naam waarop
+    # hij leunt. **Additief**: deze regel legt de bestaande handtekening vast en verandert
+    # er niets aan.
+    "graaf.naar_rdflib": (
+        "(term: 'pyoxigraph.NamedNode | pyoxigraph.BlankNode | pyoxigraph.Literal | "
+        "pyoxigraph.Triple') -> 'RdfNode'"
+    ),
     # Geometrie.
     "geometry.parse_gml": "(literal: 'str') -> 'Point | LineString | Polygon'",
     "geometry.parse_gml_z": "(literal: 'str') -> 'list[float | None]'",

@@ -1,6 +1,58 @@
 # Changelog
 
 ## [Unreleased]
+- De twee hete lezers bouwen hun termen niet meer per aanroep (issue #23, performance;
+  **additief** — geen bevroren contract geraakt). `GwswDataset.graph_types_of` maakte per
+  aanroep een `URIRef` mét rdflib's validatieregex uit tekst die al een geldige
+  graafsleutel is, plus een `RDF.type`-lezing op rdflib's `DefinedNamespace` (geen
+  attribuut maar een `__getattr__`); hij gebruikt nu `graaf._uriref_snel` en een eenmalig
+  gelezen `_RDF_TYPE`, precies zoals `inlezen` dat al deed. `inlezen._deksel_kenmerk`
+  herbouwde dezelfde drie dekselklassen (`Putdeksel`, `Putdeksel_LichtVerkeer`,
+  `Putdeksel_ZwaarVerkeer`) per put én per onderdeel van die put; `_read_nodes` zet ze nu
+  één keer om, buiten de knopenlus, en geeft ze als `frozenset[URIRef]` door. **Signatuur
+  vóór → na**: alleen de private `inlezen._deksel_kenmerk(graph, subject, deksel_klassen:
+  frozenset[str])` → `frozenset[URIRef]`. `_read_nodes` houdt zijn `frozenset[str] | None`,
+  `graph_types_of` blijft een `frozenset[str]` teruggeven en `load_dataset` roept alles
+  aan zoals het was. **Gemeten** (gepaard, De Wolden en Hoogeveen: 1.877.729 triples,
+  23.485 knopen, 23.440 strengen): de microbenchmark op `graph_types_of` — alle 46.925
+  knoop- en streng-URI's, oud en nieuw afwisselend in één proces, 5 ronden — gaat van
+  0,195 s gemiddeld (mediaan 0,192; min 0,187) naar 0,107 s (mediaan 0,106; min 0,105),
+  dus **−45% en circa 1,9 µs per aanroep**. Op het laadpad (`scripts/benchmark.py --paden
+  load_dataset --herhalingen 3`) is het verschil **niet aantoonbaar**: 21,44 s gemiddeld
+  (mediaan 21,68; min 20,26) → 20,74 s (mediaan 20,59; min 20,41), dus −3,3% op het
+  gemiddelde en −5,0% op de mediaan, maar de spreiding binnen één kant (20,26–22,39 s) is
+  groter dan het verschil en de minima liggen 0,7% uit elkaar in de *andere* richting. De
+  piek blijft 1219 MiB. Beloofd wordt dus alleen de microwinst; op het laden is dit een
+  opruiming, geen versnelling. De gelijkheid waarop het rust staat vast in
+  `test_uriref_snel_geeft_dezelfde_term_voor_elke_iri_in_de_gebundelde_ontologie`
+  (`tests/test_graaf.py`), dat het snelpad tegen `URIRef()` houdt op alle **3.367** unieke
+  IRI's van de gebundelde GWSW 1.6-ontologie — een vijfde getal dat bij een
+  ontologie-upgrade meeschuift en zich vanzelf meldt. Daarnaast twee bewakers in
+  `tests/test_dataset.py`: `test_de_hete_lezers_bouwen_hun_termen_niet_per_aanroep` (aan de
+  AST, zodat de wegwerptermen niet stilletjes terugkomen) en
+  `test_graph_types_of_geeft_dezelfde_typen_als_de_urirefweg` (hetzelfde antwoord voor elke
+  knoop, streng en elk graafonderdeel, plus twee missers). **Cachesleutel**: `dataset`,
+  `inlezen` en `graaf` staan alle drie in `cache.LADERMODULES`, dus deze wijziging
+  verschuift de sleutel en bestaande caches worden één keer opnieuw opgebouwd — bedoelde
+  werking, geen gedragswijziging.
+- `GwswDataset.is_a` vraagt de doorsnede niet meer, maar de disjunctie (issue #12,
+  doorgevoerd bij #23). `bool(typen & closure(root))` bouwde per aanroep een
+  wegwerp-verzameling om er alleen de leegheid van te vragen; `not
+  typen.isdisjoint(closure(root))` beantwoordt dezelfde vraag zonder die verzameling.
+  Gedragsgelijk voor elke combinatie — ook de lege typenverzameling (een URI die geen knoop
+  en geen streng is) en een wortel die de hierarchie niet kent, waar `closure` op de wortel
+  zelf blijft steken; `test_is_a_geeft_hetzelfde_antwoord_als_de_doorsnedevraag` houdt de
+  twee formuleringen naast elkaar. **Gemeten** met `scripts/benchmark_is_a.py` (gepaard,
+  1.126.200 `is_a`-aanroepen per herhaling, 3 herhalingen, aan beide kanten dezelfde
+  266.650 treffers): 1,54 s gemiddeld (mediaan 1,51; min 1,41) → **1,29 s** (mediaan 1,27;
+  min 1,27), dus **−16% op het gemiddelde en −16% op de mediaan** (−10% op het minimum).
+  Ruimer dan de −8,8% die de meting bij #12 voorspelde.
+- De handtekening van `graaf.naar_rdflib` staat gepind in `tests/test_publieke_api.py`
+  (auteursbeslissing bij issue #21). nlriochecker importeert hem rechtstreeks
+  (`scripts/maak_voorbeeld.py:57`) om een pyoxigraph-parse in rdflib-termen te lezen zonder
+  de index te bouwen; net als bij `dataset.lees_ontologie` is dit een naam die de auteur
+  aanwees en niet een die uit de AST-sweep over de afnemer komt. **Additief**: de pin legt
+  de bestaande handtekening vast en verandert er niets aan.
 - De ontologie-`GraafIndex` is als publieke functie bereikbaar (issue #33, vervolg op
   #19; architectuur, **additief** — geen bevroren contract geraakt). **Nieuw en publiek**:
   `dataset.lees_ontologie(ontology_paths: list[Path] | None = None, fallback_encoding:

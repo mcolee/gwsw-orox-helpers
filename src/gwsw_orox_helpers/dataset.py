@@ -46,7 +46,7 @@ from gwsw_orox_helpers.geometry import (
     parse_gml,
     parse_gml_z,
 )
-from gwsw_orox_helpers.graaf import GraafIndex
+from gwsw_orox_helpers.graaf import GraafIndex, _uriref_snel
 from gwsw_orox_helpers.inlezen import (
     FANTOOM_STAART,
     HAS_ASPECT,
@@ -97,6 +97,12 @@ from gwsw_orox_helpers.klassen import (
 )
 from gwsw_orox_helpers.namen import GWSW
 from gwsw_orox_helpers.voortgang import NUL_VOORTGANG, Voortgang
+
+# Dezelfde eenmalige lezing als `inlezen._RDF_TYPE`, en om dezelfde reden: `RDF.type` is
+# geen attribuut maar een `__getattr__` op rdflib's `DefinedNamespace` en kost bijna een
+# microseconde per keer. `graph_types_of` vraagt hem per aanroep, en dat is een van de
+# vragen die de checkfase in de honderdduizenden stelt (issue #23). Het is dezelfde term.
+_RDF_TYPE = RDF.type
 
 # De lijst is het oppervlak, niet een keuze van deze module: alles wat ooit uit
 # `gwsw_orox_helpers.dataset` te importeren was, staat erin -- ook de namen die na de
@@ -229,9 +235,15 @@ class GwswDataset:
         strengobject waaraan zij hangt. En hij spaart de
         graafopvraging van `graph_types_of()` uit, die op elke wandeling over De Wolden en Hoogeveen
         meetelt.
+
+        `isdisjoint` en niet `bool(... & ...)`: die doorsnede was een wegwerp-verzameling
+        waar alleen de leegheid van gevraagd werd, en dit predicaat wordt ruim een miljoen
+        keer per run gesteld (issue #12, doorgevoerd bij #23). Het antwoord is aan beide
+        kanten hetzelfde -- ook met een lege typenverzameling en met een wortel die de
+        hierarchie niet kent, waar `closure` op de wortel zelf blijft steken.
         """
         object_types = self.types_of(uri)
-        return bool(object_types & self.closure(root))
+        return not object_types.isdisjoint(self.closure(root))
 
     def types_of(self, uri: str) -> frozenset[str]:
         """De typen van een object, inclusief die van zijn orientatie.
@@ -275,8 +287,14 @@ class GwswDataset:
         `types_of()` niet te herkennen. Hier komt het type rechtstreeks uit de graaf,
         met de typen uit het domeinmodel erbij, zodat een orientatieklasse als
         Lozingspunt vindbaar blijft.
+
+        De twee termen komen kant-en-klaar: het subject via `graaf._uriref_snel` (de tekst
+        is al een geldige graafsleutel, dus rdflib's validatieregex kost hier alleen tijd)
+        en het predicaat als eenmalig gelezen `_RDF_TYPE`. Allebei zijn het dezelfde term
+        als voorheen -- `tests/test_graaf.py` houdt het snelpad tegen `URIRef()` op elke
+        IRI van de gebundelde ontologie -- dus het antwoord verandert niet (issue #23).
         """
-        uit_graaf = {str(soort) for soort in self.graph.objects(URIRef(uri), RDF.type)}
+        uit_graaf = {str(soort) for soort in self.graph.objects(_uriref_snel(uri), _RDF_TYPE)}
         return self.types_of(uri) | uit_graaf
 
     def graph_is_a(self, uri: str, root: str) -> bool:

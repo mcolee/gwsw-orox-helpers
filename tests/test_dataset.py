@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+import ast
 import gc
+import inspect
+import textwrap
 from pathlib import Path
 
 import pytest
-from rdflib import URIRef
+from rdflib import RDF, URIRef
 from rdflib.term import Node as RdfNode
 
 from gwsw_orox_helpers import dataset as dataset_module
@@ -250,6 +253,89 @@ def test_onderdeel_uit_de_graaf_is_op_klasse_te_herkennen() -> None:
     assert dataset.types_of(drempel) == frozenset()
     assert not dataset.is_a(drempel, "Overstortdrempel")
     assert dataset.graph_is_a(drempel, "Overstortdrempel")
+
+
+def _wegwerptermen(functie: object) -> list[str]:
+    """De termconstructies die deze functie per aanroep uitvoert, als leesbare namen.
+
+    Twee vormen tellen mee en allebei kosten ze een microseconde per keer: een
+    `URIRef(...)`-aanroep (rdflib valideert de tekst dan met een reguliere expressie over
+    de hele IRI) en een attribuutlezing op een `DefinedNamespace` als `RDF.type` (dat is
+    geen attribuut maar een `__getattr__`). Aan de boom en niet aan de tekst: een
+    docstring die `URIRef(` noemt is geen aanroep, en een aanroep die over twee regels
+    staat mist een regelgerichte grep.
+    """
+    boom = ast.parse(textwrap.dedent(inspect.getsource(functie)))  # type: ignore[arg-type]
+    gevonden: list[str] = []
+    for knoop in ast.walk(boom):
+        if isinstance(knoop, ast.Call) and isinstance(knoop.func, ast.Name):
+            if knoop.func.id == "URIRef":
+                gevonden.append("URIRef(...)")
+        elif isinstance(knoop, ast.Attribute) and isinstance(knoop.value, ast.Name):
+            if knoop.value.id in {"RDF", "RDFS", "OWL", "XSD"}:
+                gevonden.append(f"{knoop.value.id}.{knoop.attr}")
+    return sorted(gevonden)
+
+
+def test_de_hete_lezers_bouwen_hun_termen_niet_per_aanroep() -> None:
+    """`graph_types_of` en `_deksel_kenmerk` krijgen hun termen kant-en-klaar (issue #23).
+
+    Allebei bouwden ze per aanroep een term uit tekst die al een geldige graafsleutel is:
+    `graph_types_of` een `URIRef` mét rdflib's validatieregex plus een `RDF.type`-lezing
+    op de `DefinedNamespace`, en `_deksel_kenmerk` dezelfde handvol dekselklassen opnieuw
+    per put én per onderdeel. Het snelpad (`graaf._uriref_snel`) en de eenmalige omzetting
+    in `_read_nodes` leveren dezelfde termen -- `tests/test_graaf.py` telt die gelijkheid
+    over de hele gebundelde ontologie -- dus wat hier vastligt is dat ze niet stilletjes
+    terugkomen.
+    """
+    from gwsw_orox_helpers.inlezen import _deksel_kenmerk
+
+    assert _wegwerptermen(GwswDataset.graph_types_of) == []
+    assert _wegwerptermen(_deksel_kenmerk) == []
+
+
+def test_graph_types_of_geeft_dezelfde_typen_als_de_urirefweg(voorbeeld: GwswDataset) -> None:
+    """Het snelpad verandert het antwoord niet, voor geen enkel subject in de export.
+
+    De tegenhanger van de guard hierboven: die zegt dat de termen niet meer per aanroep
+    gebouwd worden, deze zegt dat het antwoord daar niet van verandert. De vergelijking
+    loopt over de knopen, de strengen én de onderdelen die alleen in de graaf staan (een
+    overstortdrempel wordt nooit een knoop), plus twee teksten die nergens in de graaf
+    voorkomen -- de misser hoort net zo goed leeg te blijven.
+    """
+
+    def via_uriref(uri: str) -> frozenset[str]:
+        uit_graaf = {str(soort) for soort in voorbeeld.graph.objects(URIRef(uri), RDF.type)}
+        return voorbeeld.types_of(uri) | uit_graaf
+
+    onderdelen = [deel for uri in voorbeeld.nodes for deel in voorbeeld.onderdelen(uri)]
+    uris = [*voorbeeld.nodes, *voorbeeld.conduits, *onderdelen, f"{TOETS}BestaatNiet", ""]
+
+    assert uris, "voorwaarde: er valt iets te vergelijken"
+    for uri in uris:
+        assert voorbeeld.graph_types_of(uri) == via_uriref(uri), uri
+
+
+def test_is_a_geeft_hetzelfde_antwoord_als_de_doorsnedevraag(voorbeeld: GwswDataset) -> None:
+    """`isdisjoint` in plaats van een doorsnede bouwen; het oordeel blijft hetzelfde.
+
+    `bool(typen & afsluiting)` bouwde per aanroep een wegwerp-verzameling om er daarna
+    alleen de leegheid van te vragen. `not typen.isdisjoint(afsluiting)` beantwoordt
+    dezelfde vraag zonder die verzameling (issue #12, doorgevoerd bij #23). Wat hier
+    vastligt is dat de twee op elke combinatie hetzelfde zeggen -- inclusief de lege
+    typenverzameling (een URI die geen knoop en geen streng is) en een wortel die de
+    hierarchie niet kent, waar de afsluiting op de wortel zelf blijft steken.
+    """
+    wortels = ["Put", "Leiding", "Knooppunt", "Overstortdrempel", "Stelsel", "KlasseZonderBestaan"]
+    uris = [*voorbeeld.nodes, *voorbeeld.conduits, f"{TOETS}BestaatNiet"]
+
+    for uri in uris:
+        typen = voorbeeld.types_of(uri)
+        for wortel in wortels:
+            assert voorbeeld.is_a(uri, wortel) == bool(typen & voorbeeld.closure(wortel)), (
+                uri,
+                wortel,
+            )
 
 
 def test_onderdelen_vindt_de_delen_van_een_put() -> None:

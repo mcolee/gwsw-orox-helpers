@@ -247,6 +247,50 @@ def test_literal_string_snel_is_niet_te_onderscheiden_van_de_trage_weg(waarde: s
     assert snel.toPython() == traag.toPython()
 
 
+# Het aantal unieke IRI's in de gebundelde GWSW 1.6-ontologie -- subject, predicaat en
+# object samen. Net als `AANTAL_TRIPELS_GWSW16` in `tests/test_dataset.py` is dit een
+# getal dat bij een ontologie-upgrade meeschuift; het meldt zich vanzelf, want deze test
+# wordt er rood van.
+AANTAL_IRIS_GWSW16 = 3_367
+
+
+def test_uriref_snel_geeft_dezelfde_term_voor_elke_iri_in_de_gebundelde_ontologie() -> None:
+    """Het snelpad en `URIRef()` zijn gelijk op de hele voorraad IRI's die we uitleveren.
+
+    De tien waarden hierboven zijn met de hand gekozen randgevallen; dit is de andere
+    kant van hetzelfde bewijs -- elke IRI die de gebundelde ontologie werkelijk draagt,
+    en dus precies de tekstvorm waar `dataset.graph_types_of` en `inlezen._deksel_kenmerk`
+    hun term uit bouwen (issue #23). Dat die twee daarvoor van `URIRef()` naar
+    `_uriref_snel` zijn overgestapt, rust op de gelijkheid die hier geteld wordt: gelijk
+    type, gelijke `==`, gelijke `hash()` en gelijke tekst, want de index zoekt op hash en
+    gelijkheid op.
+
+    Rechtstreeks langs de motor en niet via `GraafIndex`: de index biedt geen bewerking
+    aan om al haar termen op te sommen, en dat blijft zo -- het leescontract in de
+    moduledocstring van `graaf` is precies de handvol bewerkingen die de checks stellen.
+    """
+    from gwsw_orox_helpers import rdfmotor
+    from gwsw_orox_helpers.bronnen import gebundelde_ontologie
+
+    iris = {
+        term.value
+        for quad in rdfmotor.ontleed_turtle_bestand(gebundelde_ontologie())
+        for term in (quad.subject, quad.predicate, quad.object)
+        if isinstance(term, pyoxigraph.NamedNode)
+    }
+
+    assert len(iris) == AANTAL_IRIS_GWSW16
+    afwijkend = [
+        iri
+        for iri in iris
+        if type(_uriref_snel(iri)) is not URIRef
+        or _uriref_snel(iri) != URIRef(iri)
+        or hash(_uriref_snel(iri)) != hash(URIRef(iri))
+        or str(_uriref_snel(iri)) != str(URIRef(iri))
+    ]
+    assert afwijkend == []
+
+
 def _slots(klasse: type) -> tuple[str, ...]:
     """Alle `__slots__` van een klasse en haar bovenklassen, zonder duplicaten."""
     gevonden: dict[str, None] = {}

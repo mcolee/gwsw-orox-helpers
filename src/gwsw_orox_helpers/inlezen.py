@@ -40,7 +40,7 @@ from gwsw_orox_helpers.geometry import (
     is_multipart_literal,
     parse_gml_met_z,
 )
-from gwsw_orox_helpers.graaf import GraafIndex
+from gwsw_orox_helpers.graaf import GraafIndex, _uriref_snel
 from gwsw_orox_helpers.klassen import _afsluiting, _short
 
 # `RDF.type` en `RDFS.label` zijn geen attributen maar een `__getattr__` op rdflib's
@@ -355,7 +355,7 @@ def _herkomst(graph: GraafIndex, orientation: RdfNode, aspect: Aspect) -> Inwinn
 
 
 def _deksel_kenmerk(
-    graph: GraafIndex, subject: RdfNode, deksel_klassen: frozenset[str]
+    graph: GraafIndex, subject: RdfNode, deksel_klassen: frozenset[URIRef]
 ) -> tuple[Aspect | None, Inwinning | None]:
     """Het putdekselniveau van een put, met de herkomst ervan.
 
@@ -369,6 +369,13 @@ def _deksel_kenmerk(
     subklassen, en een exacte typevergelijking zou zo'n put stilzwijgend haar
     dekselniveau afnemen -- waarna `Node.bovenkant` op het maaiveld terugvalt zonder
     dat iemand het merkt.
+
+    Hij komt binnen als **termen** en niet als tekst (issue #23). Die drie klassen zijn
+    voor de hele lezing dezelfde en de membershiptest hieronder gebeurt per put én per
+    onderdeel daarvan; ze hier uit tekst opbouwen betekende dus dezelfde handvol
+    `URIRef`-constructies tienduizenden keren over. `_read_nodes` zet ze een keer om,
+    buiten de knopenlus, met `graaf._uriref_snel` -- dezelfde term als `URIRef()`, dus
+    dezelfde membership.
 
     **Wat hier niet gedekt is.** De afsluiting stopt bij `Putdeksel`. Het GWSW hangt
     onder `Deksel` ook `Straatpot`, `Drainputdeksel` en `Peilbuisdeksel` -- zusters
@@ -385,7 +392,7 @@ def _deksel_kenmerk(
         return direct, _herkomst(graph, subject, direct)
 
     for deel in parts_of(graph, subject):
-        if not any((deel, _RDF_TYPE, URIRef(klasse)) in graph for klasse in deksel_klassen):
+        if not any((deel, _RDF_TYPE, klasse) in graph for klasse in deksel_klassen):
             continue
         for orientatie in aspects_of(graph, deel):
             aspect = _aspect_van_klasse(graph, orientatie, KLASSE_PUTDEKSELNIVEAU)
@@ -458,6 +465,9 @@ def _read_nodes(
     """
     nodes: dict[str, Node] = {}
     deksel_klassen = deksel_klassen or _afsluiting({}, "Putdeksel")
+    # Een keer, buiten de lus: `_deksel_kenmerk` toetst deze handvol klassen per put en
+    # per onderdeel daarvan, en bouwde ze tot issue #23 elke keer opnieuw uit tekst op.
+    deksel_termen = frozenset(_uriref_snel(klasse) for klasse in deksel_klassen)
 
     if knooppunt_klassen:
         bron = _orientations_of_class(graph, knooppunt_klassen)
@@ -472,7 +482,7 @@ def _read_nodes(
             uri = str(subject)
             if uri in nodes:
                 continue
-            deksel, deksel_inwinning = _deksel_kenmerk(graph, subject, deksel_klassen)
+            deksel, deksel_inwinning = _deksel_kenmerk(graph, subject, deksel_termen)
             nodes[uri] = Node(
                 uri=uri,
                 label=_label(graph, subject),

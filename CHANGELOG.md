@@ -1,6 +1,18 @@
 # Changelog
 
 ## [Unreleased]
+- Afhankelijkheden krijgen een bovengrens (issue #14; `pyproject.toml`, geen
+  `src`-wijziging): `pyoxigraph>=0.5,<0.6`, `rdflib>=7.0,<8`, `shapely>=2.0,<3`. Reden:
+  `graaf._literal_string_snel` zet vier rdflib-interne velden (`_language`, `_datatype`,
+  `_value`, `_ill_typed`) rechtstreeks en is daarmee aan 7.x gebonden, en pyoxigraph is
+  pre-1.0 waar 0.5 -> 0.6 de parse-signatuur mag breken; `shapely<3` is precautionair.
+  Zonder bovengrens kon een verse install bij een afnemer stil een incompatibele versie
+  trekken en op het parse-pad verkeerde termen opleveren — de drifttests draaien daar niet.
+  De gepinde omgeving verandert niet (pyoxigraph 0.5.9, rdflib 7.6.0, shapely 2.1.2); in
+  `uv.lock` wijzigt alleen de requirement-metadata van het package zelf, geen enkele
+  versie. **Release-hygiëne voor nlriochecker**: bij de volgende release van deze package
+  moet daar `uv lock` draaien om de nieuwe grenzen over te nemen — het is geen
+  contractbreuk, de publieke API blijft ongewijzigd.
 - Tests (issue #10, additief; geen `src`-wijziging): het publieke GWSW-Voorbeeld van
   Stichting RIONED staat nu byte-exact als fixture in de repo
   (`tests/fixtures/ttl/juinen_voorbeeld_v1_6.ttl`, 119.332 bytes, 1.621 triples, 567

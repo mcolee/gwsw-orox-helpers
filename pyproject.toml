@@ -13,9 +13,17 @@ requires-python = ">=3.12"
 dependencies = [
     # pyoxigraph levert de Rust-parser die het OroX-TTL ordegrootten sneller inleest dan
     # rdflib's pure-Python notation3.
-    "pyoxigraph>=0.5",
-    "rdflib>=7.0",
-    "shapely>=2.0",
+    #
+    # Bovengrenzen, want een verse install bij een afnemer mag niet stil een incompatibele
+    # major/minor trekken:
+    # - pyoxigraph is pre-1.0; 0.5 -> 0.6 mag de parse-signatuur breken.
+    # - `_literal_string_snel` in `src/gwsw_orox_helpers/graaf.py` zet vier rdflib-INTERNE
+    #   velden rechtstreeks (`_language`, `_datatype`, `_value`, `_ill_typed`), gebonden
+    #   aan 7.x; rdflib 8 mag die hernoemen.
+    # - shapely<3 is precautionair: geen bekend knelpunt, wel dezelfde major-risico's.
+    "pyoxigraph>=0.5,<0.6",
+    "rdflib>=7.0,<8",
+    "shapely>=2.0,<3",
 ]
 
 [dependency-groups]

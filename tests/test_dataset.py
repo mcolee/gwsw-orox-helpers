@@ -6,6 +6,7 @@ import ast
 import gc
 import inspect
 import textwrap
+from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
@@ -335,6 +336,39 @@ def test_de_dekseltermen_worden_een_keer_gebouwd_en_niet_per_put(
     # putten. `_read_nodes` is de enige plek in de leeslaag die deze naam aanroept.
     dekselklassen = dataset.closure("Putdeksel")
     assert sorted(aanroepen) == sorted(dekselklassen)
+
+
+def test_uniek_ontdubbelt_op_het_eerste_voorkomen() -> None:
+    """De gedeelde ontdubbelaar van de drie orientatiebronnen (issue #30).
+
+    `_orientations_of_class`, `_orientations_with` en `_leiding_orientations` hielden
+    elk hun eigen gezien-set aan; dit is die set, een keer. Vastgelegd wordt waar die
+    drie op leunen: elk element hoogstens een keer, in de volgorde waarin het voor het
+    eerst langskwam, een lege bron levert niets op -- en de ontdubbelaar blijft lui. Dat
+    laatste is geen detail: een eager variant (`dict.fromkeys`) geeft dezelfde lijst
+    terug maar leest op een gemeentebrede export eerst de hele bron in.
+    """
+    from gwsw_orox_helpers.inlezen import _uniek
+
+    assert list(_uniek([])) == []
+    assert list(_uniek([3, 1, 3, 2, 1, 3])) == [3, 1, 2]
+    assert list(_uniek(iter(("a", "a", "a")))) == ["a"]
+
+    gelezen: list[int] = []
+
+    def bron() -> Iterator[int]:
+        for waarde in (1, 1, 2, 3):
+            gelezen.append(waarde)
+            yield waarde
+
+    geleverd: list[int] = []
+    for waarde in _uniek(bron()):
+        geleverd.append(waarde)
+        if len(geleverd) == 2:
+            break
+
+    assert geleverd == [1, 2]
+    assert gelezen == [1, 1, 2], "de 3 is niet opgehaald: de bron loopt niet vooruit"
 
 
 def test_graph_types_of_geeft_dezelfde_typen_als_de_urirefweg(voorbeeld: GwswDataset) -> None:

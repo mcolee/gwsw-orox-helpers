@@ -95,6 +95,33 @@ FANTOOM_STAART = "_put"
 
 
 # --------------------------------------------------------------------------------------
+# De gedeelde ontdubbelaar
+# --------------------------------------------------------------------------------------
+
+
+def _uniek[T](items: Iterable[T]) -> Iterator[T]:
+    """De items, elk hoogstens een keer, in de volgorde van hun eerste voorkomen.
+
+    De drie orientatiebronnen verderop (`_orientations_of_class`, `_orientations_with`
+    en `_leiding_orientations`) lopen elk een genest paar lussen af waarin dezelfde
+    orientatie meer dan eens langskomt, en hielden daarvoor tot issue #30 elk een eigen
+    gezien-set aan. Dit is die set, een keer, met precies hetzelfde gedrag: dezelfde
+    elementen in dezelfde volgorde, en even lui -- de bron wordt niet verder afgelopen
+    dan de afnemer vraagt, want op een gemeentebrede export is deze lus de buitenrand
+    van de knopen- en de strengenlezing.
+
+    `_beide_richtingen` hieronder blijft ernaast staan en is nadrukkelijk *niet*
+    hetzelfde patroon: die ontdubbelt alleen de inverse richting tegen de voorwaartse en
+    laat een herhaling binnen een van beide richtingen ongemoeid.
+    """
+    gezien: set[T] = set()
+    for item in items:
+        if item not in gezien:
+            gezien.add(item)
+            yield item
+
+
+# --------------------------------------------------------------------------------------
 # De twee schrijfrichtingen van hasPart, hasAspect en hasConnection
 # --------------------------------------------------------------------------------------
 
@@ -416,24 +443,22 @@ def _parents(graph: GraafIndex, subject: RdfNode) -> tuple[str, ...]:
     )
 
 
-def _orientations_of_class(graph: GraafIndex, klassen: frozenset[str]):
+def _orientations_of_class(graph: GraafIndex, klassen: frozenset[str]) -> Iterator[RdfNode]:
     """De orientaties waarvan het type in deze verzameling klassen valt."""
-    gezien = set()
-    for klasse in klassen:
-        for orientation in graph.subjects(_RDF_TYPE, URIRef(klasse)):
-            if orientation not in gezien:
-                gezien.add(orientation)
-                yield orientation
+    return _uniek(
+        orientation
+        for klasse in klassen
+        for orientation in graph.subjects(_RDF_TYPE, URIRef(klasse))
+    )
 
 
-def _orientations_with(graph: GraafIndex, klasse: URIRef):
+def _orientations_with(graph: GraafIndex, klasse: URIRef) -> Iterator[RdfNode]:
     """De orientaties die via hasAspect een geometrie van dit type dragen."""
-    gezien = set()
-    for aspect in graph.subjects(_RDF_TYPE, klasse):
-        for orientation in aspect_holders_of(graph, aspect):
-            if orientation not in gezien:
-                gezien.add(orientation)
-                yield orientation
+    return _uniek(
+        orientation
+        for aspect in graph.subjects(_RDF_TYPE, klasse)
+        for orientation in aspect_holders_of(graph, aspect)
+    )
 
 
 def _read_conduits(
@@ -513,15 +538,14 @@ def _is_multipart(graph: GraafIndex, orientation: RdfNode, klasse: URIRef) -> bo
     return any(is_multipart_literal(literal) for literal in literalen)
 
 
-def _leiding_orientations(graph: GraafIndex):
+def _leiding_orientations(graph: GraafIndex) -> Iterator[RdfNode]:
     """De orientaties die een begin- of eindpunt van een leiding bevatten."""
-    gezien = set()
-    for klasse in (*KLASSEN_BEGINPUNT, *KLASSEN_EINDPUNT):
-        for endpoint in graph.subjects(_RDF_TYPE, klasse):
-            for orientation in part_holders_of(graph, endpoint):
-                if orientation not in gezien:
-                    gezien.add(orientation)
-                    yield orientation
+    return _uniek(
+        orientation
+        for klasse in (*KLASSEN_BEGINPUNT, *KLASSEN_EINDPUNT)
+        for endpoint in graph.subjects(_RDF_TYPE, klasse)
+        for orientation in part_holders_of(graph, endpoint)
+    )
 
 
 def _endpoint(

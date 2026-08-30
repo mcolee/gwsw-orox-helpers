@@ -8,7 +8,9 @@
   functies in `src/`** (`bestand._quiet_rdflib` en `bestand._gc_uit` → `Iterator[None]`,
   `inlezen._connections` → `Iterator[RdfNode]`, `inlezen._geometry` →
   `tuple[Point | LineString | Polygon | None, list[float | None]]` — het retourtype dat
-  `geometry.parse_gml_met_z` al draagt, met de `None, []` van het foutpad erbij) en **vijf
+  `geometry.parse_gml_met_z` al draagt, met de `None, []` van het foutpad erbij — shapely
+  levert geen `py.typed`, dus die drie namen zijn voor mypy `Any` en die annotatie
+  documenteert wel maar toetst niet) en **vijf
   in `scripts/maak_fixtures.py`** (`kenmerken`, `nette_put`, `nette_leiding`, `hoogteput`,
   `hoogteleiding`); daarnaast werd in `scripts/benchmark_gml.py` de kale toekenning
   `Meetkunde = Point | LineString | Polygon` een `type`-alias (PEP 695), want zonder

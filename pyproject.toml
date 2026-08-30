@@ -62,7 +62,9 @@ python_version = "3.12"
 # nog altijd 21 fouten van groen, vooral doordat pyoxigraph- en shapely-termen in
 # testasserties versmald moeten worden. Dat is eigen werk, geen bijvangst van deze poort.
 files = ["src/gwsw_orox_helpers", "tests/typecheck", "scripts"]
-# rdflib en shapely leveren geen bruikbare stubs.
+# shapely levert geen `py.typed` (2.1.2), dus zijn namen komen als `Any` binnen: een
+# annotatie als `Point | LineString | Polygon` documenteert daar wel maar toetst niet.
+# rdflib draagt sinds 7.x wél een `py.typed` en wordt dus gewoon meegecontroleerd.
 ignore_missing_imports = true
 # Elke functie draagt haar handtekening, in `src/`, in `tests/typecheck` en in `scripts/`.
 # Zonder deze vlag glipt een ongeannoteerde def er ongemerkt door: mypy leest haar dan als

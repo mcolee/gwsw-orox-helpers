@@ -15,18 +15,26 @@ Wat je met die uitkomsten *doet* -- ze erven naar subklassen, ze op korte naam t
 -- staat in `klassen`. Deze module kijkt daarom omlaag (naar `namen` en `graaf`) en nooit
 omhoog naar de lader; dat is wat haar los houdt van `dataset`.
 
-**Elke lezer hier neemt allebei de graafvormen**, `rdflib.Graph` en `graaf.GraafIndex`, en
-dat is geen gemak maar de kern van issue #19: `load_dataset` leest de ontologie in een
-`GraafIndex` (zijn `restrictiebron`) en gaf die aan `verwachte_property` en
-`functie_van_klasse`, terwijl `facetbereik`, `datatype_van_kenmerk` en `kenmerkbereik` via
-`rdflib.collection.Collection` een echte `Graph` eisten. Die drie draaiden daardoor alleen
-in tests -- de belofte van issue #35 was op de echte leesweg niet aan te roepen en liep er
-op een `AttributeError` stuk. `_lijstleden` wandelt de `rdf:first`/`rdf:rest`-ketting nu
-zelf, met niets anders dan de `value` die allebei de vormen aanbieden. Twee concrete
-graaftypen en geen protocol: dat de vijf lezers precies dezelfde handvol bewerkingen
-gebruiken (`objects` en `value`, meer niet) is wat een `GraafLezer`-protocol (issue #21)
-hier later overheen kan leggen, zonder aan de handtekeningen iets anders te veranderen dan
-de naam van het type.
+**Elke lezer hier neemt `graaf.GraafLezer`**, en dat is geen gemak maar de kern van issue
+#19: `load_dataset` leest de ontologie in een `GraafIndex` (zijn `restrictiebron`) en gaf
+die aan `verwachte_property` en `functie_van_klasse`, terwijl `facetbereik`,
+`datatype_van_kenmerk` en `kenmerkbereik` via `rdflib.collection.Collection` een echte
+`Graph` eisten. Die drie draaiden daardoor alleen in tests -- de belofte van issue #35 was
+op de echte leesweg niet aan te roepen en liep er op een `AttributeError` stuk.
+`_lijstleden` wandelt de `rdf:first`/`rdf:rest`-ketting nu zelf, met niets anders dan de
+`value` die allebei de vormen aanbieden.
+
+Tot issue #21 stond die vrijheid er als union `Graph | GraafIndex`: een opsomming van de
+twee vormen die het toevallig kunnen. `GraafLezer` (in `graaf`) zegt in plaats daarvan wat
+deze module werkelijk vraagt -- `objects` en `value`, meer niet -- en `rdflib.Graph` en
+`GraafIndex` vervullen dat allebei structureel. Voor de aanroeper verandert er niets: elke
+`Graph` en elke `GraafIndex` die vroeger paste, past nog. Wat er wél verandert is de kant
+van deze module: een lezer hier die een derde bewerking gaat gebruiken, wordt door mypy
+tegengehouden tot het protocol verbreed is, in plaats van stil een van de twee vormen
+onaanroepbaar te maken. Dat is precies de scheur die issue #19 moest repareren, nu
+bewaakt in plaats van beschreven. Het bewijs dat allebei de vormen passen staat in
+`tests/typecheck/graaflezer.py` en gaat door de poort mee (`[tool.mypy]` in
+`pyproject.toml`).
 
 **Wat hiermee nog niet af is**, en bewust niet: `load_dataset` bouwt zijn
 ontologie-`GraafIndex` als lokale `restrictiebron` en bewaart hem niet op `GwswDataset`.
@@ -42,10 +50,10 @@ from collections.abc import Iterator
 from dataclasses import dataclass
 from decimal import Decimal
 
-from rdflib import OWL, RDF, RDFS, XSD, Graph, URIRef
+from rdflib import OWL, RDF, RDFS, XSD, URIRef
 from rdflib.term import Node as RdfNode
 
-from gwsw_orox_helpers.graaf import GraafIndex
+from gwsw_orox_helpers.graaf import GraafLezer
 from gwsw_orox_helpers.namen import GWSW
 
 
@@ -63,7 +71,7 @@ class Facetbereik:
     maximum: Decimal | None
 
 
-def _lijstleden(graph: Graph | GraafIndex, kop: RdfNode) -> Iterator[RdfNode]:
+def _lijstleden(graph: GraafLezer, kop: RdfNode) -> Iterator[RdfNode]:
     """De leden van een RDF-lijst (`rdf:first`/`rdf:rest`), vanaf `kop`.
 
     De tegenhanger van `rdflib.collection.Collection` die het op de leesweg ook doet:
@@ -110,7 +118,7 @@ def _lijstleden(graph: Graph | GraafIndex, kop: RdfNode) -> Iterator[RdfNode]:
         gezien.add(schakel)
 
 
-def facetbereik(graph: Graph | GraafIndex, datatype: URIRef) -> Facetbereik | None:
+def facetbereik(graph: GraafLezer, datatype: URIRef) -> Facetbereik | None:
     """Lost het bereik van een `Dt_X`-datatype op, of `None` als het er geen draagt.
 
     `None` betekent: geen `owl:equivalentClass` met een `owl:withRestrictions`-lijst.
@@ -138,7 +146,7 @@ def facetbereik(graph: Graph | GraafIndex, datatype: URIRef) -> Facetbereik | No
     return Facetbereik(datatype=naam, minimum=minimum, maximum=maximum)
 
 
-def datatype_van_kenmerk(graph: Graph | GraafIndex, kenmerk: URIRef) -> URIRef | None:
+def datatype_van_kenmerk(graph: GraafLezer, kenmerk: URIRef) -> URIRef | None:
     """Vindt het `Dt_X`-datatype van een kenmerk via zijn `hasValue`-restrictie.
 
     De ontologie hangt onder een kenmerk een `owl:Restriction` op `gwsw:hasValue` met
@@ -155,7 +163,7 @@ def datatype_van_kenmerk(graph: Graph | GraafIndex, kenmerk: URIRef) -> URIRef |
     return None
 
 
-def kenmerkbereik(graph: Graph | GraafIndex, kenmerk: URIRef) -> Facetbereik | None:
+def kenmerkbereik(graph: GraafLezer, kenmerk: URIRef) -> Facetbereik | None:
     """De hele keten: van een kenmerk naar het bereik van zijn datatype."""
     datatype = datatype_van_kenmerk(graph, kenmerk)
     if datatype is None:
@@ -163,7 +171,7 @@ def kenmerkbereik(graph: Graph | GraafIndex, kenmerk: URIRef) -> Facetbereik | N
     return facetbereik(graph, datatype)
 
 
-def verwachte_property(graph: Graph | GraafIndex, kenmerk: URIRef) -> str | None:
+def verwachte_property(graph: GraafLezer, kenmerk: URIRef) -> str | None:
     """De property die de ontologie voor de waarde van een kenmerk voorschrijft.
 
     De ontologie hangt onder een kenmerk een `owl:Restriction` die de waarde aan een
@@ -190,7 +198,7 @@ def verwachte_property(graph: Graph | GraafIndex, kenmerk: URIRef) -> str | None
     return waarde
 
 
-def functie_van_klasse(graph: Graph | GraafIndex, klasse: URIRef) -> str | None:
+def functie_van_klasse(graph: GraafLezer, klasse: URIRef) -> str | None:
     """De functiewaarde die de ontologie aan een klasse bindt, als korte naam, of None.
 
     Het GWSW zegt wat een hulpstuk doet via een `owl:Restriction` op `gwsw:functie`

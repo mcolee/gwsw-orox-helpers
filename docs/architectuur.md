@@ -98,7 +98,7 @@ Elke module beantwoordt één vraag; in deze volgorde heeft niets ooit iets van 
 | `schrijven` | Hoe komt een quadstroom er als OroX-Turtle weer uit? |
 | `clip` | Hoe verdeel je die stroom over vlakken, en hoe draai je dat terug? (package) |
 
-## De ontologielezers nemen allebei de graafvormen
+## De ontologielezers nemen een `GraafLezer`
 
 `ontologie` is de enige module die met twee soorten grafen te maken heeft, en dat is geen
 losse eindje maar de vorm van de leesweg. `load_dataset` parseert de ontologiebestanden in
@@ -114,15 +114,52 @@ ontologie haalt — liepen via `rdflib.collection.Collection` over de
 echte `Graph`. Die drie functies draaiden daardoor **alleen in tests**; op de leesweg
 liepen ze op een `AttributeError` stuk. `ontologie._lijstleden` wandelt de
 `rdf:first`/`rdf:rest`-ketting nu zelf, met niets anders dan de `value` die allebei de
-vormen aanbieden, en alle vijf de lezers nemen `Graph | GraafIndex`.
+vormen aanbieden.
 
 Dat is meteen de reden dat `GraafIndex` geen collectie-bewerking aanbiedt: een RDF-lijst
 is met `value` te wandelen, dus het leescontract in de docstring van `graaf` blijft de
-handvol bewerkingen die het was. En het is de naad waar issue #21 een
-`GraafLezer`-protocol overheen kan leggen: de vijf lezers gebruiken precies dezelfde
-bewerkingen, dus dat protocol vervangt straks alleen de naam van het type in de
-handtekening. Daarom staat er nu ook nog geen type-alias voor `Graph | GraafIndex`: die
-zou de naam vastleggen die #21 juist te vergeven heeft.
+handvol bewerkingen die het was.
+
+Sinds issue #21 staat die vrijheid niet meer als union `Graph | GraafIndex` in zes
+handtekeningen maar als één protocol: **`graaf.GraafLezer`**, een `typing.Protocol` met
+precies twee leden -- `objects(subject, predicate, /)` en `value(subject, predicate, /)`.
+`GraafIndex` en `rdflib.Graph` vervullen het allebei *structureel*: geen van beide erft
+ervan, geen van beide weet ervan. Voor de aanroeper is dat verbreding en geen breuk --
+elke `Graph` en elke `GraafIndex` die paste, past nog -- en aan de kant van `ontologie`
+verschuift er iets wezenlijks: de laaggrens is mypy-bewaakt geworden. Een lezer die daar
+een derde bewerking gaat gebruiken, loopt op een `attr-defined` vast tot het protocol
+verbreed is, in plaats van stil een van de twee graafvormen onaanroepbaar te maken. Dat
+laatste is precies wat er tussen issue #35 en #19 gebeurde.
+
+Drie keuzes eromheen zijn de moeite waard, want ze zijn tegen de intuïtie in:
+
+- **Twee leden en niet zeven.** Het protocol is *niet* de getypte vorm van het hele
+  leescontract in de `graaf`-docstring. Dat kan ook niet: `heeft_subject` is een eigen
+  aanvulling die `rdflib.Graph` niet kent, dus een protocol over het hele contract sluit
+  de `Graph`-kant per direct uit. En het hoeft niet: elk lid erbij is een eis aan wie het
+  protocol wil vervullen, geen dienst aan wie het aanroept. `subjects`,
+  `subject_objects`, `__contains__` en `__len__` roept `ontologie` niet aan en staan er
+  dus niet in. `test_het_protocol_is_precies_zo_breed_als_ontologie_het_gebruikt` leest de
+  AST van `ontologie.py` en houdt beide kanten gelijk.
+- **Positionele parameters** (de `/`). `rdflib.Graph.objects` draagt een derde parameter
+  (`unique`) en `Graph.value` is vijfvoudig overladen (`object`, `default`, `any`); extra
+  parameters mét default breken de structurele vervulling niet, maar een afwijkende
+  parameter*naam* zou dat wel doen zodra rdflib er een hernoemt. Positioneel is de vorm
+  die dat overleeft.
+- **Het bewijs staat in de poort.** Structurele vervulling is een typebegrip en met een
+  `assert` niet te toetsen, dus `pyproject.toml` zet `tests/typecheck` in
+  `[tool.mypy] files`: `tests/typecheck/graaflezer.py` geeft een `Graph` én een
+  `GraafIndex` aan een `GraafLezer`-parameter (positief) en biedt twee objecten aan die
+  het protocol *niet* vervullen, met `# type: ignore[arg-type]` erop (negatief). Omdat
+  `warn_unused_ignores = true` aanstaat, valt mypy ook om als die negatieve gevallen ooit
+  geaccepteerd worden -- bijvoorbeeld doordat rdflib zijn typen kwijtraakt en `Graph`
+  `Any` wordt. Een protocol dat alles accepteert ziet er anders groen uit.
+
+Wat er **niet** mee verschoven is, en bewust niet: de gepinde
+`dataset.parts_of`/`part_holders_of`/`aspects_of`/`aspect_holders_of` en het veld
+`GwswDataset.graph` staan nog op het concrete `GraafIndex`, en de `cast(GraafIndex, ...)`
+op `LuieGraaf` in `cache` staat er ook nog. Die handtekeningen liggen vast in
+`tests/test_publieke_api.py` en zijn een auteursbeslissing (`CLAUDE.md`, Harde regels).
 
 Eén stap is er bewust *niet* gezet. `load_dataset` bouwt de ontologie-`GraafIndex` als
 lokale `restrictiebron` (`dataset.py`, in `load_dataset`) en bewaart hem niet: `GwswDataset`

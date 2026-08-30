@@ -50,9 +50,19 @@ select = ["E", "F", "I", "UP", "B", "N"]
 
 [tool.mypy]
 python_version = "3.12"
-files = ["src/gwsw_orox_helpers"]
+# `tests/typecheck` staat erbij en is geen gewone testmap: die modules draaien niet, ze
+# zijn er om door mypy gelezen te worden. `graaflezer.py` bewijst dat `rdflib.Graph` en
+# `graaf.GraafIndex` het `GraafLezer`-protocol allebei structureel vervullen -- een
+# belofte die met een `assert` niet te toetsen is. De rest van `tests/` blijft erbuiten.
+files = ["src/gwsw_orox_helpers", "tests/typecheck"]
 # rdflib en shapely leveren geen bruikbare stubs.
 ignore_missing_imports = true
+# De negatieve helft van dat bewijs: `# type: ignore[arg-type]` op een object dat het
+# protocol *niet* vervult. Wordt zo'n regel ooit geldig -- omdat het protocol te breed
+# werd of omdat `Graph` zijn typen kwijtraakt en `Any` wordt -- dan is de ignore
+# ongebruikt en valt mypy alsnog om. `src/` draagt geen enkele `# type: ignore`, dus deze
+# vlag kost daar niets en bewaakt hem meteen.
+warn_unused_ignores = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

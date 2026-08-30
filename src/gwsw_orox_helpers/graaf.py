@@ -52,11 +52,21 @@ inclusief volgorde:
 
 Niet gebruikt en dus niet aangeboden: `triples()`, patronen met andere ongebonden
 argumenten, iteratie over de hele graaf, en elke schrijfbewerking na het vullen.
+
+Van dat contract is één plak getypt: `GraafLezer` (hieronder) is het protocol dat
+`ontologie` van een graaf vraagt -- `objects` en `value`, de twee bewerkingen waarvan
+`rdflib.Graph` en `GraafIndex` allebei een structureel passende vorm hebben. De rest van
+de lijst hierboven blijft proza, en met opzet: `heeft_subject` is een eigen aanvulling
+die een `Graph` niet heeft, dus een protocol over het hele contract zou de `Graph`-kant
+uitsluiten (issue #21). Wie het contract leest, leest dus deze docstring; wie het aan een
+laaggrens wil binden, gebruikt `GraafLezer` en verbreedt hem additief zodra een lezer
+meer nodig heeft.
 """
 
 from __future__ import annotations
 
 from collections.abc import Iterable, Iterator
+from typing import Protocol
 
 import pyoxigraph
 from rdflib import BNode, Literal, URIRef
@@ -144,6 +154,50 @@ def naar_rdflib(
     if datatype == XSD_STRING:
         return _literal_string_snel(term.value)
     return Literal(term.value, datatype=URIRef(datatype))
+
+
+class GraafLezer(Protocol):
+    """Opzoeken met gebonden subject en predicaat -- wat `ontologie` van een graaf vraagt.
+
+    De getypte vorm van het deel van het leescontract hierboven dat de vijf lezers van
+    `ontologie` gebruiken (`facetbereik`, `datatype_van_kenmerk`, `kenmerkbereik`,
+    `verwachte_property`, `functie_van_klasse`, plus het interne `_lijstleden`). Zij
+    namen `Graph | GraafIndex` als union; met dit protocol staat er wat ze werkelijk
+    nodig hebben in plaats van een opsomming van de twee vormen die dat toevallig
+    kunnen. `GraafIndex` en `rdflib.Graph` vervullen het allebei **structureel** -- geen
+    van beide erft ervan, geen van beide weet ervan.
+
+    **Twee leden, en geen derde.** Dat is geen halve vertaling van de moduledocstring
+    maar de smalste vorm die werkt, en de smalste vorm is hier het doel: elk lid erbij
+    is een eis aan wie het protocol wil vervullen, niet een dienst aan wie het aanroept.
+    De vier andere bewerkingen van het contract (`subjects`, `subject_objects`,
+    `__contains__`, `__len__`) worden door `ontologie` niet aangeroepen, en
+    `heeft_subject` is bovendien een eigen aanvulling die `rdflib.Graph` niet heeft --
+    dat lid opnemen zou de `Graph`-kant per direct onvervulbaar maken. Meldt zich een
+    lezer die meer nodig heeft, dan is het protocol verbreden een additieve stap; hem
+    nu al breder maken dan de aanroepers zijn, sluit een vorm uit zonder dat iemand er
+    iets aan heeft. `test_het_protocol_is_precies_zo_breed_als_ontologie_het_gebruikt`
+    (in `tests/test_ontologie.py`) houdt de twee kanten aan elkaar: het protocol noemt
+    exact de bewerkingen die `ontologie` op zijn graafparameter aanroept.
+
+    **De parameters staan positioneel** (de `/`), en de types zijn zo ruim als
+    `GraafIndex` ze aanbiedt. Allebei de bedoelingen zijn defensief tegen de andere
+    vervuller, die van ons niet is: `rdflib.Graph.objects` draagt een derde parameter
+    (`unique`) en `Graph.value` is vijfvoudig overladen (`object`, `default`, `any`) --
+    extra parameters mét default breken de structurele vervulling niet, een afwijkende
+    parameter*naam* zou dat wel doen zodra rdflib er een hernoemt. Positioneel is dus de
+    vorm die een rdflib-upgrade overleeft; dat mypy het accepteert, staat vast in
+    `tests/typecheck/graaflezer.py`, dat de poort meeneemt (zie `[tool.mypy]` in
+    `pyproject.toml`).
+    """
+
+    def objects(self, subject: RdfNode, predicate: RdfNode, /) -> Iterator[RdfNode]:
+        """De objecten van (subject, predicate)."""
+        ...
+
+    def value(self, subject: RdfNode, predicate: RdfNode, /) -> RdfNode | None:
+        """Het eerste object van (subject, predicate), of None."""
+        ...
 
 
 class GraafIndex:

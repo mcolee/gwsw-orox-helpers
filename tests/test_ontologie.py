@@ -9,15 +9,18 @@ de 2,6 MB grote ontologie die met de package meereist.
 
 from __future__ import annotations
 
+import ast
+import inspect
 from decimal import Decimal
 
 import pytest
 from rdflib import OWL, RDF, RDFS, Graph, URIRef
 from rdflib.collection import Collection
 
+from gwsw_orox_helpers import ontologie
 from gwsw_orox_helpers.bronnen import gebundelde_ontologie
 from gwsw_orox_helpers.dataset import GWSW
-from gwsw_orox_helpers.graaf import GraafIndex
+from gwsw_orox_helpers.graaf import GraafIndex, GraafLezer
 from gwsw_orox_helpers.inlezen import _parse
 from gwsw_orox_helpers.klassen import _afsluiting, _subclass_closure
 from gwsw_orox_helpers.ontologie import (
@@ -415,6 +418,49 @@ def test_lijstleden_laat_de_graaf_ongemoeid(lijsten: Graph | GraafIndex) -> None
     for kop in ("goed", "afgebroken", "met_gat", "genest"):
         list(_lijstleden(lijsten, URIRef(EX + kop)))
     assert len(lijsten) == voor
+
+
+# --- Het protocol is precies zo breed als de lezers hem gebruiken (issue #21) ---------
+
+
+def test_het_protocol_is_precies_zo_breed_als_ontologie_het_gebruikt() -> None:
+    """`GraafLezer` noemt exact de bewerkingen die `ontologie` op zijn graaf aanroept.
+
+    De ene kant bewaakt mypy al: een lezer die een derde bewerking gaat gebruiken, krijgt
+    een `attr-defined` op het protocol. De andere kant ziet mypy niet -- een protocol mag
+    breder zijn dan zijn aanroepers zonder dat er iets rood wordt -- en juist die kant is
+    hier het punt. Elk lid erbij is een eis aan wie het protocol wil vervullen: `Graph`
+    haakt af op het eerste lid dat rdflib niet kent (`heeft_subject`), en dat is precies
+    de scheur die issue #19 repareerde. Deze test leest daarom de boom van `ontologie.py`
+    af: elke `graph.<naam>` die daar wordt aangeroepen, en niets anders, staat in het
+    protocol.
+    """
+    boom = ast.parse(inspect.getsource(ontologie))
+    gebruikt = {
+        knoop.attr
+        for knoop in ast.walk(boom)
+        if isinstance(knoop, ast.Attribute)
+        and isinstance(knoop.value, ast.Name)
+        and knoop.value.id == "graph"
+    }
+    beloofd = {naam for naam in vars(GraafLezer) if not naam.startswith("_")}
+
+    assert gebruikt, "de sweep vond geen enkele graafbewerking; klopt de parameternaam nog?"
+    assert gebruikt == beloofd
+
+
+@pytest.mark.parametrize("vorm", ["graph", "index"])
+def test_allebei_de_graafvormen_dragen_de_leden_van_het_protocol(vorm: str) -> None:
+    """De runtimekant van hetzelfde: `Graph` en `GraafIndex` hebben die leden echt.
+
+    Structurele vervulling is een typebegrip en het bewijs ervan staat in
+    `tests/typecheck/graaflezer.py`, dat de poort meeneemt. Dit is de goedkope
+    tegenhanger: de namen bestaan en zijn aanroepbaar op allebei de vormen, ook als
+    iemand ooit met een `if TYPE_CHECKING` de mypy-kant zou omzeilen.
+    """
+    bron = _in_vorm(FIXTURE, vorm)
+    for naam in (naam for naam in vars(GraafLezer) if not naam.startswith("_")):
+        assert callable(getattr(bron, naam)), naam
 
 
 def test_de_ijkwaarden_uit_issue_35_komen_ook_uit_de_graafindex(echte_index: GraafIndex) -> None:

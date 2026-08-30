@@ -1,6 +1,40 @@
 # Changelog
 
 ## [Unreleased]
+- De laaggrens tussen `ontologie` en de graaf is een `typing.Protocol` geworden (issue
+  #21, architectuur; additief, geen bevroren contract geraakt). **Nieuw en publiek**:
+  `graaf.GraafLezer`, een protocol met precies twee leden —
+  `objects(subject: RdfNode, predicate: RdfNode, /) -> Iterator[RdfNode]` en
+  `value(subject: RdfNode, predicate: RdfNode, /) -> RdfNode | None`. `graaf.GraafIndex`
+  en `rdflib.Graph` vervullen het allebei **structureel**: geen van beide erft ervan,
+  geen van beide weet ervan. **Signaturen vóór → na**: `facetbereik`,
+  `datatype_van_kenmerk`, `kenmerkbereik`, `verwachte_property`, `functie_van_klasse` en
+  het interne `_lijstleden` namen `graph: Graph | GraafIndex` en nemen nu
+  `graph: GraafLezer` — verbreding, geen versmalling: elke `Graph` en elke `GraafIndex`
+  die paste, past nog, en het gedrag is regel voor regel hetzelfde. **Gemeten**: zes
+  `Graph | GraafIndex`-unions in `src/` → nul; het aantal `cast(` in `src/` blijft twee
+  (de `LuieGraaf`-cast in `cache` en de `module.__file__`-cast raken een gepind contract
+  en blijven staan — zie hieronder). `uv run mypy`: 0 issues, 24 → 25 bronbestanden.
+  **Twee leden en niet zeven**, want het protocol is de smalste vorm die werkt en niet de
+  getypte vorm van het hele leescontract: `heeft_subject` is een eigen aanvulling die
+  `rdflib.Graph` niet kent, dus dat lid zou de `Graph`-kant per direct uitsluiten, en
+  `subjects`/`subject_objects`/`__contains__`/`__len__` roept `ontologie` niet aan. De
+  parameters staan positioneel (`/`), zodat een rdflib-upgrade die `subject` hernoemt de
+  vervulling niet breekt. **Bewijs in de poort**: `pyproject.toml` zet `tests/typecheck`
+  in `[tool.mypy] files` en `warn_unused_ignores = true` aan;
+  `tests/typecheck/graaflezer.py` geeft een `Graph` én een `GraafIndex` aan een
+  `GraafLezer`-parameter (positief) en biedt twee objecten aan die het protocol niet
+  vervullen met `# type: ignore[arg-type]` erop (negatief) — wordt zo'n regel ooit
+  geldig, dan valt mypy om op de ongebruikte ignore. Twee nieuwe tests in
+  `tests/test_ontologie.py` houden het protocol precies zo breed als `ontologie` het
+  gebruikt (AST-sweep) en toetsen de runtimekant op allebei de graafvormen.
+  **Cachesleutel**: `graaf` en `ontologie` staan allebei in `cache.LADERMODULES`, dus deze
+  wijziging verschuift de sleutel en bestaande caches worden één keer opnieuw opgebouwd —
+  bedoelde werking, geen gedragswijziging. **Bewust níét meegenomen**: de gepinde
+  `dataset.parts_of`/`part_holders_of`/`aspects_of`/`aspect_holders_of`, het veld
+  `GwswDataset.graph` en de `cast(GraafIndex, LuieGraaf(...))` in `cache` blijven op het
+  concrete `GraafIndex` — die raken het bevroren contract in `tests/test_publieke_api.py`
+  en zijn een auteursbeslissing.
 - De facetlezing is bereikbaar geworden vanaf de echte leesweg (issue #19, architectuur;
   additief, geen bevroren contract geraakt). `ontologie.facetbereik`,
   `datatype_van_kenmerk` en `kenmerkbereik` liepen over de `owl:withRestrictions`-lijst

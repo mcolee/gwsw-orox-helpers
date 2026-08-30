@@ -32,6 +32,7 @@ from __future__ import annotations
 
 import gc
 import logging
+from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
 
@@ -42,7 +43,7 @@ from gwsw_orox_helpers.graaf import GraafIndex
 
 
 @contextmanager
-def _quiet_rdflib():
+def _quiet_rdflib() -> Iterator[None]:
     """Dempt rdflib-waarschuwingen over onjuiste literalen tijdens het parsen.
 
     De meegeleverde GWSW-ontologie bevat een xsd:date "20210830" zonder streepjes;
@@ -59,7 +60,7 @@ def _quiet_rdflib():
 
 
 @contextmanager
-def _gc_uit():
+def _gc_uit() -> Iterator[None]:
     """Legt de cyclische GC stil rond een leesfase.
 
     Hij zou anders bij elke paar duizend nieuwe dicts opnieuw door alles lopen wat er al

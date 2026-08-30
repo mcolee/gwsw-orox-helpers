@@ -1,6 +1,25 @@
 # Changelog
 
 ## [Unreleased]
+- De mypy-poort staat op `disallow_untyped_defs = true` en kijkt nu ook naar `scripts/`
+  (issue #20, ci-hygiene; **additief** — uitsluitend annotaties en configuratie, geen
+  enkele signatuur, retourvorm of gedragsregel gewijzigd). Scope: **28 → 34 bestanden**
+  (`src/gwsw_orox_helpers` + `tests/typecheck` + de zes scripts). Geannoteerd: **vier
+  functies in `src/`** (`bestand._quiet_rdflib` en `bestand._gc_uit` → `Iterator[None]`,
+  `inlezen._connections` → `Iterator[RdfNode]`, `inlezen._geometry` →
+  `tuple[Point | LineString | Polygon | None, list[float | None]]` — het retourtype dat
+  `geometry.parse_gml_met_z` al draagt, met de `None, []` van het foutpad erbij) en **vijf
+  in `scripts/maak_fixtures.py`** (`kenmerken`, `nette_put`, `nette_leiding`, `hoogteput`,
+  `hoogteleiding`); daarnaast werd in `scripts/benchmark_gml.py` de kale toekenning
+  `Meetkunde = Point | LineString | Polygon` een `type`-alias (PEP 695), want zonder
+  shapely-stubs las mypy haar als een *waarde* en niet als een type. De generator is
+  opnieuw gedraaid: de fixtures op schijf zijn byte-identiek. `tests/` blijft buiten
+  scope — ook met `disallow_untyped_defs` uit staat die map nog 21 fouten van groen
+  (39 met de vlag aan), vrijwel alle van het versmallen van pyoxigraph- en
+  shapely-termen in asserties; dat is eigen werk. CI beweegt vanzelf mee: `toets.yml`
+  draait `uv run mypy` kaal en erft dus dezelfde configuratie. **Cachesleutel**:
+  `bestand` en `inlezen` staan allebei in `cache.LADERMODULES` en die hasht bestandsbytes,
+  dus **de cachesleutel roteert** en bestaande caches worden één keer opnieuw opgebouwd.
 - `DatasetError` krijgt zeven faalfamilies onder zich (issue #31, beheerbaarheid;
   **additief** — `OroxError` en `DatasetError` zelf zijn ongewijzigd in naam, plaats en
   gedrag, en er is geen enkele meldtekst aangeraakt). Eén klasse dekte 29 raise-plekken

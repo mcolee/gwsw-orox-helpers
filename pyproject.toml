@@ -54,9 +54,21 @@ python_version = "3.12"
 # zijn er om door mypy gelezen te worden. `graaflezer.py` bewijst dat `rdflib.Graph` en
 # `graaf.GraafIndex` het `GraafLezer`-protocol allebei structureel vervullen -- een
 # belofte die met een `assert` niet te toetsen is. De rest van `tests/` blijft erbuiten.
-files = ["src/gwsw_orox_helpers", "tests/typecheck"]
+# `scripts` staat erbij sinds issue #20: de artefactgeneratoren (`maak_fixtures.py`,
+# `maak_gwsw_index.py`) schrijven bestanden die in de repo gecommit staan en door
+# drifttests bewaakt worden, en de benchmarks leunen op de publieke API. Ongecontroleerd
+# gelaten drift daar valt pas op als een gegenereerd bestand al fout is. De rest van
+# `tests/` blijft erbuiten: die is met de soepelste stand (`disallow_untyped_defs` uit)
+# nog altijd 21 fouten van groen, vooral doordat pyoxigraph- en shapely-termen in
+# testasserties versmald moeten worden. Dat is eigen werk, geen bijvangst van deze poort.
+files = ["src/gwsw_orox_helpers", "tests/typecheck", "scripts"]
 # rdflib en shapely leveren geen bruikbare stubs.
 ignore_missing_imports = true
+# Elke functie draagt haar handtekening, in `src/`, in `tests/typecheck` en in `scripts/`.
+# Zonder deze vlag glipt een ongeannoteerde def er ongemerkt door: mypy leest haar dan als
+# `Any -> Any` en controleert noch het lichaam noch de aanroepen. Vier functies in `src/`
+# stonden zo (issue #20).
+disallow_untyped_defs = true
 # De negatieve helft van dat bewijs: `# type: ignore[arg-type]` op een object dat het
 # protocol *niet* vervult. Wordt zo'n regel ooit geldig -- omdat het protocol te breed
 # werd of omdat `Graph` zijn typen kwijtraakt en `Any` wordt -- dan is de ignore

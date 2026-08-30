@@ -16,6 +16,7 @@ Gebruik:  uv run python scripts/maak_fixtures.py
 """
 
 from pathlib import Path
+from typing import Any
 
 DOEL = Path(__file__).resolve().parents[1] / "tests" / "fixtures" / "ttl"
 
@@ -146,7 +147,7 @@ def leiding(
 '''
 
 
-def kenmerken(naam: str, **waarden) -> str:
+def kenmerken(naam: str, **waarden: object) -> str:
     """Hangt kenmerken aan een object; `_ref`-suffix maakt er een hasReference van."""
     regels = []
     for sleutel, waarde in waarden.items():
@@ -241,20 +242,33 @@ def stelsel(naam: str, label: str, klasse: str, leden: list[str]) -> str:
     return f':{naam} rdf:type gwsw:{klasse} ; rdfs:label "{label}" ;\n    gwsw:hasPart {delen} .\n'
 
 
-STANDAARDPUT = dict(BreedtePut=1000, LengtePut=1000, MateriaalPut_ref="Beton", HoogtePut=1500)
+STANDAARDPUT: dict[str, object] = dict(
+    BreedtePut=1000, LengtePut=1000, MateriaalPut_ref="Beton", HoogtePut=1500
+)
 
 
 def nette_put(
-    naam: str, label: str, x: float, y: float, mv: float = 10.0, **extra_kenmerken
+    naam: str, label: str, x: float, y: float, mv: float = 10.0, **extra_kenmerken: object
 ) -> str:
     """Een put met maatvoering, materiaal en maaiveldhoogte."""
     waarden = {**STANDAARDPUT, **extra_kenmerken}
     return put(naam, label, x, y, extra=kenmerken(naam, **waarden)) + maaiveld(naam, mv)
 
 
-def nette_leiding(naam: str, label: str, punten, begin, eind, **extra) -> str:
+def nette_leiding(
+    naam: str,
+    label: str,
+    punten: list[tuple[float, float]],
+    begin: str | None,
+    eind: str | None,
+    # `Any` en niet `object`: `extra` is een heterogeen doorgeefluik naar `leiding`
+    # (`klasse: str`, `bob: tuple[float, float]`, `literal: str | None`) waaruit vooraf een
+    # `velden`-dict gevist wordt. Eén elementtype dat die vier tegelijk dekt en toch aan
+    # `leiding` toewijsbaar blijft bestaat niet.
+    **extra: Any,
+) -> str:
     """Een leiding met materiaal, maatvoering, lengte en begindatum."""
-    velden = {
+    velden: dict[str, object] = {
         "BreedteLeiding": 300,
         "HoogteLeiding": 300,
         "MateriaalLeiding_ref": "Beton",
@@ -267,15 +281,23 @@ def nette_leiding(naam: str, label: str, punten, begin, eind, **extra) -> str:
 
 
 def hoogteput(
-    naam, label, punt, mv=10.0, dek=10.0, hoogte=1500, mv_wijze=None, dek_wijze=None, **extra
-):
+    naam: str,
+    label: str,
+    punt: tuple[float, float],
+    mv: float = 10.0,
+    dek: float | None = 10.0,
+    hoogte: float = 1500,
+    mv_wijze: str | None = None,
+    dek_wijze: str | None = None,
+    **extra: object,
+) -> str:
     """Een put met maaiveld, putdeksel en puthoogte.
 
     Met `dek=None` krijgt de put geen putdeksel. Zo ziet de De Wolden en Hoogeveen-export eruit:
     daarin komt `Putdekselniveau` geen enkele keer voor, zodat de hoogtechecks op de
     maaiveldhoogte terugvallen.
     """
-    waarden = {**STANDAARDPUT, "HoogtePut": hoogte}
+    waarden: dict[str, object] = {**STANDAARDPUT, "HoogtePut": hoogte}
     waarden.update(extra)
     return (
         put(naam, label, punt[0], punt[1], extra=kenmerken(naam, **waarden))
@@ -284,9 +306,17 @@ def hoogteput(
     )
 
 
-def hoogteleiding(naam, label, punten, begin, eind, bob, **velden):
+def hoogteleiding(
+    naam: str,
+    label: str,
+    punten: list[tuple[float, float]],
+    begin: str | None,
+    eind: str | None,
+    bob: tuple[float, float],
+    **velden: object,
+) -> str:
     """Een leiding met BOB's en standaardmaatvoering."""
-    basis = {
+    basis: dict[str, object] = {
         "BreedteLeiding": 300,
         "HoogteLeiding": 300,
         "MateriaalLeiding_ref": "Beton",

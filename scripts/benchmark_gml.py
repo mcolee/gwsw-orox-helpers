@@ -55,8 +55,12 @@ from gwsw_orox_helpers.geometry import GeometryError, parse_gml, parse_gml_met_z
 
 # Een lezer is alles wat een GML-literaal in een meetkunde plus een z-lijst omzet; de
 # twee kanten van de meting hebben daarom dezelfde vorm en zijn verwisselbaar.
-Meetkunde = Point | LineString | Polygon
-Lezer = Callable[[str], tuple[Meetkunde, list[float | None]]]
+#
+# Als `type`-alias (PEP 695) en niet als kale toekenning: shapely levert geen stubs, dus
+# `Point | LineString | Polygon` is voor mypy een *waarde* van het type `UnionType` en niet
+# een type -- een kale toekenning gaf daardoor "Variable is not valid as a type".
+type Meetkunde = Point | LineString | Polygon
+type Lezer = Callable[[str], tuple[Meetkunde, list[float | None]]]
 
 # Dezelfde export als `scripts/benchmark.py` en de `zwaar`-tests: De Wolden en Hoogeveen,
 # 112 MB, niet getrackt. De BrutIS-export is geen zuivere UTF-8 (cp850-bytes in een

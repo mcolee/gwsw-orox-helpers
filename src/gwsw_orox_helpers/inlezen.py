@@ -26,6 +26,7 @@ from datetime import date
 
 from rdflib import RDF, RDFS, URIRef
 from rdflib.term import Node as RdfNode
+from shapely.geometry import LineString, Point, Polygon
 
 from gwsw_orox_helpers import namen
 from gwsw_orox_helpers.domein import Aspect, Conduit, Inwinning, Koppelingsherstel, Node, _as_date
@@ -178,7 +179,7 @@ def aspect_holders_of(graph: GraafIndex, subject: RdfNode) -> Iterator[RdfNode]:
     )
 
 
-def _connections(graph: GraafIndex, subject: RdfNode):
+def _connections(graph: GraafIndex, subject: RdfNode) -> Iterator[RdfNode]:
     """De hasConnection-buren van een object, in beide schrijfrichtingen."""
     yield from graph.objects(subject, HAS_CONNECTION)
     yield from graph.subjects(HAS_CONNECTION, subject)
@@ -355,7 +356,9 @@ def _types(graph: GraafIndex, subject: RdfNode) -> frozenset[str]:
     return frozenset(str(waarde) for waarde in graph.objects(subject, _RDF_TYPE))
 
 
-def _geometry(graph: GraafIndex, orientation: RdfNode, klasse: URIRef, errors: dict[str, str]):
+def _geometry(
+    graph: GraafIndex, orientation: RdfNode, klasse: URIRef, errors: dict[str, str]
+) -> tuple[Point | LineString | Polygon | None, list[float | None]]:
     """Zoekt de geometrie van een orientatie en geeft die met haar z-waarden terug.
 
     Via `parse_gml_met_z` en niet via `parse_gml` plus `parse_gml_z`: die twee zouden

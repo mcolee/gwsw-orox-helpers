@@ -30,9 +30,13 @@ knip      -> grenzen                          (geometrie plaatsen en doorknippen
 plan      -> grenzen, knip, termen            (de analyseronde; `_Plan`, `_maak_plan`)
 stroom    -> knip, plan, termen               (de gefilterde quadstroom per deel)
 merge     -> termen                           (de delen weer aaneen)
-orkest    -> grenzen, plan, stroom, merge, termen   (`clip_orox`, `merge_orox`)
+bereik    -> grenzen                          (de opt-in bereikcontrole; naast de fasen)
+orkest    -> grenzen, plan, stroom, merge, bereik, termen  (`clip_orox`, `merge_orox`)
 __init__  -> orkest
 ```
+
+`bereik` staat in die rij achteraan en niet in het midden: hij is geen stap van de knip maar
+de controle ernaast (zie hieronder), en alleen `orkest` roept hem aan.
 
 De vier stappen hieronder zijn `plan`; "de knip en zijn omkering" is `knip` plus `merge`.
 
@@ -64,6 +68,20 @@ De toewijzing van blokken aan vlakken gaat in vier stappen:
    het **aanhechtingspunt** de keuze: de `gwsw:hasConnection` van het onderdeel wijst
    naar een orientatie die zelf wel een vlak heeft, en dat vlak wint.
 4. **Rest.** Wat nergens aan hangt (de ontologiekop) gaat naar elk deel.
+
+**De terugval op het dichtstbijzijnde vlak, en wanneer die tegen je werkt.** Een geometrie
+die in geen enkel vlak valt gaat naar het vlak dat er het dichtst bij ligt
+(`knip._vlak_van`), zodat er nooit een object buiten de boot valt: een grenslaag dekt zelden
+precies alles wat een export bevat, en wat nergens heen kan zou bij de hereniging ontbreken.
+Diezelfde terugval maakt de gemeenste gebruikersfout van de clip onzichtbaar. Staat de
+grenslaag in een ander coordinaatstelsel dan de bron -- WGS84-graden tegen de RD-meters die
+de GML-literalen impliciet laten -- dan valt *geen enkel* punt in een vlak en schuiven ze
+allemaal naar hetzelfde dichtstbijzijnde vlak. Wat eruit komt is een deel dat de hele bron
+draagt en N-1 delen met alleen de ontologiekop, en de hereniging klopt nog steeds: er is geen
+fout te zien. `clip_orox(..., bereikcontrole=True)` legt daarom op verzoek de omhullende van
+de grenslaag naast die van de bron en waarschuwt als de twee niet bij elkaar kunnen horen;
+`clip.bereik` draagt dat oordeel en de reden waarom het een waarschuwing is en geen
+weigering. Standaard staat de controle uit, en dan gedraagt de clip zich als hiervoor.
 
 Daarna gaat stap 2 nog een keer, zodat de vlakken van een houder altijd die van zijn
 onderdelen omvatten -- voor elke `hasPart`/`hasAspect`-rand. Die insluiting is wat elk

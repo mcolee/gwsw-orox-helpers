@@ -81,6 +81,11 @@ def _vlak_van(punt: Point, vlakken: tuple[_Vlak, ...]) -> int:
     De terugval op het dichtstbijzijnde vlak is er zodat er nooit een object buiten de
     boot valt: een grenslaag dekt zelden precies alles wat een export bevat, en een
     object dat nergens heen kan zou bij de hereniging ontbreken.
+
+    Staat de grenslaag in een ander coordinaatstelsel dan de bron, dan werkt diezelfde
+    terugval tegen je: er valt dan niets in een vlak en alles schuift naar hetzelfde
+    dichtstbijzijnde vlak, zonder dat er ergens een fout te zien is.
+    `clip_orox(..., bereikcontrole=True)` waarschuwt daarvoor; zie `clip.bereik`.
     """
     for index, vlak in enumerate(vlakken):
         if vlak.voorbereid.covers(punt):

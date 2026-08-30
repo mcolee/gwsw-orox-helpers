@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from gwsw_orox_helpers.clip.bereik import _meld_bereikverschil
 from gwsw_orox_helpers.clip.grenzen import _bestandsnaam, _lees_grenzen
 from gwsw_orox_helpers.clip.merge import _samengevoegd, _scan_delen
 from gwsw_orox_helpers.clip.plan import _maak_plan
@@ -26,6 +27,7 @@ def clip_orox(
     *,
     sleutel: str,
     fallback_encoding: str | None = None,
+    bereikcontrole: bool = False,
 ) -> list[Path]:
     """Knipt de OroX-export `bron` langs `grenzen` in een bestand per vlak.
 
@@ -45,12 +47,23 @@ def clip_orox(
     BrutIS-export van De Wolden en Hoogeveen is geen zuivere UTF-8 en is zonder
     terugval niet te lezen. De uitvoer is hoe dan ook UTF-8.
 
+    `bereikcontrole` staat standaard **uit** en verandert aangezet niets aan de uitvoer:
+    de geschreven delen zijn byte voor byte dezelfde. Aan legt hij de omhullende van de
+    grenslaag naast die van de bron en schrijft hij een `logging`-waarschuwing als de twee
+    niet bij elkaar kunnen horen -- een grenslaag in WGS84-graden tegen een bron in
+    RD-meters is de gewone vergissing, en zonder deze controle schuift de terugval op het
+    dichtstbijzijnde vlak (`knip._vlak_van`) dan stilzwijgend elk object naar hetzelfde
+    deel. Zie `clip.bereik` voor wat er precies vergeleken wordt en waarom het een
+    waarschuwing is en geen weigering.
+
     De bron wordt N+1 keer gelezen: een keer om te bepalen wat waarheen gaat, en daarna
     een keer per vlak om te schrijven. Dat is bewust: de toewijzing is pas rond als de
     hele graaf gezien is, en de delen daarna uit een gefilterde stroom schrijven kost
     geen geheugen voor de triples zelf.
     """
     vlakken = _lees_grenzen(grenzen, sleutel)
+    if bereikcontrole:
+        _meld_bereikverschil(bron, grenzen, vlakken, fallback_encoding)
     plan = _maak_plan(bron, vlakken, fallback_encoding)
 
     uitmap = Path(uitmap)

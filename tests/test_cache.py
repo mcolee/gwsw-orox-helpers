@@ -65,6 +65,7 @@ BUITEN_DE_SLEUTEL = {
     # in een submap, en een nieuwe fase hoort zich hier net zo goed te melden als een
     # nieuwe module in de wortel.
     "clip.__init__",
+    "clip.bereik",
     "clip.grenzen",
     "clip.knip",
     "clip.merge",

@@ -1,6 +1,7 @@
 """De clip verdeelt een OroX ruimtelijk en de merge maakt er weer het origineel van."""
 
 import json
+import logging
 import sys
 from collections import Counter
 from pathlib import Path
@@ -40,6 +41,10 @@ MINI_BASIS = "http://sparql.gwsw.nl/repositories/Mini#"
 GWSW = "http://data.gwsw.nl/1.6/totaal/"
 KNIP = "https://github.com/mcolee/gwsw-orox-helpers/ns/clip#"
 RDF_TYPE = "http://www.w3.org/1999/02/22-rdf-syntax-ns#type"
+# De logger waarlangs de opt-in bereikcontrole zich meldt (issue #28). Bij naam en niet via
+# de wortellogger: zo toont een lege lijst dat *deze* controle zweeg en niet dat er toevallig
+# geen enkele logregel viel.
+BEREIKLOGGER = "gwsw_orox_helpers.clip.bereik"
 
 
 def _graaf(pad: Path) -> rdflib.Graph:
@@ -1198,6 +1203,268 @@ def test_stukken_uit_verschillende_knipbeurten_is_een_dataseterror(tmp_path: Pat
     )
     with pytest.raises(DatasetError, match="verschillende aantallen"):
         merge_orox([deel], tmp_path / "nooit.ttl")
+
+
+# --------------------------------------------------------------------------------------
+# Een grenslaag in een ander coordinaatstelsel
+# --------------------------------------------------------------------------------------
+
+
+def _graden_grens(tmp_path: Path) -> Path:
+    """Een grenslaag in WGS84-graden: dezelfde twee helften, maar in het verkeerde stelsel.
+
+    Nederland ligt tussen lengtegraad 3,3 en 7,3 en breedtegraad 50,7 en 53,7; deze twee
+    vlakken delen dat bij 5,5 in west en oost. Tegen een bron in RD-meters -- x rond 2e5,
+    y rond 5,8e5 -- ligt hij er dus niet naast maar in een heel ander getallenbereik.
+    """
+    return _grenslaag(
+        tmp_path,
+        {
+            "type": "FeatureCollection",
+            "features": [
+                {
+                    "type": "Feature",
+                    "properties": {"gemeentenaam": naam},
+                    "geometry": {
+                        "type": "Polygon",
+                        "coordinates": [
+                            [
+                                [links, 50.7],
+                                [rechts, 50.7],
+                                [rechts, 53.7],
+                                [links, 53.7],
+                                [links, 50.7],
+                            ]
+                        ],
+                    },
+                }
+                for naam, links, rechts in (("WGS-West", 3.3, 5.5), ("WGS-Oost", 5.5, 7.3))
+            ],
+        },
+    )
+
+
+def test_grenslaag_in_graden_verdeelt_stil_en_onbruikbaar(tmp_path: Path) -> None:
+    """Gedragsbehoud: het verkeerde stelsel levert een onbruikbare verdeling zonder melding.
+
+    Geen enkel RD-punt valt in een vlak dat in graden staat, dus `_vlak_van` valt voor
+    *elk* object terug op het dichtstbijzijnde vlak -- en dat is voor allemaal hetzelfde.
+    Wat eruit komt is een deel dat de hele bron draagt en een deel met alleen de
+    ontologiekop. Dat is de bestaande belofte: de terugval houdt elk object binnenboord,
+    zodat de hereniging blijft kloppen, en de clip klaagt er niet over.
+
+    Deze test legt dat gedrag vast (issue #28) zodat de opt-in bereikcontrole hieronder
+    er een waarschuwing naast kan zetten zonder het te veranderen.
+    """
+    grens = _graden_grens(tmp_path)
+    delen = clip_orox(MINI, grens, tmp_path / "delen", sleutel="gemeentenaam")
+    doel = tmp_path / "terug.ttl"
+    merge_orox(delen, doel)
+
+    west, oost = (_graaf(pad) for pad in delen)
+    for naam in ("Put_1", "Put_2", "Leiding_1", "Ontluchter_1"):
+        assert (_mini(naam), RDF.type, None) in oost
+        assert (_mini(naam), RDF.type, None) not in west
+    # Alles wat aan geometrie hangt is naar hetzelfde vlak geschoven; west houdt alleen de
+    # ontologiekop over, die nergens aan hangt en daarom in elk deel hoort.
+    kop = rdflib.URIRef("file:///mini/GwswDataset__Mini.orox.ttl")
+    assert set(west.subjects()) == {kop}
+    # Onbruikbaar, maar niet onvolledig: de hereniging levert nog steeds de bron.
+    assert isomorphic(_graaf(doel), _graaf(MINI))
+
+
+def test_bereikcontrole_waarschuwt_over_een_grenslaag_in_graden(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """`bereikcontrole=True` zet een waarschuwing naast diezelfde stille verdeling.
+
+    De melding hoort te noemen wélk bestand het is, in welke bereiken de twee liggen en
+    wat het gevolg is; zonder die drie is ze niet te herleiden tot de eigen invoer.
+    """
+    grens = _graden_grens(tmp_path)
+    with caplog.at_level(logging.WARNING, logger=BEREIKLOGGER):
+        delen = clip_orox(
+            MINI, grens, tmp_path / "delen", sleutel="gemeentenaam", bereikcontrole=True
+        )
+
+    meldingen = [regel.getMessage() for regel in caplog.records if regel.name == BEREIKLOGGER]
+    assert len(meldingen) == 1
+    assert str(grens) in meldingen[0]
+    assert "EPSG:28992" in meldingen[0]
+    assert "dichtstbijzijnde vlak" in meldingen[0]
+    assert "233000" in meldingen[0] and "53.7" in meldingen[0]
+    # Een waarschuwing en geen weigering: de delen liggen er gewoon.
+    assert [pad.name for pad in delen] == [
+        "mini_orox__WGS-West.ttl",
+        "mini_orox__WGS-Oost.ttl",
+    ]
+
+
+def test_de_bereikcontrole_verandert_de_delen_niet(tmp_path: Path) -> None:
+    """Aan of uit, de geschreven bytes zijn dezelfde; de controle kijkt en doet niets.
+
+    Dit is de kern van "additief": `bereikcontrole` is een nieuwe keyword-only parameter
+    met de veilige default, en zelfs aangezet raakt hij de verdeling niet aan.
+    """
+    grens = _graden_grens(tmp_path)
+    stil = clip_orox(MINI, grens, tmp_path / "stil", sleutel="gemeentenaam")
+    luid = clip_orox(MINI, grens, tmp_path / "luid", sleutel="gemeentenaam", bereikcontrole=True)
+
+    assert [pad.name for pad in stil] == [pad.name for pad in luid]
+    for een, twee in zip(stil, luid, strict=True):
+        assert een.read_bytes() == twee.read_bytes()
+
+
+def test_zonder_bereikcontrole_blijft_de_mismatch_stil(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """De default zwijgt, ook bij een grenslaag die er volledig naast ligt.
+
+    Dat is met opzet: bestaande afnemers krijgen geen regel logging erbij die er gisteren
+    niet stond, en de terugval blijft de belofte die ze kennen.
+    """
+    grens = _graden_grens(tmp_path)
+    with caplog.at_level(logging.DEBUG, logger=BEREIKLOGGER):
+        clip_orox(MINI, grens, tmp_path / "delen", sleutel="gemeentenaam")
+
+    assert [regel.getMessage() for regel in caplog.records if regel.name == BEREIKLOGGER] == []
+
+
+def test_bereikcontrole_zwijgt_over_een_passende_grenslaag(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """De gewone minigrens ligt in hetzelfde bereik als de bron; daar valt niets te melden."""
+    with caplog.at_level(logging.DEBUG, logger=BEREIKLOGGER):
+        clip_orox(MINI, MINI_GRENS, tmp_path / "delen", sleutel="gemeentenaam", bereikcontrole=True)
+
+    assert [regel.getMessage() for regel in caplog.records if regel.name == BEREIKLOGGER] == []
+
+
+def test_bereikcontrole_zwijgt_over_een_bron_zonder_geometrie(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Zonder een enkele geometrie valt er niets naast de grenslaag te leggen.
+
+    Een uitspraak zou dan verzonnen zijn: het bereik van de bron is onbekend, niet leeg.
+    """
+    bron = _klein(tmp_path, ":Put a gwsw:Inspectieput .\n")
+    with caplog.at_level(logging.DEBUG, logger=BEREIKLOGGER):
+        clip_orox(
+            bron,
+            _graden_grens(tmp_path),
+            tmp_path / "delen",
+            sleutel="gemeentenaam",
+            bereikcontrole=True,
+        )
+
+    assert [regel.getMessage() for regel in caplog.records if regel.name == BEREIKLOGGER] == []
+
+
+def test_bereikcontrole_slaat_een_onleesbare_geometrie_over(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Een kapotte literaal zegt niets over het bereik; de leesbare naast hem wel.
+
+    Zonder deze tak zou een enkele kapotte literaal de hele controle laten omvallen op een
+    `GeometryError` uit een pad dat alleen maar wilde kijken.
+    """
+    bron = _klein(
+        tmp_path,
+        ":Put a gwsw:Inspectieput ; gwsw:hasAspect :Put_ori .\n"
+        ':Put_ori a gwsw:Putorientatie ; gwsw:hasValue "dit is geen GML"^^geo:gmlLiteral ;\n'
+        '  gwsw:hasValue "<gml:Point xmlns:gml=\\"http://www.opengis.net/gml\\">'
+        '<gml:pos>233000.00 581000.00</gml:pos></gml:Point>"^^geo:gmlLiteral .\n',
+    )
+    with caplog.at_level(logging.WARNING, logger=BEREIKLOGGER):
+        clip_orox(
+            bron,
+            _graden_grens(tmp_path),
+            tmp_path / "delen",
+            sleutel="gemeentenaam",
+            bereikcontrole=True,
+        )
+
+    meldingen = [regel.getMessage() for regel in caplog.records if regel.name == BEREIKLOGGER]
+    assert len(meldingen) == 1
+    assert "x 233000..233000" in meldingen[0]
+
+
+def test_bereikcontrole_kijkt_niet_verder_dan_zijn_monster(tmp_path: Path) -> None:
+    """De omhullende van de bron is een schatting uit een prefix, en dat mag ze zijn.
+
+    Een stelselverschil scheelt ordes van grootte; daar is niet elke geometrie voor nodig,
+    en op een export van 112 MB is een tweede volledige lezing dat wel. De klem staat hier
+    als eigen eis, want zonder hem is de kosteloosheid van de controle een aanname.
+    """
+    from gwsw_orox_helpers.clip.bereik import _bereik_van_bron
+
+    bron = _klein(
+        tmp_path,
+        ':A a gwsw:Punt ; gwsw:hasValue "<gml:Point xmlns:gml=\\"'
+        'http://www.opengis.net/gml\\"><gml:pos>233000.00 581000.00</gml:pos>'
+        '</gml:Point>"^^geo:gmlLiteral .\n'
+        ':B a gwsw:Punt ; gwsw:hasValue "<gml:Point xmlns:gml=\\"'
+        'http://www.opengis.net/gml\\"><gml:pos>299000.00 599000.00</gml:pos>'
+        '</gml:Point>"^^geo:gmlLiteral .\n',
+    )
+
+    assert _bereik_van_bron(bron, None, monster=1) == (233000.0, 581000.0, 233000.0, 581000.0)
+    assert _bereik_van_bron(bron, None) == (233000.0, 581000.0, 299000.0, 599000.0)
+
+
+# De vier bereiken waarmee de controle geoordeeld wordt, elk als (minx, miny, maxx, maxy).
+_RD_MINI = (232960.0, 580960.0, 233080.0, 581040.0)  # de minigrens
+_RD_BRON = (233000.0, 581000.0, 233040.0, 581000.0)  # de geometrie van `mini_orox.ttl`
+_RD_STRAAT = (233000.0, 581000.0, 233050.0, 581050.0)  # een straat: drie ordes kleiner
+_RD_PROVINCIE = (200000.0, 500000.0, 270000.0, 620000.0)  # een provinciebrede export
+_GRADEN_NL = (3.3, 50.7, 7.3, 53.7)  # dezelfde streek, maar in WGS84-graden
+# Heel Nederland in RD plus een vlak op de oorsprong -- het nuleiland dat een export met een
+# lege geometrie oplevert. Zijn omhullende omvat daardoor ook de graden.
+_RD_MET_NULEILAND = (0.0, 0.0, 300000.0, 640000.0)
+
+
+@pytest.mark.parametrize(
+    ("naam", "grensbereik", "bronbereik", "redenen"),
+    [
+        ("passend", _RD_MINI, _RD_BRON, ()),
+        # Geen valse melding: een kleine grenslaag binnen een grote export is de gewone,
+        # bedoelde vorm -- ook al scheelt de *span* er drie ordes.
+        ("straat-in-provincie", _RD_STRAAT, _RD_PROVINCIE, ()),
+        ("graden-tegen-rd", _GRADEN_NL, _RD_BRON, ("overlap", "factor")),
+        # Twee vlakken in hetzelfde stelsel maar honderd kilometer uit elkaar: wel
+        # verdacht, geen stelselverschil.
+        ("zelfde-orde-maar-los", _RD_MINI, (100000.0, 400000.0, 100100.0, 400100.0), ("overlap",)),
+        # En het geval waarvoor de tweede vraag er is: een grenslaag die tot de oorsprong
+        # reikt omvat een bron in graden ruimschoots, dus er is overlap -- alleen de grootte
+        # van de coordinaten verraadt het stelsel dan nog.
+        ("omvattend-maar-ordes-uiteen", _RD_MET_NULEILAND, _GRADEN_NL, ("factor",)),
+        # Twee omhullenden op de oorsprong: geen deling door nul, en niets te melden.
+        ("beide-op-nul", (0.0, 0.0, 0.0, 0.0), (0.0, 0.0, 0.0, 0.0), ()),
+        ("een-op-nul", (0.0, 0.0, 0.0, 0.0), _RD_BRON, ("overlap", "factor")),
+    ],
+)
+def test_de_bereikcontrole_oordeelt_op_overlap_en_op_grootte(
+    naam: str,
+    grensbereik: tuple[float, float, float, float],
+    bronbereik: tuple[float, float, float, float],
+    redenen: tuple[str, ...],
+) -> None:
+    """Twee vragen, elk met een eigen valkuil (issue #28).
+
+    *Overlappen ze?* vangt het gewone stelselverschil -- RD-meters en graden liggen niet
+    eens in dezelfde helft van het getallenvlak. *Schelen hun coordinaten ordes?* vangt het
+    geval waarin de grenslaag zo ruim is dat ze de verkeerde getallen toch omvat. De
+    valkuil is de valse melding, en daarom kijkt de tweede vraag naar de *grootte* van de
+    coordinaten en niet naar de span van de omhullende: die van een straat en die van een
+    provincie schelen drie ordes zonder dat er iets mis is.
+    """
+    from gwsw_orox_helpers.clip.bereik import _redenen
+
+    gevonden = _redenen(grensbereik, bronbereik)
+    assert len(gevonden) == len(redenen), gevonden
+    for melding, verwacht in zip(gevonden, redenen, strict=True):
+        assert ("overlappen" in melding) == (verwacht == "overlap"), melding
+        assert ("factor" in melding) == (verwacht == "factor"), melding
 
 
 # --------------------------------------------------------------------------------------

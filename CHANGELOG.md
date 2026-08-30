@@ -1,6 +1,29 @@
 # Changelog
 
 ## [Unreleased]
+- De stille CRS-mismatch van de clip is vastgelegd en krijgt een opt-in waarschuwing
+  (issue #28, testbaarheid; **additief** — nieuwe keyword-only parameter met de veilige
+  default, nieuwe submodule, geen bestaand gedrag geraakt). Een grenslaag in WGS84-graden
+  tegen een bron in RD-meters levert via de terugval op het dichtstbijzijnde vlak
+  (`clip.knip._vlak_van`) een onbruikbare verdeling — één deel draagt de hele bron, de
+  andere alleen de ontologiekop — en de hereniging klopt daarbij nog steeds, dus er was
+  geen fout te zien. Dat gedrag staat nu als eigen test in `tests/test_clip.py`; het blijft
+  de belofte, want de terugval is er zodat er nooit een object buiten de boot valt.
+  Daarnaast is er `clip_orox(..., bereikcontrole=True)`: die legt via de nieuwe fase
+  `clip.bereik` de omhullende van de grenslaag naast die van de bron (geschat uit hoogstens
+  1000 GML-literalen, dus een prefix van de parse en geen tweede volledige lezing) en
+  schrijft een `logging.warning` als de twee elkaar niet overlappen of als hun coördinaten
+  ordes van grootte schelen. **Waarschuwing en geen weigering**: de terugval is een belofte
+  en geen vergissing, dus een bereik dat niet past is een sterk vermoeden, en invoer
+  weigeren die vandaag geknipt wordt zou het gedrag van de bevroren `clip_orox` veranderen
+  (auteursbeslissing, `CLAUDE.md`). Op de *grootte* van de coördinaten en niet op de span
+  van de omhullenden, want een straat uit een provinciebrede export scheelt drie ordes in
+  span zonder dat er iets mis is. **Default-gedrag is byte-identiek**: clip+merge op de
+  mini- en Juinen-fixtures geeft dezelfde SHA-256 als vóór de wijziging, en met de controle
+  aán zijn de geschreven delen byte voor byte dezelfde als zonder. De pin van de
+  `clip_orox`-handtekening in `tests/test_publieke_api.py` groeide additief mee.
+  **Cachesleutel**: `clip` staat niet in `cache.LADERMODULES`, dus bestaande caches blijven
+  geldig.
 - Diep genest GeoJSON laat de grenslezing geen kale `RecursionError` meer ontsnappen
   (issue #22, robuustheid; **additief** — geen bevroren contract geraakt, het gat wordt
   juist gedicht). `_lees_grenzen` in `clip.grenzen` vangt `RecursionError` nu mee in de

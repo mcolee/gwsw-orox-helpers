@@ -64,7 +64,9 @@ ADRES = re.compile(r" object at 0x[0-9a-f]+>")
 # mag alleen naar een zuster *boven* zich wijzen. Zie de docstring van `gwsw_orox_helpers.clip`
 # en de lagentabel in `docs/architectuur.md`. Wie een fase toevoegt, hernoemt of verplaatst,
 # komt langs `test_de_clipsnit_ligt_vast` en `test_de_clipsubmodules_houden_de_importrichting`.
-CLIPLAGEN = ("termen", "grenzen", "knip", "plan", "stroom", "merge", "orkest")
+# `bereik` staat achteraan naast `orkest` en niet in de rij ervoor: hij is geen stap van de
+# knip maar de opt-in bereikcontrole ernaast (issue #28), en alleen `orkest` roept hem aan.
+CLIPLAGEN = ("termen", "grenzen", "knip", "plan", "stroom", "merge", "bereik", "orkest")
 
 # De snit van de leeskant (issue #26): `bestand` draagt het parseerpad -- IO, codering en
 # de procesbrede GC -- en `inlezen` houdt de domeinlezers, die uitsluitend een gevulde
@@ -467,9 +469,13 @@ def test_cliplaag_is_additief() -> None:
 
     assert callable(clip.clip_orox)
     assert callable(clip.merge_orox)
+    # `bereikcontrole` kwam er in issue #28 bij: een nieuwe keyword-only parameter met de
+    # veilige default, dus elke bestaande aanroep doet nog letterlijk hetzelfde. Deze pin
+    # groeide daarvoor mee -- additief, en dat is precies wat het issue sanctioneerde.
     assert _handtekening(clip.clip_orox) == (
         "(bron: 'Path', grenzen: 'Path', uitmap: 'Path', *, sleutel: 'str', "
-        "fallback_encoding: 'str | None' = None) -> 'list[Path]'"
+        "fallback_encoding: 'str | None' = None, bereikcontrole: 'bool' = False) "
+        "-> 'list[Path]'"
     )
     assert _handtekening(clip.merge_orox) == "(delen: 'list[Path]', doel: 'Path') -> 'None'"
     # En ze staan, net als de schrijflaag, ook op de package zelf.

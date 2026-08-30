@@ -83,7 +83,7 @@ niet toe -- die lijst noemt hem bij de bewust geweerde modules. De term-fabrieke
 `clip/` wél rechtstreeks bij pyoxigraph haalt (`NamedNode`, `BlankNode`, `Literal`,
 `Quad`, `Triple`) gaan niet door de adapter; zie hieronder.
 
-`clip` is sinds de hersnit geen bestand maar een package met zeven fasen, en dezelfde
+`clip` is sinds de hersnit geen bestand maar een package met acht fasen, en dezelfde
 regel geldt daarbinnen nog een keer: elke pijl wijst naar een regel boven zich. Dezelfde
 tekening staat in de docstring van `gwsw_orox_helpers.clip`, voor wie het package opent
 in plaats van dit document; `test_de_clipsubmodules_houden_de_importrichting` toetst
@@ -100,14 +100,29 @@ clip.plan       -> clip.grenzen, clip.knip, clip.termen  (+ errors, geometry, na
 clip.stroom     -> clip.knip, clip.plan, clip.termen     (+ geometry, namen)
 clip.merge      -> clip.termen                           (+ errors, geometry, namen,
                                                             schrijven)
-clip.orkest     -> clip.grenzen, clip.plan, clip.stroom, clip.merge, clip.termen
-                                                         (+ errors, schrijven)
+clip.bereik     -> clip.grenzen                          (+ geometry, namen, schrijven)
+clip.orkest     -> clip.grenzen, clip.plan, clip.stroom, clip.merge, clip.bereik,
+                   clip.termen                           (+ errors, schrijven)
 clip.__init__   -> clip.orkest
 ```
 
-Het `__init__.py` is dun: het draagt het verhaal (de docstring van 135 regels, die de
-vier stappen van de toewijzing, de knip en zijn omkering en de vaste namen voor blanke
-knopen uitlegt) en her-exporteert `clip_orox` en `merge_orox`. Voor een afnemer verandert
+`clip.bereik` staat achteraan in die rij en niet in het midden: hij is geen stap van de knip
+maar de **opt-in bereikcontrole** ernaast (issue #28), en alleen `orkest` roept hem aan. Hij
+legt de omhullende van de grenslaag naast die van de bron en schrijft een
+`logging`-waarschuwing als de twee niet bij elkaar kunnen horen -- de grenslaag in
+WGS84-graden tegen een bron in RD-meters is de gewone vergissing, en de terugval op het
+dichtstbijzijnde vlak (`clip.knip._vlak_van`) schuift dan stilzwijgend elk object naar
+hetzelfde deel. `clip_orox` doet dat alleen op verzoek (`bereikcontrole=True`, default
+`False`) en de geschreven delen zijn met of zonder de controle byte voor byte dezelfde: het
+is een waarnemer en geen validatie. Waarom een waarschuwing en geen fout, staat in de
+docstring van de module -- kort: de terugval is een belofte en geen vergissing, dus een
+bereik dat niet past is een sterk vermoeden, en weigeren wat vandaag geknipt wordt zou het
+gedrag van de bevroren `clip_orox` veranderen.
+
+Het `__init__.py` is dun: het draagt het verhaal (de docstring van 178 regels, die de
+vier stappen van de toewijzing, de terugval op het dichtstbijzijnde vlak, de knip en zijn
+omkering en de vaste namen voor blanke knopen uitlegt) en her-exporteert `clip_orox` en
+`merge_orox`. Voor een afnemer verandert
 er niets: `from gwsw_orox_helpers.clip import clip_orox, merge_orox` doet wat het deed.
 
 Twee dingen die de tekening makkelijk verkeerd om zet. `domein` is een blad: de
@@ -244,12 +259,12 @@ die anders uit elkaar loopt, en die staat één keer:
 | Gedeelde kennis | Woont in | Gelezen door |
 |---|---|---|
 | De aanroep van de motor zelf: `pyoxigraph.parse` en `pyoxigraph.serialize` op Turtle, plus de reeks pyoxigraph-versies waarop de package getoetst is | `rdfmotor` | `bestand._parse` (bytes), `schrijven.lees_orox` (een pad, of tekst bij een terugvalcodering) en `schrijven.schrijf_orox_quads` (de serializer) |
-| De IRI's: `GWSW` en de naamruimten, `hasAspect`/`hasPart`/`hasConnection`, `geo:gmlLiteral` | `namen` (tekst) | `inlezen` (als `URIRef`), `clip.termen` (als `NamedNode`), `clip.plan`/`clip.stroom`/`clip.merge` (als tekst), `schrijven` (prefixkop), `graaf` (`xsd:string`), `ontologie`, `dataset` (`GWSW`, en het exporteert hem) |
+| De IRI's: `GWSW` en de naamruimten, `hasAspect`/`hasPart`/`hasConnection`, `geo:gmlLiteral` | `namen` (tekst) | `inlezen` (als `URIRef`), `clip.termen` (als `NamedNode`), `clip.plan`/`clip.stroom`/`clip.merge`/`clip.bereik` (als tekst), `schrijven` (prefixkop), `graaf` (`xsd:string`), `ontologie`, `dataset` (`GWSW`, en het exporteert hem) |
 | Het spellen van een korte klassenaam heen en terug (`_uri`, `_short`) | `namen` | `klassen` (`_afsluiting`, `_kenmerk_properties`, `_klassefuncties`), `inlezen` (de korte naam van een soort, een referentie of een klasse), `dataset` (`beheerobjecttype`, `is_connection_class`) |
 | De prefixkop van een OroX-export | `schrijven.STANDAARD_PREFIXEN`, opgebouwd uit `namen` | `schrijven`, `clip.orkest` (krijgt ze via `lees_orox` en vult `knip:` aan) |
 | UTF-8 met terugvalcodering, inclusief beide foutmeldingen | `codering.decodeer` | `bestand._decode`, `schrijven._gedecodeerd` |
 | Het verslag van zo'n terugval (`DecodeFallback`) | `codering.terugvalverslag` | alleen `bestand` |
-| De GML-lezers | `geometry` | `inlezen` (`parse_gml_met_z`), `clip.knip`, `clip.plan`, `clip.merge` (`parse_gml` / `parse_gml_z`), `dataset` (doorgeefluik) |
+| De GML-lezers | `geometry` | `inlezen` (`parse_gml_met_z`), `clip.knip`, `clip.plan`, `clip.merge`, `clip.bereik` (`parse_gml` / `parse_gml_z`), `dataset` (doorgeefluik) |
 | De tekstkant van diezelfde literaal: de coordinatenlijst als tokens, het terugleggen ervan in het omhulsel, en hoeveel getallen er op een punt gaan (`coordinaattokens`, `vervang_coordinaten`, `tokens_per_punt`) | `geometry` | `clip.knip` (de knip), `clip.stroom` (het stuk wegschrijven), `clip.merge` (de omkering) |
 | De `knip:`-naamruimte en de stuknamen (`<origineel>__knip<k>`) | `clip.termen` | `clip.plan`, `clip.stroom`, `clip.merge`, `clip.orkest` |
 
@@ -427,7 +442,7 @@ Twee tests in `tests/test_cache.py` houden dat bij: de ene parametriseert over
 `LADERMODULES` en toont per module dat een gewijzigde broncode een andere sleutel geeft,
 de andere eist dat elke module van de package óf in die lijst staat óf met een reden in
 de uitzonderingsverzameling ernaast. Die tweede telt met `rglob` en ziet dus ook de fasen
-in `clip/`; ze staan er alle acht met naam bij, want een nieuwe fase hoort zich net zo
+in `clip/`; ze staan er alle negen met naam bij, want een nieuwe fase hoort zich net zo
 goed te melden als een nieuwe module in de wortel.
 
 Verplaatste code verandert die sleutel, dus na een hersnit worden bestaande caches één

@@ -12,7 +12,7 @@ from collections.abc import Iterable, Iterator
 
 import pyoxigraph
 
-from gwsw_orox_helpers.clip.knip import _met_coordinaten, _Stuk
+from gwsw_orox_helpers.clip.knip import _Stuk
 from gwsw_orox_helpers.clip.plan import _RANDPREDICATEN, _genummerd, _Plan
 from gwsw_orox_helpers.clip.termen import (
     _AANTAL,
@@ -28,6 +28,7 @@ from gwsw_orox_helpers.clip.termen import (
     _stukterm,
     _term,
 )
+from gwsw_orox_helpers.geometry import vervang_coordinaten
 from gwsw_orox_helpers.namen import HAS_VALUE
 
 
@@ -132,7 +133,7 @@ def _knipmerken(
     plan: _Plan,
 ) -> Iterator[pyoxigraph.Triple]:
     """De geometrie van een stuk plus de merken waarmee `merge_orox` hem terugvindt."""
-    geknipt = pyoxigraph.Literal(_met_coordinaten(literal, stuk.coordinaten), datatype=_GML_TYPE)
+    geknipt = pyoxigraph.Literal(vervang_coordinaten(literal, stuk.coordinaten), datatype=_GML_TYPE)
     yield pyoxigraph.Triple(subject, _HAS_VALUE_KNOOP, geknipt)
     yield pyoxigraph.Triple(subject, _HERKOMST, pyoxigraph.Literal(herkomst))
     yield pyoxigraph.Triple(

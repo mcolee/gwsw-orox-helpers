@@ -9,9 +9,12 @@ from shapely.geometry import LineString, Point, Polygon
 
 from gwsw_orox_helpers.geometry import (
     GeometryError,
+    coordinaattokens,
     is_multipart_literal,
     parse_gml,
     parse_gml_z,
+    tokens_per_punt,
+    vervang_coordinaten,
 )
 
 PUNT_3D = '<gml:Point xmlns:gml="g"><gml:pos>168462.01 442691.30 22.45</gml:pos></gml:Point>'
@@ -150,3 +153,166 @@ def test_lijn_met_een_enkel_punt_is_een_leesfout() -> None:
     )
     with pytest.raises(GeometryError, match="onbruikbare LineString-geometrie"):
         parse_gml(literal)
+
+
+# --------------------------------------------------------------------------------------
+# De tekstkant: de coordinatenlijst als tekst, en wat er per punt op gaat
+# --------------------------------------------------------------------------------------
+
+
+def test_coordinaattokens_geeft_de_getallen_als_tekst() -> None:
+    """De tokens zijn de brontekst en geen floats: `168462.30` blijft `168462.30`.
+
+    Dat is de hele reden dat de knip ze nodig heeft -- een float-omweg zou er
+    `168462.3` van maken en de hereniging niet meer byte-gelijk laten zijn.
+    """
+    literal = (
+        '<gml:LineString xmlns:gml="g"><gml:posList srsDimension="3">'
+        "168462.30 442691.00 22.450 168470.00 442700.50 22.40"
+        "</gml:posList></gml:LineString>"
+    )
+
+    assert coordinaattokens(literal) == [
+        "168462.30",
+        "442691.00",
+        "22.450",
+        "168470.00",
+        "442700.50",
+        "22.40",
+    ]
+
+
+def test_coordinaattokens_leest_een_los_punt_en_wetenschappelijke_notatie() -> None:
+    """`gml:pos` telt net zo goed als `gml:posList`, en een exponent is een token."""
+    assert coordinaattokens(PUNT_2D) == ["168462.51", "442691.30"]
+    assert coordinaattokens(
+        '<gml:Point xmlns:gml="g"><gml:pos>1.68462e5 4.4269130E5</gml:pos></gml:Point>'
+    ) == ["1.68462e5", "4.4269130E5"]
+
+
+def test_coordinaattokens_negeert_de_scheiders_tussen_de_getallen() -> None:
+    """Dubbele spaties, newlines en randspaties leveren dezelfde tokens op.
+
+    De tokens zijn de getallen; wie de *scheiders* nodig heeft (de knip, om te zien of
+    hij de tekst letterlijk kan terugleggen) vergelijkt de literaal en niet de tokens.
+    """
+    ruim = (
+        '<gml:LineString xmlns:gml="g"><gml:posList srsDimension="2">\n'
+        "  1 2\n  4 5\n</gml:posList></gml:LineString>"
+    )
+
+    assert coordinaattokens(ruim) == ["1", "2", "4", "5"]
+
+
+def test_coordinaattokens_van_een_lege_of_ontbrekende_lijst_is_leeg() -> None:
+    """Geen getallen en geen gml:pos leveren allebei een lege lijst, geen fout.
+
+    Anders dan `parse_gml` oordeelt deze functie niet: de knip beslist zelf wat hij met
+    een literaal zonder bruikbare coordinatenlijst doet (hij laat hem heel).
+    """
+    leeg = '<gml:LineString xmlns:gml="g"><gml:posList srsDimension="2"></gml:posList>'
+    leeg += "</gml:LineString>"
+
+    assert coordinaattokens(leeg) == []
+    assert coordinaattokens('<gml:Point xmlns:gml="g"></gml:Point>') == []
+    assert coordinaattokens("dit is geen GML") == []
+
+
+def test_vervang_coordinaten_laat_alles_buiten_de_lijst_staan() -> None:
+    """Alleen de inhoud gaat eruit; srsName, srsDimension en de soort blijven letterlijk."""
+    literal = (
+        '<gml:LineString xmlns:gml="http://www.opengis.net/gml" srsName="EPSG:28992">'
+        '<gml:posList srsDimension="3">1 2 30 4 5 60</gml:posList></gml:LineString>'
+    )
+
+    assert vervang_coordinaten(literal, "7 8 90") == (
+        '<gml:LineString xmlns:gml="http://www.opengis.net/gml" srsName="EPSG:28992">'
+        '<gml:posList srsDimension="3">7 8 90</gml:posList></gml:LineString>'
+    )
+
+
+def test_vervang_coordinaten_raakt_alleen_de_eerste_lijst() -> None:
+    """Bij twee posLists naast elkaar blijft de tweede ongemoeid.
+
+    De knip raakt zo'n literaal niet aan (`is_multipart_literal` houdt hem tegen), maar
+    zou deze functie alle lijsten vervangen dan zou een fout daar een tweede geometrie
+    stilzwijgend overschrijven in plaats van zichtbaar mis te gaan.
+    """
+    twee = (
+        '<gml:LineString xmlns:gml="g"><gml:posList srsDimension="2">1 2 4 5</gml:posList>'
+        '<gml:posList srsDimension="2">7 8 9 0</gml:posList></gml:LineString>'
+    )
+
+    assert vervang_coordinaten(twee, "3 3 3 3") == (
+        '<gml:LineString xmlns:gml="g"><gml:posList srsDimension="2">3 3 3 3</gml:posList>'
+        '<gml:posList srsDimension="2">7 8 9 0</gml:posList></gml:LineString>'
+    )
+
+
+def test_vervang_coordinaten_zonder_lijst_laat_de_literaal_staan() -> None:
+    """Valt er niets te vervangen, dan komt de literaal ongewijzigd terug."""
+    assert vervang_coordinaten("dit is geen GML", "1 2") == "dit is geen GML"
+
+
+def test_vervang_coordinaten_met_de_eigen_tokens_is_de_identiteit() -> None:
+    """De aanname onder de knip: een genormaliseerde lijst komt letterlijk terug.
+
+    De hereniging schrijft `vervang_coordinaten(sjabloon, " ".join(tokens))`. Staat de
+    bron al met enkele spaties geschreven, dan is dat dezelfde tekst als de bron -- en
+    dat is precies de vraag die de knip stelt voordat hij aan een lijn begint. Draagt de
+    bron andere scheiders, dan is het antwoord nee.
+    """
+    ruim = (
+        '<gml:LineString xmlns:gml="g"><gml:posList srsDimension="2">1 2  4 5'
+        "</gml:posList></gml:LineString>"
+    )
+
+    assert vervang_coordinaten(LIJN_2D, " ".join(coordinaattokens(LIJN_2D))) == LIJN_2D
+    assert vervang_coordinaten(ruim, " ".join(coordinaattokens(ruim))) != ruim
+
+
+def test_tokens_per_punt_telt_en_leest_de_srsdimension_niet() -> None:
+    """De verhouding tussen de tokens en de punten, en met opzet niet de srsDimension.
+
+    Dat is de keuze waar de knip en zijn omkering op rusten: allebei tellen ze, dus
+    allebei komen ze op hetzelfde uit -- ook als de literaal een srsDimension draagt die
+    niet klopt met wat erin staat. Zou de een de srsDimension lezen en de ander tellen,
+    dan zou de hereniging per punt op de verkeerde plaats snoeien.
+    """
+    liegt = (
+        '<gml:LineString xmlns:gml="g"><gml:posList srsDimension="3">1 2 4 5'
+        "</gml:posList></gml:LineString>"
+    )
+
+    assert tokens_per_punt(LIJN_3D, 2) == 3
+    assert tokens_per_punt(LIJN_2D, 2) == 2
+    assert tokens_per_punt(liegt, 2) == 2
+
+
+def test_tokens_per_punt_kent_ook_een_vierde_getal_per_punt() -> None:
+    """Vier getallen op een punt is een geldig antwoord; wie er niets mee kan, zegt dat zelf.
+
+    De knip weigert alles buiten 2 en 3, maar dat is zijn eis en niet die van de teller.
+    """
+    vier = (
+        '<gml:LineString xmlns:gml="g"><gml:posList srsDimension="4">'
+        "1 2 3 4 5 6 7 8</gml:posList></gml:LineString>"
+    )
+
+    assert tokens_per_punt(vier, 2) == 4
+
+
+def test_tokens_per_punt_geeft_niets_als_de_verhouding_niet_rondkomt() -> None:
+    """Vijf getallen op twee punten, nul punten, een lege lijst: niets af te lezen.
+
+    `None` en geen gok: het aaneen naaien snoeit per punt van de tokenreeks, dus een
+    stap van 2 waar de bron er 3 bedoelde levert stilzwijgend een geometrie op die
+    niemand ooit geschreven heeft.
+    """
+    scheef = '<gml:LineString xmlns:gml="g"><gml:posList>1 2 3 4 5</gml:posList></gml:LineString>'
+    leeg = '<gml:LineString xmlns:gml="g"><gml:posList></gml:posList></gml:LineString>'
+
+    assert tokens_per_punt(scheef, 2) is None
+    assert tokens_per_punt(LIJN_3D, 0) is None
+    assert tokens_per_punt(leeg, 2) is None
+    assert tokens_per_punt("dit is geen GML", 2) is None

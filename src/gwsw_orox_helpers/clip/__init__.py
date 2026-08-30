@@ -29,7 +29,7 @@ grenzen   <- blad binnen clip/: de GeoJSON-vlakken en hun bestandsnaam
 knip      -> grenzen                          (geometrie plaatsen en doorknippen; `_Stuk`)
 plan      -> grenzen, knip, termen            (de analyseronde; `_Plan`, `_maak_plan`)
 stroom    -> knip, plan, termen               (de gefilterde quadstroom per deel)
-merge     -> knip, termen                     (de delen weer aaneen)
+merge     -> termen                           (de delen weer aaneen)
 orkest    -> grenzen, plan, stroom, merge, termen   (`clip_orox`, `merge_orox`)
 __init__  -> orkest
 ```
@@ -119,8 +119,11 @@ hereniging -- meer risico voor de exactheid dan de meerdelige geometrie kost.
 
 **Waarom dat exact is en geen float-tolerantie nodig heeft.** De stukken worden niet
 uit shapely-coordinaten teruggeschreven maar uit de **tekst** van de bron: de
-coordinatenlijst van de GML-literaal wordt op tokens gesplitst en de stukken krijgen
-plakjes van diezelfde tokens, met alleen het knippunt als nieuw geschreven getal. Wat
+coordinatenlijst van de GML-literaal wordt op tokens gesplitst
+(`geometry.coordinaattokens`) en de stukken krijgen plakjes van diezelfde tokens, die met
+`geometry.vervang_coordinaten` in het omhulsel van de bron terugkomen -- de knip heen en
+de hereniging terug met dezelfde twee functies, zodat een GML-vormvariant aan beide kanten
+hetzelfde gelezen wordt. Alleen het knippunt is een nieuw geschreven getal. Wat
 er na het snoeien overblijft is dus letterlijk de oorspronkelijke tekst, tot en met de
 `233000.00` die een float-omweg als `233000.0` zou hebben teruggegeven. Het issue nam
 aan dat het knippunt aan zijn collineariteit herkend moest worden, met een tolerantie
@@ -134,8 +137,9 @@ zijn definitie: meer dan een GML-literaal op de knoop, *of* een literaal die er 
 dan een deel in draagt (een `gml:MultiCurve`, of twee `gml:posList`-en naast elkaar). Van
 zo'n literaal leest de shapely-lezer alleen het eerste deel, dus knippen zou een
 tekstplakje uit dat eerste deel snijden en de rest ongemoeid in beide delen laten staan.
-Niet geknipt wordt verder een lijn met een andere `srsDimension` dan 2 of 3, en een lijn
-waarvan de coordinatentekst niet al genormaliseerd is -- dubbele spaties, newlines of
+Niet geknipt wordt verder een lijn met een andere verhouding dan 2 of 3 getallen per punt
+(`geometry.tokens_per_punt`, dat telt en de `srsDimension` met opzet niet leest), en een
+lijn waarvan de coordinatentekst niet al genormaliseerd is -- dubbele spaties, newlines of
 randspaties in de posList. De stukken zijn tekstplakjes en de hereniging zet ze met een
 enkele spatie aaneen; van een bron met andere scheiders zouden de getallen wel exact
 terugkomen maar de tekst eromheen niet, en dan is `merge(clip(bron))` niet meer

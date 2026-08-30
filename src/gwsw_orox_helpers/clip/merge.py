@@ -14,7 +14,6 @@ from pathlib import Path
 
 import pyoxigraph
 
-from gwsw_orox_helpers.clip.knip import _COORDINATEN, _met_coordinaten, _tokens
 from gwsw_orox_helpers.clip.termen import (
     _GML_TYPE,
     _HAS_VALUE_KNOOP,
@@ -24,7 +23,13 @@ from gwsw_orox_helpers.clip.termen import (
     _term,
 )
 from gwsw_orox_helpers.errors import DatasetError
-from gwsw_orox_helpers.geometry import GeometryError, parse_gml
+from gwsw_orox_helpers.geometry import (
+    GeometryError,
+    coordinaattokens,
+    parse_gml,
+    tokens_per_punt,
+    vervang_coordinaten,
+)
 from gwsw_orox_helpers.namen import HAS_VALUE
 from gwsw_orox_helpers.schrijven import lees_orox
 
@@ -152,9 +157,13 @@ def _verwerk_merken(scan: _Scan, merken: dict[str, dict[str, str]]) -> None:
 
 
 def _tokens_tekst(literal: str) -> str:
-    """De coordinatentekst uit een GML-literaal, ongewijzigd."""
-    treffer = _COORDINATEN.search(literal)
-    return treffer[2].strip() if treffer is not None else ""
+    """De coordinatentekst uit een GML-literaal: de getallen, met een enkele spatie ertussen.
+
+    De getallen zijn de brontekst van het stuk en blijven dat; alleen de scheiders worden
+    hier al genormaliseerd, want `_hersteld` splitst deze tekst toch weer op witruimte en
+    naait de tokens met een enkele spatie aaneen.
+    """
+    return " ".join(coordinaattokens(literal))
 
 
 def _samengevoegd(delen: Sequence[Path], scan: _Scan) -> Iterator[pyoxigraph.Triple]:
@@ -240,7 +249,7 @@ def _hersteld(herkomst: str, scan: _Scan) -> pyoxigraph.Triple:
         if ingevoegd_einde:
             punten = punten[: max(len(punten) - stap, 0)]
         tokens.extend(punten)
-    literal = _met_coordinaten(sjabloon, " ".join(tokens))
+    literal = vervang_coordinaten(sjabloon, " ".join(tokens))
     return pyoxigraph.Triple(
         _term(herkomst), _HAS_VALUE_KNOOP, pyoxigraph.Literal(literal, datatype=_GML_TYPE)
     )
@@ -250,24 +259,29 @@ def _stapgrootte(sjabloon: str) -> int:
     """Het aantal getallen per punt, op dezelfde manier bepaald als bij het knippen.
 
     Niet uit de `srsDimension` gelezen maar uit de verhouding tussen het aantal tokens en
-    het aantal punten dat `parse_gml` erin ziet -- precies zoals `_knip_lijn` het deed.
-    Zou de literaal geen srsDimension dragen, dan raden beide kanten tenminste hetzelfde
-    en blijft het aaneen naaien sluitend.
+    het aantal punten dat `parse_gml` erin ziet -- `geometry.tokens_per_punt`, dezelfde
+    functie die `_knip_lijn` de stukken mee verdeelde. Zou de literaal geen srsDimension
+    dragen, dan tellen beide kanten en komen ze op hetzelfde uit, en blijft het aaneen
+    naaien sluitend.
 
     Komt die verhouding niet rond, dan is er niets te raden: het aaneen naaien snoeit per
     punt van de tokenreeks, dus een stap van 2 waar de bron er 3 bedoelde levert een
     geometrie op die niemand ooit geschreven heeft -- en dat stilzwijgend. Een stuk dat de
     clip zelf schreef komt hier nooit; wat hier komt is een deel van elders.
+
+    Het puntental komt hier vandaan en niet uit `tokens_per_punt` zelf: een vlak (dat geen
+    `.coords` heeft) en een onleesbare literaal horen hier geen fout uit shapely te geven
+    maar de melding hieronder, met de getallen erin waarmee de auteur ziet waarom.
     """
     try:
         punten = len(parse_gml(sjabloon).coords)
     except (GeometryError, NotImplementedError):
         punten = 0
-    alle = len(_tokens(sjabloon))
-    if punten and alle % punten == 0:
-        return alle // punten
+    stap = tokens_per_punt(sjabloon, punten)
+    if stap is not None:
+        return stap
     raise DatasetError(
         f"uit {sjabloon!r} is niet af te lezen hoeveel getallen er op een punt gaan "
-        f"({alle} coordinaatwaarden op {punten} punten); het aaneen naaien van de stukken "
-        f"zou dan op de verkeerde plaats snoeien."
+        f"({len(coordinaattokens(sjabloon))} coordinaatwaarden op {punten} punten); het "
+        f"aaneen naaien van de stukken zou dan op de verkeerde plaats snoeien."
     )

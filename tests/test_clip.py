@@ -867,6 +867,70 @@ def test_lijn_zonder_lengte_gaat_heel_naar_het_dichtstbijzijnde_vlak(tmp_path: P
 # --------------------------------------------------------------------------------------
 
 
+_GML = 'xmlns:gml="http://www.opengis.net/gml"'
+
+
+def _lijnliteraal(coordinaten: str, dimensie: str = "") -> str:
+    """Een GML-lijnliteraal als gewone tekst (niet als TTL-fragment)."""
+    return (
+        f"<gml:LineString {_GML}><gml:posList{dimensie}>{coordinaten}"
+        "</gml:posList></gml:LineString>"
+    )
+
+
+@pytest.mark.parametrize(
+    ("naam", "sjabloon", "stap"),
+    [
+        ("3d-met-srsdimension", _lijnliteraal("1 2 30 4 5 60", ' srsDimension="3"'), 3),
+        ("2d-zonder-srsdimension", _lijnliteraal("1 2 4 5"), 2),
+        ("drievoud-zonder-srsdimension", _lijnliteraal("1 2 3 4 5 6 7 8 9"), 3),
+        ("vierde-getal-per-punt", _lijnliteraal("1 2 3 4 5 6 7 8", ' srsDimension="4"'), 4),
+        ("los-punt", f"<gml:Point {_GML}><gml:pos>1 2 30</gml:pos></gml:Point>", 3),
+    ],
+)
+def test_stapgrootte_volgt_de_telling_en_niet_de_srsdimension(
+    naam: str, sjabloon: str, stap: int
+) -> None:
+    """Gedragsbehoud: de token/punt-verhouding is een opzettelijke round-trip-keuze.
+
+    `_stapgrootte` bepaalt hoeveel getallen er per punt van een stuk gesnoeid worden en
+    `_knip_lijn` bepaalt met dezelfde verhouding hoe hij de tokens over de stukken
+    verdeelt. Lopen die twee ooit uiteen -- de een telt, de ander leest de srsDimension --
+    dan snoeit de hereniging op de verkeerde plaats en komt er stilzwijgend een geometrie
+    uit die niemand geschreven heeft. Deze uitkomsten liggen daarom per invoer vast.
+    """
+    from gwsw_orox_helpers.clip.merge import _stapgrootte
+
+    assert _stapgrootte(sjabloon) == stap
+
+
+@pytest.mark.parametrize(
+    ("naam", "sjabloon", "melding"),
+    [
+        ("onleesbare-gml", "dit is geen GML", "0 coordinaatwaarden op 0 punten"),
+        (
+            "vlak-heeft-geen-coords",
+            f"<gml:Polygon {_GML}><gml:exterior><gml:LinearRing>"
+            '<gml:posList srsDimension="2">0 0 0 1 1 1 0 0</gml:posList>'
+            "</gml:LinearRing></gml:exterior></gml:Polygon>",
+            "8 coordinaatwaarden op 0 punten",
+        ),
+        ("lege-lijst", _lijnliteraal(""), "0 coordinaatwaarden op 0 punten"),
+    ],
+)
+def test_stapgrootte_meldt_wat_hij_niet_kan_aflezen(naam: str, sjabloon: str, melding: str) -> None:
+    """Gedragsbehoud: dezelfde fout met dezelfde getallen erin.
+
+    Een vlak heeft geen `.coords` (shapely gooit `NotImplementedError`) en een onleesbare
+    literaal geen punten; in allebei de gevallen valt er niets te raden. De getallen in de
+    melding zijn wat de auteur bij een deel van elders nodig heeft om te zien waarom.
+    """
+    from gwsw_orox_helpers.clip.merge import _stapgrootte
+
+    with pytest.raises(DatasetError, match=melding):
+        _stapgrootte(sjabloon)
+
+
 def test_blanke_knooplabels_overleven_de_serializer() -> None:
     """`merge_orox` leunt erop dat pyoxigraph labels van blanke knopen laat staan.
 

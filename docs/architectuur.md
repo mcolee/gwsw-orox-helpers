@@ -47,8 +47,8 @@ clip.grenzen    <- blad binnen clip/: de GeoJSON-vlakken en hun bestandsnaam
 clip.knip       -> clip.grenzen                          (+ errors, geometry)
 clip.plan       -> clip.grenzen, clip.knip, clip.termen  (+ errors, geometry, namen,
                                                             schrijven)
-clip.stroom     -> clip.knip, clip.plan, clip.termen     (+ namen)
-clip.merge      -> clip.knip, clip.termen                (+ errors, geometry, namen,
+clip.stroom     -> clip.knip, clip.plan, clip.termen     (+ geometry, namen)
+clip.merge      -> clip.termen                           (+ errors, geometry, namen,
                                                             schrijven)
 clip.orkest     -> clip.grenzen, clip.plan, clip.stroom, clip.merge, clip.termen
                                                          (+ errors, schrijven)
@@ -76,7 +76,7 @@ Elke module beantwoordt één vraag; in deze volgorde heeft niets ooit iets van 
 | `voortgang` | Hoe meldt een lange stap zich? (protocol; `NUL_VOORTGANG` doet niets) |
 | `bronnen` | Waar liggen de meegeleverde ontologie en vocabulaire-index? |
 | `namen` | Hoe spellen we een IRI? (alleen tekst, geen imports) |
-| `geometry` | Wat staat er in een GML-literaal? (shapely; z apart van xy) |
+| `geometry` | Wat staat er in een GML-literaal? (shapely; z apart van xy; en de coordinatentekst zelf, voor wie hem letterlijk moet terugleggen) |
 | `graaf` | Hoe vraag je een graaf iets? (`GraafIndex`: twee dicts, rdflib-termen) |
 | `codering` | Hoe worden de bytes van een TTL tekst? (UTF-8 met terugval) |
 | `ontologie` | Wat zegt een `owl:Restriction` over een klasse of kenmerk? |
@@ -116,6 +116,7 @@ die anders uit elkaar loopt, en die staat één keer:
 | UTF-8 met terugvalcodering, inclusief beide foutmeldingen | `codering.decodeer` | `inlezen._decode`, `schrijven._gedecodeerd` |
 | Het verslag van zo'n terugval (`DecodeFallback`) | `codering.terugvalverslag` | alleen `inlezen` |
 | De GML-lezers | `geometry` | `inlezen`, `clip.knip`, `clip.plan`, `clip.merge`, `dataset` (doorgeefluik) |
+| De tekstkant van diezelfde literaal: de coordinatenlijst als tokens, het terugleggen ervan in het omhulsel, en hoeveel getallen er op een punt gaan (`coordinaattokens`, `vervang_coordinaten`, `tokens_per_punt`) | `geometry` | `clip.knip` (de knip), `clip.stroom` (het stuk wegschrijven), `clip.merge` (de omkering) |
 | De `knip:`-naamruimte en de stuknamen (`<origineel>__knip<k>`) | `clip.termen` | `clip.plan`, `clip.stroom`, `clip.merge`, `clip.orkest` |
 
 Dat laatste onderscheid is opzettelijk: het verslag telt de afwijkende bytes en zoekt de

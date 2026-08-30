@@ -1,6 +1,34 @@
 # Changelog
 
 ## [Unreleased]
+- De coordinaat-tekstchirurgie woont nu één keer, in `geometry` (issue #17, modulariteit;
+  geen gedragswijziging). `clip` droeg een eigen coordinaat-regex (`clip.knip._COORDINATEN`)
+  naast `geometry.COORDINATEN_PATROON` en leidde de verhouding tussen tokens en punten twee
+  keer af -- in `knip._knip_lijn` en in `merge._stapgrootte`. Dat is precies het
+  tweede-exemplaar-patroon dat `docs/architectuur.md` verbiedt: geen live bug, maar wel de
+  plek waar een GML-vormvariant een stille byte-afwijking in `merge(clip(bron))` kon worden.
+  **Nieuw in `geometry`, additief**: `coordinaattokens(literal) -> list[str]` (de getallen
+  van de eerste `gml:pos`/`gml:posList` als brontekst, ongeoordeeld: geen lijst levert een
+  lege lijst en geen fout), `vervang_coordinaten(literal, coordinaten) -> str` (dezelfde
+  literaal met een andere lijst erin; srsName, srsDimension en soort blijven letterlijk
+  staan) en `tokens_per_punt(literal, punten) -> int | None`. Die laatste draagt de
+  **opzettelijke round-trip-keuze**: het aantal getallen per punt volgt uit de telling en
+  níet uit de `srsDimension`, zodat de knip en zijn omkering bij een literaal zonder (of met
+  een onjuiste) srsDimension hetzelfde raden en de hereniging niet op de verkeerde plaats
+  snoeit. `clip.knip`, `clip.stroom` en `clip.merge` gebruiken die drie nu; `_COORDINATEN`,
+  `_tokens`, `_ruwe_coordinaten` en `_met_coordinaten` zijn uit `clip.knip` verdwenen en
+  `clip.merge` importeert daardoor niets meer uit `clip.knip` (de pijl `merge -> knip` is
+  weg; `stroom` ziet nu wel `geometry`). Geen bestaande handtekening, retourvorm of
+  foutmelding aangeraakt -- `COORDINATEN_PATROON`, `parse_gml`, `parse_gml_z` en
+  `is_multipart_literal` staan er onveranderd, en de melding van `_stapgrootte` is tot op
+  het getal dezelfde. Gedragsbehoud **gepaard** gemeten (zelfde invoer, vóór en ná in
+  dezelfde run): clip + merge op de Juinen-fixture en op `mini_orox.ttl` leveren
+  **byte-identieke** bestanden op, gelijke SHA-256 voor beide delen en voor de hereniging
+  (Juinen-West `3e49228d…`, Juinen-Oost `ee3e55a6…`, terug `b2b682c0…`). De zware De
+  Wolden/Hoogeveen-round-trip (112 MB) staat er ook onder. **Let op:** `geometry` staat in
+  `cache.LADERMODULES`, dus deze wijziging verzet de cachesleutel -- bestaande caches worden
+  één keer opnieuw opgebouwd. Dat is de bedoelde werking van die sleutel en geen
+  gedragswijziging.
 - `clip.py` is een `clip/`-package geworden (issue #11, modulariteit; geen
   gedragswijziging). Het bestand was met 1299 regels bijna 29% van de package en droeg vijf
   bannerblok-hoofdstukken achter elkaar; dat is nu zeven submodules van 56 tot 320 regels,

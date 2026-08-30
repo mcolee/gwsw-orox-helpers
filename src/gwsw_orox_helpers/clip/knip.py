@@ -4,12 +4,16 @@ De fase die van een geometrie het bitmasker van vlakken maakt, en van een lijn d
 kruist de `_Stuk`-en waarin hij uiteenvalt. De stukken zijn tekstplakjes uit de posList van
 de bron en geen teruggeschreven shapely-coordinaten -- waarom dat zo is, en wat er
 nadrukkelijk *niet* geknipt wordt, staat in de docstring van `gwsw_orox_helpers.clip`.
+
+Het snijden zelf gebeurt met de tekstkant van `geometry` (`coordinaattokens`,
+`tokens_per_punt`, `vervang_coordinaten`) en niet met een eigen regex: de knip hoort een
+literaal precies zo te lezen als de leeslaag hem leest, anders wordt een GML-vormvariant
+hier stil iets anders dan daar. `merge` snijdt met dezelfde drie terug.
 """
 
 from __future__ import annotations
 
 import itertools
-import re
 from collections.abc import Iterator, Sequence
 from dataclasses import dataclass
 from typing import Final
@@ -19,12 +23,14 @@ from shapely.geometry.base import BaseGeometry
 
 from gwsw_orox_helpers.clip.grenzen import _Vlak
 from gwsw_orox_helpers.errors import DatasetError
-from gwsw_orox_helpers.geometry import GeometryError, parse_gml, parse_gml_z
-
-# De inhoud van de gml:pos of gml:posList, met de omhulsels eromheen. Alleen de middelste
-# groep wordt vervangen; al het andere in de literaal blijft letterlijk staan (srsName,
-# srsDimension, de soort geometrie).
-_COORDINATEN: Final = re.compile(r"(<gml:(?:pos|posList)\b[^>]*>)([^<]*)(</gml:(?:pos|posList)>)")
+from gwsw_orox_helpers.geometry import (
+    GeometryError,
+    coordinaattokens,
+    parse_gml,
+    parse_gml_z,
+    tokens_per_punt,
+    vervang_coordinaten,
+)
 
 # Afstandstolerantie langs een lijn, in meters. Valt een kruispunt hierbinnen op een
 # bestaande vertex, dan wordt er geen punt ingevoegd; valt het op het begin of het eind
@@ -90,18 +96,21 @@ def _knip_lijn(
         if vlak.voorbereid.covers(lijn):
             return 1 << index, None
 
-    tokens = _tokens(literal)
+    tokens = coordinaattokens(literal)
     punten = list(lijn.coords)
-    dimensie = len(tokens) // len(punten) if punten else 0
-    if dimensie not in (2, 3) or dimensie * len(punten) != len(tokens):
-        # Zonder een sluitende tokenverdeling valt er geen tekstplakje te knippen; dan gaat
-        # de hele lijn naar elk vlak dat hij raakt.
+    dimensie = tokens_per_punt(literal, len(punten))
+    if dimensie is None or dimensie not in (2, 3):
+        # Zonder een sluitende tokenverdeling valt er geen tekstplakje te knippen, en op
+        # een andere srsDimension dan 2 of 3 zou het snijden op de verkeerde plaats
+        # gebeuren; dan gaat de hele lijn naar elk vlak dat hij raakt.
         return _heel(lijn, vlakken), None
-    if " ".join(tokens) != _ruwe_coordinaten(literal):
-        # De hereniging zet de tokens met een enkele spatie aaneen. Draagt de bron andere
-        # scheiders -- dubbele spaties, newlines, randspaties -- dan komen de getallen wel
-        # exact terug maar de tekst eromheen niet, en dan is `merge(clip(bron))` niet meer
-        # byte-gelijk aan de bron. Zulke tekst wordt niet geknipt maar heel doorgegeven.
+    if vervang_coordinaten(literal, " ".join(tokens)) != literal:
+        # De hereniging zet de tokens met een enkele spatie aaneen en legt ze met
+        # `vervang_coordinaten` terug -- precies de vergelijking hierboven. Komt daar niet
+        # letterlijk de bron uit, dan draagt zij andere scheiders (dubbele spaties,
+        # newlines, randspaties) en zouden de getallen wel exact terugkomen maar de tekst
+        # eromheen niet; `merge(clip(bron))` is dan niet meer byte-gelijk aan de bron.
+        # Zulke tekst wordt niet geknipt maar heel doorgegeven.
         return _heel(lijn, vlakken), None
 
     lengte = lijn.length
@@ -159,17 +168,6 @@ def _heel(lijn: LineString, vlakken: tuple[_Vlak, ...]) -> int:
         if vlak.voorbereid.intersects(lijn):
             masker |= 1 << index
     return masker or 1 << _vlak_van(lijn.representative_point(), vlakken)
-
-
-def _tokens(literal: str) -> list[str]:
-    """De losse coordinaatgetallen van de literaal, als tekst en niet als float."""
-    return _ruwe_coordinaten(literal).split()
-
-
-def _ruwe_coordinaten(literal: str) -> str:
-    """De inhoud van de gml:pos of gml:posList, letterlijk en met zijn eigen scheiders."""
-    treffer = _COORDINATEN.search(literal)
-    return treffer[2] if treffer is not None else ""
 
 
 def _vertexafstanden(punten: Sequence[tuple[float, ...]]) -> list[float]:
@@ -305,8 +303,3 @@ def _hoogte(afstanden: list[float], z_waarden: list[float | None], afstand: floa
         f"het knippunt op {afstand} m ligt niet op een segment met lengte; er valt dan "
         f"geen hoogte tussen twee vertices in te wegen."
     )
-
-
-def _met_coordinaten(literal: str, coordinaten: str) -> str:
-    """Dezelfde GML-literaal, met een andere coordinatenlijst erin."""
-    return _COORDINATEN.sub(lambda treffer: treffer[1] + coordinaten + treffer[3], literal, count=1)

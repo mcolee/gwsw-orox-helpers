@@ -30,7 +30,7 @@ knip      -> grenzen                          (geometrie plaatsen en doorknippen
 plan      -> grenzen, knip, termen            (de analyseronde; `_Plan`, `_maak_plan`)
 stroom    -> knip, plan, termen               (de gefilterde quadstroom per deel)
 merge     -> termen                           (de delen weer aaneen)
-bereik    -> grenzen                          (de opt-in bereikcontrole; naast de fasen)
+bereik    -> grenzen, termen                  (de opt-in bereikcontrole; naast de fasen)
 orkest    -> grenzen, plan, stroom, merge, bereik, termen  (`clip_orox`, `merge_orox`)
 __init__  -> orkest
 ```

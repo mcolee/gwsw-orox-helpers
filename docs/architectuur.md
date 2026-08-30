@@ -100,7 +100,7 @@ clip.plan       -> clip.grenzen, clip.knip, clip.termen  (+ errors, geometry, na
 clip.stroom     -> clip.knip, clip.plan, clip.termen     (+ geometry, namen)
 clip.merge      -> clip.termen                           (+ errors, geometry, namen,
                                                             schrijven)
-clip.bereik     -> clip.grenzen                          (+ geometry, namen, schrijven)
+clip.bereik     -> clip.grenzen, clip.termen             (+ geometry, namen, schrijven)
 clip.orkest     -> clip.grenzen, clip.plan, clip.stroom, clip.merge, clip.bereik,
                    clip.termen                           (+ errors, schrijven)
 clip.__init__   -> clip.orkest
@@ -266,7 +266,7 @@ die anders uit elkaar loopt, en die staat één keer:
 | Het verslag van zo'n terugval (`DecodeFallback`) | `codering.terugvalverslag` | alleen `bestand` |
 | De GML-lezers | `geometry` | `inlezen` (`parse_gml_met_z`), `clip.knip`, `clip.plan`, `clip.merge`, `clip.bereik` (`parse_gml` / `parse_gml_z`), `dataset` (doorgeefluik) |
 | De tekstkant van diezelfde literaal: de coordinatenlijst als tokens, het terugleggen ervan in het omhulsel, en hoeveel getallen er op een punt gaan (`coordinaattokens`, `vervang_coordinaten`, `tokens_per_punt`) | `geometry` | `clip.knip` (de knip), `clip.stroom` (het stuk wegschrijven), `clip.merge` (de omkering) |
-| De `knip:`-naamruimte en de stuknamen (`<origineel>__knip<k>`) | `clip.termen` | `clip.plan`, `clip.stroom`, `clip.merge`, `clip.orkest` |
+| De `knip:`-naamruimte, de stuknamen (`<origineel>__knip<k>`) en het herkennen van een GML-literaal (`_gml_waarde`) | `clip.termen` | `clip.plan`, `clip.stroom`, `clip.merge`, `clip.bereik`, `clip.orkest` |
 
 Dat laatste onderscheid is opzettelijk: het verslag telt de afwijkende bytes en zoekt de
 regels waarin ze staan, en dat is een tweede gang over het hele bestand. Een lezing wordt

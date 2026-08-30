@@ -1,8 +1,9 @@
 """De bereikcontrole: liggen de grenslaag en de bron in hetzelfde getallenbereik?
 
 Een fase die naast de andere staat in plaats van ertussen: de knip vraagt hem niets en zijn
-uitkomst verandert geen enkele toewijzing. Hij kent `grenzen` (voor `_Vlak`), de GML-lezers
-uit `geometry`, de IRI's uit `namen` en `schrijven.lees_orox` -- dezelfde buren als `plan`.
+uitkomst verandert geen enkele toewijzing. Hij kent `grenzen` (voor `_Vlak`), `termen` (dat
+een GML-literaal herkent, net als `plan` en `merge` dat er laten doen), de GML-lezers uit
+`geometry`, de IRI's uit `namen` en `schrijven.lees_orox`.
 
 `clip_orox` neemt aan dat de grenslaag in EPSG:28992 staat, net als de GML-literalen van de
 bron, en valideert dat niet (zie zijn docstring). Staat de grenslaag in een ander stelsel --
@@ -33,11 +34,10 @@ import math
 from pathlib import Path
 from typing import Final
 
-import pyoxigraph
-
 from gwsw_orox_helpers.clip.grenzen import _Vlak
+from gwsw_orox_helpers.clip.termen import _gml_waarde
 from gwsw_orox_helpers.geometry import GeometryError, parse_gml
-from gwsw_orox_helpers.namen import GML_LITERAL, HAS_VALUE
+from gwsw_orox_helpers.namen import HAS_VALUE
 from gwsw_orox_helpers.schrijven import lees_orox
 
 logger = logging.getLogger(__name__)
@@ -47,10 +47,13 @@ _Bereik = tuple[float, float, float, float]
 
 # Hoeveel GML-literalen er hoogstens bekeken worden om het bereik van de bron te schatten.
 # Een omhullende hoeft niet exact te zijn om een stelselverschil te zien: dat scheelt ordes
-# van grootte en geen procenten. Met deze klem kost de controle een prefix van de parse en
-# niet nog een hele lezing van de bron -- op de export van De Wolden en Hoogeveen (112 MB)
-# is dat het verschil tussen een oogwenk en een minuut.
-_MONSTER: Final = 1000
+# van grootte en geen procenten. De klem houdt de controle bij een *prefix* van de parse in
+# plaats van een tweede volledige lezing -- op de export van De Wolden en Hoogeveen (112 MB,
+# cp850) gepaard gemeten 0,8 s tegen 9,8 s, en de geschatte omhullende is daar
+# x 229158..236186 waar de volledige x 211074..238947 geeft. Dat scheelt tientallen
+# procenten en niets aan het oordeel, want een ander stelsel scheelt ordes. Een bron met
+# minder literalen wordt wel helemaal gelezen -- die is dan ook klein (Juinen: 7 ms).
+_MONSTERGROOTTE: Final = 1000
 
 # Vanaf welke factor tussen de coordinaatgroottes van de twee omhullenden er "ordes uiteen"
 # staat. RD-meters liggen rond 2e5 en graden onder 1e2, dus daar is de factor duizenden.
@@ -75,8 +78,10 @@ def _meld_bereikverschil(
     logger.warning(
         "%s: de grenslaag en de geometrie van %s liggen niet in hetzelfde bereik (%s). "
         "Grenslaag: %s. Bron: %s. De clip neemt voor allebei EPSG:28992 aan en rekent niet "
-        "om; klopt dat niet, dan valt elk object via de terugval op het dichtstbijzijnde "
-        "vlak in hetzelfde deel en is de verdeling onbruikbaar.",
+        "om. Staan ze inderdaad in verschillende stelsels -- WGS84-graden tegen RD-meters is "
+        "de gewone vergissing -- dan valt elk object via de terugval op het dichtstbijzijnde "
+        "vlak in hetzelfde deel en is de verdeling onbruikbaar. Klopt het stelsel wel, dan "
+        "dekt deze grenslaag deze bron eenvoudigweg niet.",
         grenzen,
         bron,
         " en ".join(redenen),
@@ -91,41 +96,40 @@ def _bereik_van_vlakken(vlakken: tuple[_Vlak, ...]) -> _Bereik:
     `_lees_grenzen` levert er minstens een en geen ervan is leeg, dus er valt hier altijd
     wat te omvatten.
     """
-    randen = [vlak.meetkunde.bounds for vlak in vlakken]
-    return (
-        min(rand[0] for rand in randen),
-        min(rand[1] for rand in randen),
-        max(rand[2] for rand in randen),
-        max(rand[3] for rand in randen),
-    )
+    gevonden: _Bereik | None = None
+    for vlak in vlakken:
+        gevonden = _omvat(gevonden, vlak.meetkunde.bounds)
+    assert gevonden is not None  # `_lees_grenzen` levert minstens een vlak
+    return gevonden
 
 
 def _bereik_van_bron(
-    bron: Path, fallback_encoding: str | None, monster: int = _MONSTER
+    bron: Path, fallback_encoding: str | None, monstergrootte: int = _MONSTERGROOTTE
 ) -> _Bereik | None:
-    """De omhullende van de eerste `monster` GML-literalen; `None` als die er niet zijn.
+    """De omhullende van de eerste `monstergrootte` GML-literalen; `None` als die er niet zijn.
 
     Een onleesbare literaal telt wel mee voor de klem maar niet voor de omhullende: hij
     zegt niets over het bereik, en de leeslaag meldt hem al in `geometry_errors`.
+
+    De quadstroom wordt bij de klem losgelaten in plaats van uitgeput; wat pyoxigraph
+    eronder open heeft, gaat met de laatste verwijzing ernaar dicht.
     """
     gevonden: _Bereik | None = None
     gezien = 0
     for quad in lees_orox(bron, fallback_encoding).quads:
-        object_ = quad.object
-        if (
-            quad.predicate.value != HAS_VALUE
-            or not isinstance(object_, pyoxigraph.Literal)
-            or object_.datatype.value != GML_LITERAL
-        ):
+        if quad.predicate.value != HAS_VALUE:
+            continue
+        gml = _gml_waarde(quad.object)
+        if gml is None:
             continue
         gezien += 1
         try:
-            meetkunde = parse_gml(object_.value)
+            meetkunde = parse_gml(gml)
         except GeometryError:
             meetkunde = None
         if meetkunde is not None and not meetkunde.is_empty:
             gevonden = _omvat(gevonden, meetkunde.bounds)
-        if gezien >= monster:
+        if gezien >= monstergrootte:
             break
     return gevonden
 

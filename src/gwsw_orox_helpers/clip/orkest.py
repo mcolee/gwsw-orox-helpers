@@ -59,7 +59,9 @@ def clip_orox(
     De bron wordt N+1 keer gelezen: een keer om te bepalen wat waarheen gaat, en daarna
     een keer per vlak om te schrijven. Dat is bewust: de toewijzing is pas rond als de
     hele graaf gezien is, en de delen daarna uit een gefilterde stroom schrijven kost
-    geen geheugen voor de triples zelf.
+    geen geheugen voor de triples zelf. Met `bereikcontrole=True` komt daar een lezing bij
+    die na een klein aantal geometrieen weer wordt losgelaten; zonder de vlag verandert er
+    aan het aantal lezingen niets.
     """
     vlakken = _lees_grenzen(grenzen, sleutel)
     if bereikcontrole:

@@ -1244,7 +1244,9 @@ def _graden_grens(tmp_path: Path) -> Path:
     )
 
 
-def test_grenslaag_in_graden_verdeelt_stil_en_onbruikbaar(tmp_path: Path) -> None:
+def test_grenslaag_in_graden_verdeelt_stil_en_onbruikbaar(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
     """Gedragsbehoud: het verkeerde stelsel levert een onbruikbare verdeling zonder melding.
 
     Geen enkel RD-punt valt in een vlak dat in graden staat, dus `_vlak_van` valt voor
@@ -1253,13 +1255,20 @@ def test_grenslaag_in_graden_verdeelt_stil_en_onbruikbaar(tmp_path: Path) -> Non
     ontologiekop. Dat is de bestaande belofte: de terugval houdt elk object binnenboord,
     zodat de hereniging blijft kloppen, en de clip klaagt er niet over.
 
+    "Zonder enige melding" staat hier als eigen eis, en over *elke* logger en niet alleen
+    die van de bereikcontrole: dat de clip er in de standaardvorm over zwijgt is het gedrag
+    dat deze test bewaart, en dat is pas bewezen als er niets klinkt.
+
     Deze test legt dat gedrag vast (issue #28) zodat de opt-in bereikcontrole hieronder
     er een waarschuwing naast kan zetten zonder het te veranderen.
     """
     grens = _graden_grens(tmp_path)
-    delen = clip_orox(MINI, grens, tmp_path / "delen", sleutel="gemeentenaam")
+    with caplog.at_level(logging.DEBUG):
+        delen = clip_orox(MINI, grens, tmp_path / "delen", sleutel="gemeentenaam")
     doel = tmp_path / "terug.ttl"
     merge_orox(delen, doel)
+
+    assert [regel.getMessage() for regel in caplog.records] == []
 
     west, oost = (_graaf(pad) for pad in delen)
     for naam in ("Put_1", "Put_2", "Leiding_1", "Ontluchter_1"):
@@ -1408,7 +1417,12 @@ def test_bereikcontrole_kijkt_niet_verder_dan_zijn_monster(tmp_path: Path) -> No
         '</gml:Point>"^^geo:gmlLiteral .\n',
     )
 
-    assert _bereik_van_bron(bron, None, monster=1) == (233000.0, 581000.0, 233000.0, 581000.0)
+    assert _bereik_van_bron(bron, None, monstergrootte=1) == (
+        233000.0,
+        581000.0,
+        233000.0,
+        581000.0,
+    )
     assert _bereik_van_bron(bron, None) == (233000.0, 581000.0, 299000.0, 599000.0)
 
 

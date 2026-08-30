@@ -10,8 +10,10 @@
   geen fout te zien. Dat gedrag staat nu als eigen test in `tests/test_clip.py`; het blijft
   de belofte, want de terugval is er zodat er nooit een object buiten de boot valt.
   Daarnaast is er `clip_orox(..., bereikcontrole=True)`: die legt via de nieuwe fase
-  `clip.bereik` de omhullende van de grenslaag naast die van de bron (geschat uit hoogstens
-  1000 GML-literalen, dus een prefix van de parse en geen tweede volledige lezing) en
+  `clip.bereik` de omhullende van de grenslaag naast die van de bron — geschat uit hoogstens
+  1000 GML-literalen, zodat het bij een grote export een prefix van de parse blijft en geen
+  tweede volledige lezing (gepaard gemeten op De Wolden en Hoogeveen, 112 MB: 0,8 s geklemd
+  tegen 9,8 s volledig; een kleinere bron wordt wel helemaal gelezen, Juinen in 7 ms) — en
   schrijft een `logging.warning` als de twee elkaar niet overlappen of als hun coördinaten
   ordes van grootte schelen. **Waarschuwing en geen weigering**: de terugval is een belofte
   en geen vergissing, dus een bereik dat niet past is een sterk vermoeden, en invoer

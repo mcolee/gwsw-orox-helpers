@@ -14,15 +14,28 @@ run. Alleen de inclusieve grenzen worden gelezen -- de GWSW-facetten zijn dat al
 Wat je met die uitkomsten *doet* -- ze erven naar subklassen, ze op korte naam terugbrengen
 -- staat in `klassen`. Deze module kijkt daarom omlaag (naar `namen` en `graaf`) en nooit
 omhoog naar de lader; dat is wat haar los houdt van `dataset`.
+
+**Elke lezer hier neemt allebei de graafvormen**, `rdflib.Graph` en `graaf.GraafIndex`, en
+dat is geen gemak maar de kern van issue #19: `load_dataset` leest de ontologie in een
+`GraafIndex` (zijn `restrictiebron`) en gaf die aan `verwachte_property` en
+`functie_van_klasse`, terwijl `facetbereik`, `datatype_van_kenmerk` en `kenmerkbereik` via
+`rdflib.collection.Collection` een echte `Graph` eisten. Die drie draaiden daardoor alleen
+in tests -- de belofte van issue #35 was op de echte leesweg niet aan te roepen en liep er
+op een `AttributeError` stuk. `lijstitems` wandelt de `rdf:first`/`rdf:rest`-ketting nu
+zelf, met niets anders dan de `value`/`objects` die allebei de vormen aanbieden. Twee
+concrete graaftypen en geen protocol: dat de vier lezers precies dezelfde handvol
+bewerkingen gebruiken is wat een `GraafLezer`-protocol (issue #21) hier later overheen kan
+leggen, zonder aan de handtekeningen iets anders te veranderen dan de naam van het type.
 """
 
 from __future__ import annotations
 
+from collections.abc import Iterator
 from dataclasses import dataclass
 from decimal import Decimal
 
-from rdflib import OWL, RDFS, XSD, Graph, URIRef
-from rdflib.collection import Collection
+from rdflib import OWL, RDF, RDFS, XSD, Graph, URIRef
+from rdflib.term import Node as RdfNode
 
 from gwsw_orox_helpers.graaf import GraafIndex
 from gwsw_orox_helpers.namen import GWSW
@@ -42,7 +55,43 @@ class Facetbereik:
     maximum: Decimal | None
 
 
-def facetbereik(graph: Graph, datatype: URIRef) -> Facetbereik | None:
+def lijstitems(graph: Graph | GraafIndex, kop: RdfNode) -> Iterator[RdfNode]:
+    """De leden van een RDF-lijst (`rdf:first`/`rdf:rest`), vanaf `kop`.
+
+    De tegenhanger van `rdflib.collection.Collection` die het op de leesweg ook doet:
+    `Collection` itereert via `Graph.items` en werkt dus alleen op een rdflib-`Graph`,
+    terwijl `load_dataset` een `GraafIndex` als restrictiebron levert (issue #19). Deze
+    wandeling gebruikt niets anders dan `value`, dat allebei de graafvormen aanbieden.
+
+    Het gedrag is dat van `Graph.items` -- de iterator achter `Collection` -- opzettelijk
+    tot in de randgevallen; `tests/test_ontologie.py` houdt de twee lid voor lid en
+    foutmelding voor foutmelding naast elkaar:
+
+    - een **afgebroken lijst** (een schakel zonder `rdf:rest`) eindigt stil met wat er
+      wél stond, net als een lijst die netjes op `rdf:nil` uitkomt. De ontologie is de
+      bron van waarheid en niet de invoer van een gebruiker; een half geschreven lijst
+      is een fout in het ontologiebestand, niet in de dataset die getoetst wordt, en de
+      lezer die erop leunt merkt hem aan het ontbrekende facet;
+    - een schakel **zonder `rdf:first`** slaat een lid over in plaats van `None` op te
+      leveren;
+    - een **cyclus** in `rdf:rest` is de enige harde fout: daar zou een stille afbreking
+      een willekeurig afgekapt bereik opleveren, en dat is precies de stille verkeerde
+      uitkomst die het manifest verbiedt. `Collection` gooide er een `ValueError` met
+      deze tekst; die blijft, zodat wie hem ving hem blijft vangen.
+    """
+    gezien: set[RdfNode | None] = {kop}
+    schakel: RdfNode | None = kop
+    while schakel:
+        lid = graph.value(schakel, RDF.first)
+        if lid is not None:
+            yield lid
+        schakel = graph.value(schakel, RDF.rest)
+        if schakel in gezien:
+            raise ValueError("List contains a recursive rdf:rest reference")
+        gezien.add(schakel)
+
+
+def facetbereik(graph: Graph | GraafIndex, datatype: URIRef) -> Facetbereik | None:
     """Lost het bereik van een `Dt_X`-datatype op, of `None` als het er geen draagt.
 
     `None` betekent: geen `owl:equivalentClass` met een `owl:withRestrictions`-lijst.
@@ -57,7 +106,7 @@ def facetbereik(graph: Graph, datatype: URIRef) -> Facetbereik | None:
 
     minimum: Decimal | None = None
     maximum: Decimal | None = None
-    for restrictie in Collection(graph, restricties):
+    for restrictie in lijstitems(graph, restricties):
         ondergrens = graph.value(restrictie, XSD.minInclusive)
         if ondergrens is not None:
             minimum = Decimal(str(ondergrens))
@@ -70,7 +119,7 @@ def facetbereik(graph: Graph, datatype: URIRef) -> Facetbereik | None:
     return Facetbereik(datatype=naam, minimum=minimum, maximum=maximum)
 
 
-def datatype_van_kenmerk(graph: Graph, kenmerk: URIRef) -> URIRef | None:
+def datatype_van_kenmerk(graph: Graph | GraafIndex, kenmerk: URIRef) -> URIRef | None:
     """Vindt het `Dt_X`-datatype van een kenmerk via zijn `hasValue`-restrictie.
 
     De ontologie hangt onder een kenmerk een `owl:Restriction` op `gwsw:hasValue` met
@@ -87,7 +136,7 @@ def datatype_van_kenmerk(graph: Graph, kenmerk: URIRef) -> URIRef | None:
     return None
 
 
-def kenmerkbereik(graph: Graph, kenmerk: URIRef) -> Facetbereik | None:
+def kenmerkbereik(graph: Graph | GraafIndex, kenmerk: URIRef) -> Facetbereik | None:
     """De hele keten: van een kenmerk naar het bereik van zijn datatype."""
     datatype = datatype_van_kenmerk(graph, kenmerk)
     if datatype is None:

@@ -19,7 +19,8 @@ inclusief volgorde:
   (`parts_of`/`aspects_of`/`part_holders_of`/`aspect_holders_of` -- met als externe
   aanroepers ook `checks/netwerk.py` en `checks/randvoorzieningen.py` -- ,
   `_read_aspects`, `_types`, `_connections`), `checks/administratief.py`
-  (hasConnection), `nulbevinding.py` (`_ouders`) en `ontologie.verwachte_property` (de
+  (hasConnection), `nulbevinding.py` (`_ouders`) en de ontologielezers
+  `ontologie.verwachte_property`, `functie_van_klasse` en `datatype_van_kenmerk` (de
   restrictiebron kan deze index zijn).
 - ``subjects(predicate, object)`` -- beide gebonden. `dataset.py`
   (`GwswDataset.subjects_of_class`), `inlezen.py` (de vier hasPart/hasAspect-lezers --
@@ -31,7 +32,11 @@ inclusief volgorde:
 - ``value(subject, predicate)`` -- het eerste object of None. `dataset.py`
   (`GwswDataset.onderdeel_label`), `inlezen.py` (`_read_aspects`, `_read_inwinning`,
   `_aspect_van_klasse`, `_label`, `_geometry`, `_is_multipart`),
-  `checks/attributen.py`, `ontologie.verwachte_property`.
+  `checks/attributen.py` en heel `ontologie` -- `verwachte_property`,
+  `functie_van_klasse`, `facetbereik` en `lijstitems`, dat de `rdf:first`/`rdf:rest`-
+  ketting van een `owl:withRestrictions`-lijst er stap voor stap mee afloopt (issue #19).
+  Dat een RDF-lijst met alleen `value` te wandelen is, is de reden dat deze index geen
+  collectie-bewerking hoeft aan te bieden.
 - ``subject_objects(predicate)`` -- alleen het predicaat gebonden;
   `klassen._subclass_closure`. rdflib loopt hier de pos-index af (eerst per object,
   dan per subject), niet de triple-volgorde; de index spiegelt die groepering.

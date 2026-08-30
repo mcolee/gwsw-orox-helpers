@@ -89,7 +89,7 @@ Elke module beantwoordt één vraag; in deze volgorde heeft niets ooit iets van 
 | `graaf` | Hoe vraag je een graaf iets? (`GraafIndex`: twee dicts, rdflib-termen) |
 | `codering` | Hoe worden de bytes van een TTL tekst? (UTF-8 met terugval) |
 | `rdfmotor` | Hoe roepen we pyoxigraph aan? (`ontleed_turtle`, `serialiseer_turtle`, plus de poort op de ondersteunde versiereeks) |
-| `ontologie` | Wat zegt een `owl:Restriction` over een klasse of kenmerk? |
+| `ontologie` | Wat zegt een `owl:Restriction` over een klasse of kenmerk? (op allebei de graafvormen; zie hieronder) |
 | `klassen` | Wat volgt daaruit? (subklasse-afsluiting, `kenmerk_property`, functies) |
 | `domein` | Wat *is* een knoop of streng? (waardeobjecten, zonder graaf) |
 | `inlezen` | Hoe vul je die objecten uit een graaf? (parsen, hasPart/hasAspect, lezers) |
@@ -97,6 +97,31 @@ Elke module beantwoordt één vraag; in deze volgorde heeft niets ooit iets van 
 | `cache` | Hoe sla je die lezing over? (pickle, sleutel op inhoud én broncode) |
 | `schrijven` | Hoe komt een quadstroom er als OroX-Turtle weer uit? |
 | `clip` | Hoe verdeel je die stroom over vlakken, en hoe draai je dat terug? (package) |
+
+## De ontologielezers nemen allebei de graafvormen
+
+`ontologie` is de enige module die met twee soorten grafen te maken heeft, en dat is geen
+losse eindje maar de vorm van de leesweg. `load_dataset` parseert de ontologiebestanden in
+een `GraafIndex` en geeft die als `restrictiebron` door aan `klassen`, dat er
+`verwachte_property` en `functie_van_klasse` mee aanroept. Een rdflib-`Graph` komt er in de
+package nergens meer uit een parse — die vorm bestaat alleen nog in tests en bij een
+afnemer die zelf iets geparst heeft.
+
+Tot issue #19 hing daar een scheur in: `facetbereik`, `datatype_van_kenmerk` en
+`kenmerkbereik` — de "ontbrekende schakel" die de gedeclareerde waardebereiken uit de
+ontologie haalt — liepen via `rdflib.collection.Collection` over de
+`owl:withRestrictions`-lijst, en `Collection` itereert via `Graph.items` en eist dus een
+echte `Graph`. Die drie functies draaiden daardoor **alleen in tests**; op de leesweg
+liepen ze op een `AttributeError` stuk. `ontologie.lijstitems` wandelt de
+`rdf:first`/`rdf:rest`-ketting nu zelf, met niets anders dan de `value` die allebei de
+vormen aanbieden, en alle vijf de lezers nemen `Graph | GraafIndex`.
+
+Dat is meteen de reden dat `GraafIndex` geen collectie-bewerking aanbiedt: een RDF-lijst
+is met `value` te wandelen, dus het leescontract in de docstring van `graaf` blijft de
+handvol bewerkingen die het was. En het is de naad waar issue #21 een
+`GraafLezer`-protocol overheen kan leggen: de vijf lezers gebruiken precies dezelfde
+bewerkingen, dus dat protocol vervangt straks alleen de naam van het type in de
+handtekening.
 
 ## Twee paden door pyoxigraph, en dat blijft zo
 

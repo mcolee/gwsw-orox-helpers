@@ -1,6 +1,46 @@
 # Changelog
 
 ## [Unreleased]
+- De facetlezing is bereikbaar geworden vanaf de echte leesweg (issue #19, architectuur;
+  additief, geen bevroren contract geraakt). `ontologie.facetbereik`,
+  `datatype_van_kenmerk` en `kenmerkbereik` liepen over de `owl:withRestrictions`-lijst
+  met `rdflib.collection.Collection`, en dat itereert via `Graph.items` — dus eisten ze
+  een echte `rdflib.Graph`, terwijl `load_dataset` de ontologie in een `GraafIndex` leest
+  en die als `restrictiebron` doorgeeft. De "ontbrekende schakel" uit issue #35 draaide
+  daardoor **alleen in tests**: op de leesweg liep zij op een
+  `AttributeError: 'GraafIndex' object has no attribute 'items'` stuk, en nlriochecker kon
+  haar niet aanroepen. **Signaturen vóór → na**: `facetbereik(graph: Graph, datatype)`,
+  `datatype_van_kenmerk(graph: Graph, kenmerk)` en `kenmerkbereik(graph: Graph, kenmerk)`
+  nemen nu alle drie `graph: Graph | GraafIndex` — dezelfde verbreding die
+  `verwachte_property` en `functie_van_klasse` al hadden. Verbreden, niet versmallen: elke
+  bestaande aanroep met een `Graph` doet wat hij deed. **Nieuw en publiek in `ontologie`**:
+  `lijstitems(graph: Graph | GraafIndex, kop: RdfNode) -> Iterator[RdfNode]`, dat de
+  `rdf:first`/`rdf:rest`-ketting zelf afloopt met niets anders dan de `value` die allebei
+  de graafvormen aanbieden. **Dekking van de leesweg: van 0 naar 39 datatypes en 709
+  kenmerkklassen**, waarvan er 38 respectievelijk 40 daadwerkelijk een bereik dragen
+  (GWSW 1.6). Twee nieuwe tests lezen die hele populatie langs allebei de wegen en
+  vergelijken de uitkomsten woordelijk; de `GraafIndex` erin komt uit `inlezen._parse` op
+  de gebundelde ontologie, dus dat is de leesweg zelf en geen nabootsing. De
+  handgeschreven fixture draait sinds deze wijziging op allebei de graafvormen
+  (geparametriseerde `graaf`-fixture), zodat een verschil tussen de twee meteen opvalt.
+  **De randgevallen van een RDF-lijst zijn opzettelijk die van `Graph.items`**, tegen
+  `Collection` geijkt in de tests: een afgebroken lijst (schakel zonder `rdf:rest`)
+  eindigt stil met wat er wél stond, een schakel zonder `rdf:first` slaat een lid over,
+  `rdf:nil` en een onbekende kop leveren niets op, een geneste lijst wordt niet
+  afgevlakt — en een **cyclus** in `rdf:rest` is de enige harde fout: geen oneindige lus
+  maar dezelfde `ValueError("List contains a recursive rdf:rest reference")` die
+  `Collection` gaf, woordelijk gelijk zodat wie hem ving hem blijft vangen. Een stille
+  afbreking zou daar een willekeurig afgekapt bereik opleveren, en dat is precies de
+  stille verkeerde uitkomst die niet mag. Ter indicatie, één run op de gebundelde
+  ontologie (63.614 triples): de facetlezing over alle 39 datatypes kost 3,0 ms via
+  `Graph` en 0,9 ms via `GraafIndex`, de kenmerklezing over alle 709 kenmerkklassen
+  25,1 ms tegen 10,3 ms — de weg die er eerst niet was, is ook de snelste. **De
+  cachesleutel verschuift**: `ontologie` staat in `cache.LADERMODULES` (en `graaf`, waarvan
+  hier de docstring bijgetrokken is) en de sleutel hasht hun broncode, dus bestaande caches
+  worden één keer opnieuw opgebouwd. Dat is de bedoelde werking, geen gedragswijziging.
+  `docs/architectuur.md` heeft er een eigen sectie over gekregen; de verbreding is zo
+  gelaten dat het `GraafLezer`-protocol uit issue #21 er later overheen past zonder aan de
+  handtekeningen iets anders te veranderen dan de naam van het type.
 - Eén naad naar pyoxigraph: de nieuwe interne module `gwsw_orox_helpers.rdfmotor`
   (issue #18, upgradebaarheid; geen gedragswijziging). **Alle vier de parse/serialize-
   callsites gaan er nu doorheen** — `inlezen._parse` (bytes), `schrijven.lees_orox` (een

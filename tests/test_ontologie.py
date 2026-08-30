@@ -12,16 +12,23 @@ from __future__ import annotations
 from decimal import Decimal
 
 import pytest
-from rdflib import Graph, URIRef
+from rdflib import RDF, RDFS, Graph, URIRef
+from rdflib.collection import Collection
 
 from gwsw_orox_helpers.bronnen import gebundelde_ontologie
 from gwsw_orox_helpers.dataset import GWSW
+from gwsw_orox_helpers.graaf import GraafIndex
+from gwsw_orox_helpers.inlezen import _parse
+from gwsw_orox_helpers.klassen import _afsluiting, _subclass_closure
 from gwsw_orox_helpers.ontologie import (
+    Facetbereik,
     datatype_van_kenmerk,
     facetbereik,
     kenmerkbereik,
+    lijstitems,
     verwachte_property,
 )
+from gwsw_orox_helpers.rdfmotor import ontleed_turtle
 
 FIXTURE = """
 @prefix gwsw: <http://data.gwsw.nl/1.6/totaal/> .
@@ -64,6 +71,12 @@ gwsw:Dt_AlleenOndergrens a rdfs:Datatype ;
 
 gwsw:Dt_ZonderFacet a rdfs:Datatype .
 
+gwsw:Dt_ZonderRestricties a rdfs:Datatype ;
+    owl:equivalentClass [
+        a rdfs:Datatype ;
+        owl:onDatatype xsd:decimal
+    ] .
+
 gwsw:WIBONThema a owl:Class ;
     rdfs:subClassOf gwsw:Kenmerk ,
         [ a owl:Restriction ;
@@ -75,12 +88,21 @@ gwsw:Straatnaam a owl:Class ;
 """
 
 
-@pytest.fixture
-def graaf() -> Graph:
-    """De handgeschreven fixture met precies de facetstructuur die de lezer volgt."""
-    graph = Graph()
-    graph.parse(data=FIXTURE, format="turtle")
-    return graph
+@pytest.fixture(params=["graph", "index"])
+def graaf(request: pytest.FixtureRequest) -> Graph | GraafIndex:
+    """De handgeschreven fixture met precies de facetstructuur die de lezer volgt.
+
+    In allebei de graafvormen die de lezer kent: de rdflib-`Graph` waarop de facetlezing
+    tot issue #19 alleen liep, en de `GraafIndex` die `load_dataset` als restrictiebron
+    levert. Elke test hieronder draait dus op allebei en het verschil zou meteen opvallen.
+    """
+    if request.param == "graph":
+        graph = Graph()
+        graph.parse(data=FIXTURE, format="turtle")
+        return graph
+    index = GraafIndex()
+    index.vul_uit(ontleed_turtle(FIXTURE.encode("utf-8")))
+    return index
 
 
 @pytest.fixture(scope="module")
@@ -95,7 +117,7 @@ def _dt(naam: str) -> URIRef:
     return URIRef(GWSW + naam)
 
 
-def test_facetbereik_leest_een_decimaal_bereik(graaf: Graph) -> None:
+def test_facetbereik_leest_een_decimaal_bereik(graaf: Graph | GraafIndex) -> None:
     bereik = facetbereik(graaf, _dt("Dt_LengteLeiding"))
     assert bereik is not None
     assert bereik.datatype == "decimal"
@@ -103,7 +125,7 @@ def test_facetbereik_leest_een_decimaal_bereik(graaf: Graph) -> None:
     assert bereik.maximum == Decimal("75")
 
 
-def test_facetbereik_leest_een_geheeltallig_bereik(graaf: Graph) -> None:
+def test_facetbereik_leest_een_geheeltallig_bereik(graaf: Graph | GraafIndex) -> None:
     bereik = facetbereik(graaf, _dt("Dt_HoogtePut"))
     assert bereik is not None
     assert bereik.datatype == "integer"
@@ -111,7 +133,7 @@ def test_facetbereik_leest_een_geheeltallig_bereik(graaf: Graph) -> None:
     assert bereik.maximum == Decimal("4000")
 
 
-def test_facetbereik_met_alleen_ondergrens(graaf: Graph) -> None:
+def test_facetbereik_met_alleen_ondergrens(graaf: Graph | GraafIndex) -> None:
     """Een eenzijdig facet levert een bereik met de andere kant op `None`."""
     bereik = facetbereik(graaf, _dt("Dt_AlleenOndergrens"))
     assert bereik is not None
@@ -119,38 +141,43 @@ def test_facetbereik_met_alleen_ondergrens(graaf: Graph) -> None:
     assert bereik.maximum is None
 
 
-def test_facetbereik_zonder_facetten_is_none(graaf: Graph) -> None:
+def test_facetbereik_zonder_facetten_is_none(graaf: Graph | GraafIndex) -> None:
     assert facetbereik(graaf, _dt("Dt_ZonderFacet")) is None
 
 
-def test_facetbereik_onbekend_datatype_is_none(graaf: Graph) -> None:
+def test_facetbereik_met_equivalent_zonder_restricties_is_none(graaf: Graph | GraafIndex) -> None:
+    """Een `owl:equivalentClass` zonder `owl:withRestrictions` legt geen bereik vast."""
+    assert facetbereik(graaf, _dt("Dt_ZonderRestricties")) is None
+
+
+def test_facetbereik_onbekend_datatype_is_none(graaf: Graph | GraafIndex) -> None:
     assert facetbereik(graaf, _dt("Dt_BestaatNiet")) is None
 
 
-def test_datatype_van_kenmerk_volgt_hasvalue(graaf: Graph) -> None:
+def test_datatype_van_kenmerk_volgt_hasvalue(graaf: Graph | GraafIndex) -> None:
     assert datatype_van_kenmerk(graaf, _dt("LengteLeiding")) == _dt("Dt_LengteLeiding")
 
 
-def test_datatype_van_kenmerk_zonder_restrictie_is_none(graaf: Graph) -> None:
+def test_datatype_van_kenmerk_zonder_restrictie_is_none(graaf: Graph | GraafIndex) -> None:
     assert datatype_van_kenmerk(graaf, _dt("Dt_ZonderFacet")) is None
 
 
-def test_kenmerkbereik_loopt_de_hele_keten(graaf: Graph) -> None:
+def test_kenmerkbereik_loopt_de_hele_keten(graaf: Graph | GraafIndex) -> None:
     bereik = kenmerkbereik(graaf, _dt("LengteLeiding"))
     assert bereik is not None
     assert (bereik.minimum, bereik.maximum) == (Decimal("1"), Decimal("75"))
 
 
-def test_verwachte_property_leest_hasreference(graaf: Graph) -> None:
+def test_verwachte_property_leest_hasreference(graaf: Graph | GraafIndex) -> None:
     """Een kenmerk dat via een restrictie aan hasReference bindt, eist hasReference."""
     assert verwachte_property(graaf, _dt("WIBONThema")) == "hasReference"
 
 
-def test_verwachte_property_leest_hasvalue(graaf: Graph) -> None:
+def test_verwachte_property_leest_hasvalue(graaf: Graph | GraafIndex) -> None:
     assert verwachte_property(graaf, _dt("LengteLeiding")) == "hasValue"
 
 
-def test_verwachte_property_zonder_restrictie_is_none(graaf: Graph) -> None:
+def test_verwachte_property_zonder_restrictie_is_none(graaf: Graph | GraafIndex) -> None:
     """Straatnaam draagt geen property-restrictie; de check heeft er geen mening over."""
     assert verwachte_property(graaf, _dt("Straatnaam")) is None
 
@@ -200,3 +227,175 @@ def test_functie_van_klasse_uit_de_echte_ontologie(
     from gwsw_orox_helpers.ontologie import functie_van_klasse
 
     assert functie_van_klasse(echte_graaf, URIRef(GWSW + klasse)) == verwacht
+
+
+# --- Dezelfde lezing op de GraafIndex van de echte leesweg (issue #19) -----------------
+
+
+@pytest.fixture(scope="module")
+def echte_index() -> GraafIndex:
+    """De totaal-ontologie als `GraafIndex`, langs precies de weg van `load_dataset`.
+
+    `inlezen._parse` is de functie die de lader zelf voor elk ontologiebestand aanroept;
+    wat hij oplevert is de `restrictiebron` waarop `load_dataset` de klassenafleiding
+    doet. Deze fixture is dus geen nabootsing van de leesweg maar die weg zelf -- en
+    daarmee het bewijs dat issue #19 vraagt.
+    """
+    graaf, _ = _parse(gebundelde_ontologie(), None)
+    return graaf
+
+
+# De aantallen van GWSW 1.6 (zie de Harde regels in `CLAUDE.md`). Ze zijn hier geen
+# doel op zich maar de dekkingsmaat van issue #19: vóór de eigen collectiewandeling
+# liep de facetlezing op een `GraafIndex` op een `AttributeError` stuk en was de
+# dekking van de leesweg dus nul.
+AANTAL_DATATYPES = 39
+AANTAL_FACETBEREIKEN = 38
+AANTAL_KENMERKKLASSEN = 709
+AANTAL_KENMERKBEREIKEN = 40
+
+
+def test_de_facetlezing_van_de_hele_ontologie_is_op_beide_graafvormen_gelijk(
+    echte_graaf: Graph, echte_index: GraafIndex
+) -> None:
+    """Elk datatype dat de ontologie kent, gelezen langs allebei de wegen."""
+    datatypes = sorted(
+        term for term in echte_graaf.subjects(RDF.type, RDFS.Datatype) if isinstance(term, URIRef)
+    )
+    assert len(datatypes) == AANTAL_DATATYPES
+    via_graph = {datatype: facetbereik(echte_graaf, datatype) for datatype in datatypes}
+    via_index = {datatype: facetbereik(echte_index, datatype) for datatype in datatypes}
+    assert via_graph == via_index
+    gevonden = [bereik for bereik in via_index.values() if bereik is not None]
+    assert len(gevonden) == AANTAL_FACETBEREIKEN
+
+
+def test_de_kenmerklezing_van_de_hele_ontologie_is_op_beide_graafvormen_gelijk(
+    echte_graaf: Graph, echte_index: GraafIndex
+) -> None:
+    """Elk kenmerk uit de `Kenmerk`-afsluiting, met datatype en bereik, langs beide wegen."""
+    kenmerken = sorted(
+        URIRef(uri) for uri in _afsluiting(_subclass_closure(echte_index), "Kenmerk")
+    )
+    assert len(kenmerken) == AANTAL_KENMERKKLASSEN
+    assert {kenmerk: datatype_van_kenmerk(echte_graaf, kenmerk) for kenmerk in kenmerken} == {
+        kenmerk: datatype_van_kenmerk(echte_index, kenmerk) for kenmerk in kenmerken
+    }
+    via_graph = {kenmerk: kenmerkbereik(echte_graaf, kenmerk) for kenmerk in kenmerken}
+    via_index = {kenmerk: kenmerkbereik(echte_index, kenmerk) for kenmerk in kenmerken}
+    assert via_graph == via_index
+    gevonden = [bereik for bereik in via_index.values() if bereik is not None]
+    assert len(gevonden) == AANTAL_KENMERKBEREIKEN
+
+
+# --- De collectiewandeling zelf, tegen `rdflib.collection.Collection` gehouden --------
+
+LIJSTEN = """
+@prefix rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
+@prefix ex: <http://example.org/> .
+
+# Een nette lijst van twee leden.
+ex:goed rdf:first ex:a ; rdf:rest ex:goed_staart .
+ex:goed_staart rdf:first ex:b ; rdf:rest rdf:nil .
+
+# Een lijst waarvan de staart geen rdf:rest draagt.
+ex:afgebroken rdf:first ex:a ; rdf:rest ex:losse_staart .
+ex:losse_staart rdf:first ex:b .
+
+# Een schakel zonder rdf:first: een gat in de lijst, geen einde.
+ex:met_gat rdf:rest ex:na_het_gat .
+ex:na_het_gat rdf:first ex:c ; rdf:rest rdf:nil .
+
+# Een lijst met een lijst als lid; die wordt niet afgevlakt.
+ex:genest rdf:first ex:binnenste ; rdf:rest rdf:nil .
+ex:binnenste rdf:first ex:x ; rdf:rest rdf:nil .
+
+# Twee cyclussen: een van twee schakels en een die naar zichzelf wijst.
+ex:cyclus rdf:first ex:a ; rdf:rest ex:cyclus_terug .
+ex:cyclus_terug rdf:first ex:b ; rdf:rest ex:cyclus .
+ex:zelflus rdf:first ex:a ; rdf:rest ex:zelflus .
+"""
+
+EX = "http://example.org/"
+
+
+@pytest.fixture(params=["graph", "index"])
+def lijsten(request: pytest.FixtureRequest) -> Graph | GraafIndex:
+    """`LIJSTEN` als rdflib-`Graph` en als `GraafIndex`; elke test draait op allebei."""
+    if request.param == "graph":
+        graph = Graph()
+        graph.parse(data=LIJSTEN, format="turtle")
+        return graph
+    index = GraafIndex()
+    index.vul_uit(ontleed_turtle(LIJSTEN.encode("utf-8")))
+    return index
+
+
+@pytest.mark.parametrize(
+    ("kop", "verwacht"),
+    [
+        (URIRef(EX + "goed"), [EX + "a", EX + "b"]),
+        # Een schakel zonder rdf:rest sluit de lijst af met wat er wél stond.
+        (URIRef(EX + "afgebroken"), [EX + "a", EX + "b"]),
+        # Een schakel zonder rdf:first slaat een lid over en loopt door.
+        (URIRef(EX + "met_gat"), [EX + "c"]),
+        # Een geneste lijst levert de kop van de binnenlijst op, niet haar leden.
+        (URIRef(EX + "genest"), [EX + "binnenste"]),
+        # rdf:nil is de lege lijst.
+        (RDF.nil, []),
+        # Een kop die nergens in de graaf staat, levert niets op.
+        (URIRef(EX + "bestaat_niet"), []),
+    ],
+)
+def test_lijstitems_wandelt_de_rdf_lijst(
+    lijsten: Graph | GraafIndex, kop: URIRef, verwacht: list[str]
+) -> None:
+    """De randgevallen van een RDF-lijst, gelijk op allebei de graafvormen."""
+    assert [str(lid) for lid in lijstitems(lijsten, kop)] == verwacht
+
+
+@pytest.mark.parametrize("kop", ["goed", "afgebroken", "met_gat", "genest"])
+def test_lijstitems_geeft_hetzelfde_als_rdflibs_collection(kop: str) -> None:
+    """De ijking: dezelfde leden als `rdflib.collection.Collection`, die dit eerst deed."""
+    graph = Graph()
+    graph.parse(data=LIJSTEN, format="turtle")
+    uri = URIRef(EX + kop)
+    assert list(lijstitems(graph, uri)) == list(Collection(graph, uri))
+
+
+@pytest.mark.parametrize("kop", ["cyclus", "zelflus"])
+def test_lijstitems_weigert_een_cyclische_lijst(lijsten: Graph | GraafIndex, kop: str) -> None:
+    """Geen oneindige lus maar dezelfde `ValueError` die `Collection` gaf."""
+    with pytest.raises(ValueError, match="recursive rdf:rest reference"):
+        list(lijstitems(lijsten, URIRef(EX + kop)))
+
+
+@pytest.mark.parametrize("kop", ["cyclus", "zelflus"])
+def test_de_cyclusfout_is_dezelfde_als_die_van_rdflibs_collection(kop: str) -> None:
+    """Woordelijk dezelfde melding, zodat wie haar ving haar blijft vangen."""
+    graph = Graph()
+    graph.parse(data=LIJSTEN, format="turtle")
+    uri = URIRef(EX + kop)
+    with pytest.raises(ValueError) as eigen:
+        list(lijstitems(graph, uri))
+    with pytest.raises(ValueError) as rdflib_fout:
+        list(Collection(graph, uri))
+    assert str(eigen.value) == str(rdflib_fout.value)
+
+
+def test_lijstitems_laat_de_graaf_ongemoeid(lijsten: Graph | GraafIndex) -> None:
+    """De wandeling leest en schrijft niet; een lezing mag de ontologie niet verbouwen."""
+    voor = len(lijsten)
+    for kop in ("goed", "afgebroken", "met_gat", "genest"):
+        list(lijstitems(lijsten, URIRef(EX + kop)))
+    assert len(lijsten) == voor
+
+
+def test_de_ijkwaarden_uit_issue_35_komen_ook_uit_de_graafindex(echte_index: GraafIndex) -> None:
+    """De belofte van issue #35, nu op de graafvorm die de lader werkelijk draagt."""
+    assert kenmerkbereik(echte_index, _dt("LengteLeiding")) == Facetbereik(
+        datatype="decimal", minimum=Decimal("1"), maximum=Decimal("75")
+    )
+    assert facetbereik(echte_index, _dt("Dt_HoogtePut")) == Facetbereik(
+        datatype="integer", minimum=Decimal("500"), maximum=Decimal("4000")
+    )

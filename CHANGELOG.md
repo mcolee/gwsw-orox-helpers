@@ -1,6 +1,24 @@
 # Changelog
 
 ## [Unreleased]
+- De twee spellingshelpers `_uri` en `_short` verhuizen van `klassen` naar `namen` (issue
+  #29, modulariteit; **additief** — geen bevroren contract geraakt, nlriochecker
+  importeert geen van beide, geverifieerd met de AST-sweep uit de docstring van
+  `tests/test_publieke_api.py`). Ze zijn **byte-identiek** verplaatst: 0 verschillen in
+  brontekst én in `ast.dump` tegenover db9bcc9. `klassen`, `inlezen` en `dataset` halen ze
+  voortaan bij `namen`; er is geen her-export via `klassen`, zodat de oude route niet stil
+  terug kan komen. Aan de lagentabel verandert niets — geen enkele rand valt weg, want
+  `inlezen` houdt `klassen` nodig voor `_afsluiting` en `dataset` voor tien andere namen —
+  maar het gewicht van die randen daalt (`inlezen -> klassen` van twee namen naar één,
+  `dataset -> klassen` van twaalf naar tien) en wie voortaan alleen wil spellen, hoeft de
+  klassenlaag niet meer binnen te halen. `namen` blijft een blad: nul pakketimporten.
+  `test_de_namensnit_ligt_vast` bewaakt alle vier op de AST, inclusief de eis dat geen
+  tweede module `_uri`/`_short` definieert — een teruggekopieerde `rsplit` geeft overal
+  hetzelfde antwoord en zou dus door geen enkele gedragstest opgemerkt worden. `namen`,
+  `klassen`, `inlezen` en `dataset` staan alle vier in `cache.LADERMODULES`, dus **de
+  cachesleutel roteert**: bestaande caches worden één keer opnieuw opgebouwd en zijn
+  daarna weer een treffer. Dat is de bedoelde werking van een sleutel die bestanden hasht
+  en geen functies, net als bij issue #26 en #27.
 - De netwerkwandeling staat los van de leeslaag: nieuwe module `netwerk` (issue #27,
   modulariteit; **additief** — geen bevroren contract geraakt). `resolve_network_node`,
   `klim_naar_knoop`, `_schakels` en `richting_van_geometrie` verhuizen van methoden op

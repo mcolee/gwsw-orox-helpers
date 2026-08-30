@@ -104,11 +104,9 @@ from gwsw_orox_helpers.klassen import (
     _bruikbare_afsluiting,
     _kenmerk_properties,
     _klassefuncties,
-    _short,
     _subclass_closure,
-    _uri,
 )
-from gwsw_orox_helpers.namen import GWSW
+from gwsw_orox_helpers.namen import GWSW, _short, _uri
 from gwsw_orox_helpers.voortgang import NUL_VOORTGANG, Voortgang
 
 # De lijst is het oppervlak, niet een keuze van deze module: alles wat ooit uit

@@ -7,6 +7,12 @@ dat levert geen fout op maar een stille lege uitkomst: een `hasAspect` op 1.6 vi
 in een graaf op 1.7. Hier staat hij een keer. Welke versie leidend is, is een
 projectafspraak en staat in `CLAUDE.md`.
 
+Sinds issue #29 staat hier ook het *spellen zelf*: `_uri` schrijft een korte klassenaam
+uit tot een GWSW-IRI en `_short` leest hem er weer uit terug. Ze stonden in `klassen`, en
+dat maakte van elke module die alleen wilde spellen een lezer van de klassenlaag --
+`inlezen` importeerde `_short` puur om een type te trimmen. Het zijn twee `rsplit`-en op
+een string: ze horen bij de IRI's die ze uit elkaar halen, niet bij de afsluitingen.
+
 Alleen tekst, en geen enkele import. De lagen rekenen in verschillende munteenheden -- de
 leeslaag in rdflib-termen, de schrijf- en cliplaag in pyoxigraph-termen -- en die
 vertaling hoort bij de laag die haar nodig heeft (`inlezen` maakt er `URIRef`-en van,
@@ -40,3 +46,13 @@ HAS_REFERENCE: Final = f"{GWSW}hasReference"
 # cliplaag aan dit datatype) en dat van een gewone string (`graaf.naar_rdflib`).
 GML_LITERAL: Final = f"{GEO}gmlLiteral"
 XSD_STRING: Final = f"{XSD}string"
+
+
+def _uri(naam: str) -> str:
+    """Maakt van een korte klassenaam een volledige GWSW-URI."""
+    return naam if naam.startswith("http") else f"{GWSW}{naam}"
+
+
+def _short(uri: str) -> str:
+    """De korte klassenaam achter de laatste scheidingstekens van een URI."""
+    return uri.rsplit("/", 1)[-1].rsplit("#", 1)[-1]

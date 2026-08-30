@@ -14,7 +14,11 @@ fout op maar een lege selectie. `_bruikbare_afsluiting` is dezelfde vraag met ee
 antwoord dat je kunt zien: `None` waar de afsluiting singleton bleef.
 
 Deze module leest de restricties niet zelf; dat doet `ontologie`. Hier staat wat je met
-die uitkomsten doet: erven, afsluiten en op korte naam terugbrengen.
+die uitkomsten doet: erven, afsluiten en op korte naam terugbrengen. Het *spellen* van
+zo'n naam staat er sinds issue #29 niet meer bij: `_uri` en `_short` zijn twee `rsplit`-en
+op een string en wonen in `namen`, naast de IRI's die ze uit elkaar halen. Deze module
+gebruikt ze nog volop -- hij haalt ze alleen daar op, net als `inlezen` en `dataset`, die
+er anders een rand naar de klassenlaag voor overhielden.
 """
 
 from __future__ import annotations
@@ -22,7 +26,7 @@ from __future__ import annotations
 from rdflib import RDFS, URIRef
 
 from gwsw_orox_helpers.graaf import GraafIndex
-from gwsw_orox_helpers.namen import GWSW
+from gwsw_orox_helpers.namen import _short, _uri
 from gwsw_orox_helpers.ontologie import functie_van_klasse, verwachte_property
 
 # De twee wortels waarmee de lader knopen en strengen uit de graaf haalt. Blijft de
@@ -34,16 +38,6 @@ WORTELS_VOOR_HERKENNING = (WORTEL_KNOOPPUNT, WORTEL_VERBINDING)
 
 WORTEL_HULPSTUK = "Hulpstuk"
 WORTEL_HULPSTUKORIENTATIE = "Hulpstukorientatie"
-
-
-def _uri(naam: str) -> str:
-    """Maakt van een korte klassenaam een volledige GWSW-URI."""
-    return naam if naam.startswith("http") else f"{GWSW}{naam}"
-
-
-def _short(uri: str) -> str:
-    """De korte klassenaam achter de laatste scheidingstekens van een URI."""
-    return uri.rsplit("/", 1)[-1].rsplit("#", 1)[-1]
 
 
 def _afsluiting(subclasses: dict[str, frozenset[str]], wortel: str) -> frozenset[str]:

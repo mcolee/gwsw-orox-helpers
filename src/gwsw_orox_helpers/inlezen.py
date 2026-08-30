@@ -35,7 +35,13 @@ from gwsw_orox_helpers.geometry import (
     parse_gml_met_z,
 )
 from gwsw_orox_helpers.graaf import GraafIndex, _uriref_snel
-from gwsw_orox_helpers.klassen import _afsluiting, _short
+from gwsw_orox_helpers.klassen import _afsluiting
+
+# Naast `from gwsw_orox_helpers import namen` hierboven, en met opzet: `_short` staat in de
+# hete lus (per aspect en per object, op een gemeentebrede export honderdduizenden keren)
+# en een `namen._short(...)` zou daar een attribuutopzoeking per aanroep bij zetten. Het
+# is dezelfde functie; alleen de naam is hier lokaal.
+from gwsw_orox_helpers.namen import _short
 
 # `RDF.type` en `RDFS.label` zijn geen attributen maar een `__getattr__` op rdflib's
 # `DefinedNamespace`, en die kost bijna een microseconde per keer. De lezers hieronder

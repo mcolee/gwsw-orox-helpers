@@ -109,6 +109,13 @@ BESTAND_MAG_IMPORTEREN = frozenset({"codering", "errors", "graaf", "rdfmotor"})
 # rechtstreeks bij pyoxigraph haalt, gaan sowieso niet door die adapter.
 CLIP_MAG_IMPORTEREN = frozenset({"clip", "errors", "geometry", "namen", "schrijven"})
 
+# De twee spellingshelpers die sinds issue #29 in `namen` wonen: `_uri` schrijft een korte
+# klassenaam uit tot een GWSW-IRI, `_short` leest hem er weer uit terug. Ze stonden in
+# `klassen` en waren daarmee de reden dat drie modules die alleen wilden spellen een rand
+# naar de klassenlaag hielden. Net als `BESTAND_FUNCTIES` en `NETWERK_FUNCTIES` staan ze
+# hier als *snit* en niet als contract -- ze zijn privé en nlriochecker importeert ze niet.
+NAAMHELPERS = ("_short", "_uri")
+
 
 def _clipbronnen() -> dict[str, str]:
     """De broncode van het clip-package en van elke submodule, per naam."""
@@ -587,6 +594,67 @@ def test_de_netwerksnit_ligt_vast() -> None:
         doel = aanroep.func
         assert isinstance(doel, ast.Attribute) and isinstance(doel.value, ast.Name)
         assert (doel.value.id, doel.attr) == ("netwerk", naam), f"{naam} wijst ergens anders heen"
+
+
+def test_de_namensnit_ligt_vast() -> None:
+    """De twee spellingshelpers wonen in `namen`, en `namen` blijft een blad (issue #29).
+
+    Vier dingen tegelijk, elk op de AST. Dat `namen` geen enkele module van de package
+    importeert -- dat is wat hem een blad maakt en wat elke andere laag toestaat hem te
+    lezen zonder iets binnen te halen. Dat `_short` en `_uri` er *staan*. Dat geen tweede
+    module ze definieert: een teruggekopieerde `rsplit` levert overal hetzelfde antwoord
+    op, dus geen enkele gedragstest zou daarvan omvallen, en dan spelt de package zijn
+    IRI's op twee plekken. En dat wie ze gebruikt, ze bij `namen` haalt: ze stonden in
+    `klassen`, en een her-import daarlangs zou de rand die deze verhuizing weghaalt stil
+    terugzetten -- `inlezen` en `dataset` hielden hem puur om te kunnen spellen.
+
+    Wat hier bewust *niet* staat: dat `klassen` ze niet meer kent. Hij is zelf een
+    gebruiker (`_afsluiting` roept `_uri` aan, `_kenmerk_properties` en `_klassefuncties`
+    roepen `_short` aan), dus ze staan met recht in zijn namespace. De vierde assert is
+    het scherpere antwoord op dezelfde vraag: hij mag ze importeren, maar alleen bij de
+    bron.
+
+    Net als bij `bestand` en `netwerk` hoort `namen` in `cache.LADERMODULES`; hij stond er
+    al, en `tests/test_cache.py::test_de_ladermodulelijst_dekt_de_hele_leeslaag` bewaakt
+    dat er geen module buiten valt.
+    """
+    from gwsw_orox_helpers import klassen, namen
+
+    assert _pakketimporten(inspect.getsource(namen)) == set(), (
+        "`namen` is een blad: hij spelt alleen tekst en importeert niets uit de package"
+    )
+
+    pakket = Path(namen.__file__ or "").parent
+    definieert: dict[str, set[str]] = {}
+    haalt_bij: dict[str, set[str]] = {}
+    for pad in sorted(pakket.rglob("*.py")):
+        naam = pad.relative_to(pakket).with_suffix("").as_posix().replace("/", ".")
+        boom = ast.parse(pad.read_text(encoding="utf-8"))
+        definieert[naam] = {
+            knoop.name
+            for knoop in ast.walk(boom)
+            if isinstance(knoop, ast.FunctionDef | ast.AsyncFunctionDef)
+            and knoop.name in NAAMHELPERS
+        }
+        for knoop in ast.walk(boom):
+            if isinstance(knoop, ast.ImportFrom) and any(
+                alias.name in NAAMHELPERS for alias in knoop.names
+            ):
+                haalt_bij.setdefault(naam, set()).add(knoop.module or "")
+
+    assert definieert.pop("namen") == set(NAAMHELPERS)
+    tweede = {naam: gevonden for naam, gevonden in definieert.items() if gevonden}
+    assert tweede == {}, f"{tweede} spelt zijn IRI's zelf; dat hoort `namen` één keer te doen"
+
+    verkeerd = {
+        naam: gevonden
+        for naam, gevonden in haalt_bij.items()
+        if gevonden != {"gwsw_orox_helpers.namen"}
+    }
+    assert verkeerd == {}, f"{verkeerd} haalt `_short`/`_uri` niet bij `namen`"
+
+    for helper in NAAMHELPERS:
+        assert getattr(klassen, helper) is getattr(namen, helper)
 
 
 def test_de_clipsubmodules_houden_de_importrichting() -> None:

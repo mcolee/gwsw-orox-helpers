@@ -264,8 +264,8 @@ def test_geslaagde_schrijf_laat_geen_tijdelijk_bestand_achter(tmp_path: Path) ->
     """Na een geslaagde schrijf staat er alleen het doel in de map, geen tmp ernaast.
 
     De hernoeming ruimt het tijdelijke bestand vanzelf op; deze test bewaakt dat het
-    daarbij blijft -- een `mkstemp` waarvan de naam níét hernoemd maar gekopieerd zou
-    worden, laat er een liggen en groeit de uitmap bij elke run vol.
+    daarbij blijft -- een tijdelijk bestand dat níét hernoemd maar gekopieerd zou worden,
+    blijft liggen en groeit de uitmap bij elke run vol.
     """
     doel = tmp_path / "uit" / "klaar.ttl"
     schrijf_orox(MINI, doel)
@@ -304,8 +304,8 @@ def test_geplante_tmp_symlink_wordt_niet_doorheen_geschreven(tmp_path: Path) -> 
     Schrijft de serializer naar een voorspelbare naam met een gewone `open('wb')`, dan
     volgt hij een symlink die daar al ligt: wie in een gedeelde uitmap `uit.ttl.tmp` naar
     andermans bestand laat wijzen, laat de export dat bestand overschrijven. Het tijdelijke
-    bestand hoort daarom met `tempfile.mkstemp` gemaakt te worden -- die weigert een
-    bestaande naam en volgt dus niets.
+    bestand krijgt daarom een unieke naam en wordt met `O_CREAT | O_EXCL` aangemaakt -- dat
+    weigert een bestaande naam en volgt dus niets.
     """
     slachtoffer = tmp_path / "slachtoffer.txt"
     slachtoffer.write_text("niet aanraken", encoding="utf-8")
@@ -317,6 +317,24 @@ def test_geplante_tmp_symlink_wordt_niet_doorheen_geschreven(tmp_path: Path) -> 
     assert slachtoffer.read_text(encoding="utf-8") == "niet aanraken"
     assert not doel.is_symlink()
     assert isomorphic(_graaf(doel), _graaf(MINI))
+
+
+def test_doel_krijgt_dezelfde_rechten_als_een_gewone_open(tmp_path: Path) -> None:
+    """Het geschreven doel draagt de umask-rechten, net als vóór het tijdelijke bestand.
+
+    De schrijflaag levert een bestand af in andermans uitmap; die mag de rechten van de
+    gebruiker niet verstrengen. Het ijkpunt is een referentiebestand dat in dezelfde map
+    met een gewone `open(..., 'wb')` is gemaakt -- een vast getal zou hier niet deugen,
+    want `0o666 & ~umask` verschilt per machine.
+    """
+    referentie = tmp_path / "referentie.bin"
+    with open(referentie, "wb") as bestand:
+        bestand.write(b"")
+    doel = tmp_path / "rechten.ttl"
+
+    schrijf_orox(MINI, doel)
+
+    assert doel.stat().st_mode & 0o777 == referentie.stat().st_mode & 0o777
 
 
 @pytest.mark.parametrize("sleutel", ["kapot prefix", "1abc", "met:dubbelepunt", "eindigt."])

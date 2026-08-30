@@ -6,21 +6,21 @@
   `open('wb')`. Dat volgt een symlink (CWE-59/377): een vooraf geplante `uit.ttl.tmp` in
   een gedeelde uitmap werd doorgeschreven naar waar hij heen wees — gemeten vóór de
   wijziging kreeg het slachtofferbestand de volledige export, ná de wijziging blijft het
-  byte-voor-byte ongemoeid. Twee gelijktijdige runs naar hetzelfde doel botsten bovendien
-  op diezelfde ene naam. Het tijdelijke bestand komt nu van `tempfile.mkstemp` in de
-  doelmap, met proces-ID en een willekeurig deel in de naam — hetzelfde recept als
-  `cache._schrijf_atomair`, dat dit al zo deed. Signatuur, retourvorm en de
-  atomariteitsbelofte (`os.replace` na de laatste quad, tmp opgeruimd bij een fout) zijn
-  ongewijzigd; `tests/test_publieke_api.py` blijft groen.
-  **Eén waarneembaar verschil, ter beoordeling van de auteur:** `mkstemp` maakt het
-  bestand met mode `0600`, dus de geschreven export draagt die rechten in plaats van de
-  umask-rechten (gemeten: `0644` → `0600`). Nergens in tests of docstrings stond de oude
-  mode beloofd en `cache._schrijf_atomair` laat `0600` ook staan, dus volgt de schrijflaag
-  dat precedent; de docstring van `schrijf_orox_quads` zegt het nu toe. Voor nlriochecker
-  verandert er niets aan wat het aanroept of terugleest (dezelfde gebruiker), maar wie een
-  geknipt bestand op een gedeelde machine aan een ander doorgeeft, moet de rechten voortaan
-  zelf verruimen. Wil de auteur de umask-rechten terug, dan is dat één `os.chmod` vóór de
-  hernoeming.
+  byte-voor-byte ongemoeid (`test_geplante_tmp_symlink_wordt_niet_doorheen_geschreven`,
+  rood vóór en groen ná de fix). Twee gelijktijdige runs naar hetzelfde doel botsten
+  bovendien op diezelfde ene naam. Het tijdelijke bestand krijgt nu een unieke naam in de
+  doelmap — doelnaam, proces-ID en een willekeurig deel — en wordt aangemaakt met
+  `os.open(..., O_WRONLY | O_CREAT | O_EXCL, 0o666)`: `O_EXCL` weigert een bestaande naam
+  en volgt dus geen symlink, en de kernel past `0o666 & ~umask` toe. De rechten van de
+  geschreven export blijven daarmee precies wat een `open('wb')` gaf (gemeten op deze
+  machine `0664`, gelijk aan een referentiebestand in dezelfde map); een nieuwe test pint
+  dat aan dat referentiebestand in plaats van aan een vast getal, want de umask verschilt
+  per machine. Dat wijkt bewust af van `cache._schrijf_atomair`, dat `tempfile.mkstemp`
+  (mode `0600`) gebruikt: de cache schrijft privé pickles in `~/.cache`, de schrijflaag
+  levert een bestand af in andermans uitmap en mag de rechten van de gebruiker niet
+  verstrengen. Signatuur, retourvorm, rechten en de atomariteitsbelofte (`os.replace` na
+  de laatste quad, tmp opgeruimd bij een fout) zijn ongewijzigd — de wijziging is zuiver
+  additief; `tests/test_publieke_api.py` blijft groen.
 - Afhankelijkheden krijgen een bovengrens (issue #14; `pyproject.toml`, geen
   `src`-wijziging): `pyoxigraph>=0.5,<0.6`, `rdflib>=7.0,<8`, `shapely>=2.0,<3`. Reden:
   `graaf._literal_string_snel` zet vier rdflib-interne velden (`_language`, `_datatype`,

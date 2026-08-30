@@ -60,7 +60,7 @@ import contextlib
 import itertools
 import os
 import re
-import tempfile
+import secrets
 from collections.abc import Iterable, Iterator, Mapping
 from dataclasses import dataclass
 from pathlib import Path
@@ -183,15 +183,13 @@ def schrijf_orox_quads(
     en dan hoort er geen afgekapte export achter te blijven die zich als een hele
     voordoet. Wie na een `DatasetError` naar `doel` kijkt, ziet het oude bestand of niets.
 
-    Dat tmp-bestand komt van `tempfile.mkstemp`, net als in `cache._schrijf_atomair` en om
-    dezelfde twee redenen. Het maakt een naam die er nog niet was en volgt dus geen
-    symlink: een vooraf geplante `<doel>.tmp` in een gedeelde uitmap zou anders
-    doorgeschreven worden naar waar hij heen wijst (CWE-59/377). En de naam draagt het
-    proces-ID plus een willekeurig deel, zodat twee gelijktijdige runs naar hetzelfde doel
-    niet in elkaars tijdelijke bestand schrijven. Het doel zelf houdt daarmee de rechten
-    die `mkstemp` geeft -- **0600, alleen leesbaar voor de eigenaar**, in plaats van de
-    umask-rechten die een gewone `open('wb')` opleverde. Wie het bestand breder gedeeld
-    wil hebben, zet de rechten na afloop zelf.
+    Dat tmp-bestand krijgt een naam met het proces-ID en een willekeurig deel erin, en
+    wordt aangemaakt met `os.open(..., O_CREAT | O_EXCL)`. Om twee redenen. `O_EXCL`
+    weigert een naam die er al is en volgt dus geen symlink: een vooraf geplante
+    `<doel>.tmp` in een gedeelde uitmap zou anders doorgeschreven worden naar waar hij
+    heen wijst (CWE-59/377). En het willekeurige deel houdt twee gelijktijdige runs naar
+    hetzelfde doel uit elkaars tijdelijke bestand. De rechten zijn `0o666 & ~umask`,
+    precies wat een gewone `open('wb')` op het doel gegeven zou hebben.
     """
     kop = dict(prefixen) if prefixen is not None else dict(STANDAARD_PREFIXEN)
     for sleutel in kop:
@@ -203,18 +201,30 @@ def schrijf_orox_quads(
             )
 
     # Dezelfde map, want `replace` is alleen binnen één bestandssysteem atomair. `None`
-    # zolang `mkstemp` niet aan de beurt was: faalt het aanmaken van de doelmap, dan is er
-    # ook geen tijdelijk bestand om op te ruimen.
+    # zolang het tijdelijke bestand niet aan de beurt was: faalt het aanmaken van de
+    # doelmap, dan is er ook geen tijdelijk bestand om op te ruimen.
     tijdelijk: Path | None = None
     try:
         doel.parent.mkdir(parents=True, exist_ok=True)
-        beschrijving, tijdelijk_pad = tempfile.mkstemp(
-            prefix=f"{doel.name}.{os.getpid()}.", suffix=".tijdelijk", dir=doel.parent
-        )
-        tijdelijk = Path(tijdelijk_pad)
+        # Eigen naam plus `O_CREAT | O_EXCL` in plaats van `tempfile.mkstemp`, anders dan
+        # in `cache._schrijf_atomair`: die schrijft privé pickles in `~/.cache`, waar de
+        # 0600 van `mkstemp` gewenst is, maar de schrijflaag levert een bestand af in
+        # andermans uitmap en mag de rechten van de gebruiker niet verstrengen. `O_EXCL`
+        # geeft dezelfde symlink-afsluiting; de kernel past `0o666 & ~umask` toe, zoals
+        # `open('wb')` deed. Een naambotsing (kans ~0 bij 8 hex) is een `FileExistsError`
+        # en gaat als `DatasetError` naar boven, net als elke andere OSError hier.
+        kandidaat = doel.parent / f"{doel.name}.{os.getpid()}.{secrets.token_hex(4)}.tijdelijk"
+        beschrijving = os.open(kandidaat, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o666)
+        # Pas ná het aanmaken, want de `finally` mag alleen opruimen wat hij zelf maakte:
+        # botst de naam toch, dan is dat bestand van iemand anders.
+        tijdelijk = kandidaat
         with os.fdopen(beschrijving, "wb") as bestand:
             pyoxigraph.serialize(quads, bestand, pyoxigraph.RdfFormat.TURTLE, prefixes=kop)
         tijdelijk.replace(doel)
+        # Na de hernoeming bestaat het tijdelijke pad niet meer; de `finally` mag er dan
+        # ook niet meer naar grijpen (een minuscule TOCTOU als de naam intussen hergebruikt
+        # zou zijn).
+        tijdelijk = None
     except OSError as fout:
         raise DatasetError(f"{doel}: bestand kan niet geschreven worden ({fout}).") from fout
     finally:

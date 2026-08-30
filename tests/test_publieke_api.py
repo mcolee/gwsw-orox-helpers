@@ -144,14 +144,13 @@ HANDTEKENINGEN: dict[str, str] = {
     # dat doet die (nog) niet -- maar omdat de auteur hem aanwees: issue #33 zet
     # `lees_ontologie` met zoveel woorden in dit bestand ("additief: `lees_ontologie` mag
     # erbij; bestaande pins ongewijzigd"). Dat is de tweede categorie uit de docstring
-    # hierboven. Wat de pin kost is echt: de Engelse parameternamen
-    # (`ontology_paths`/`fallback_encoding`, gekozen voor symmetrie met `load_dataset` en
-    # `laad_met_cache`) liggen er nu mee vast, terwijl `CLAUDE.md` Nederlandse
-    # identifiers voorschrijft en deze functie de eerste publieke naam in tijden was waar
-    # die keuze nog vrij lag. Ze losmaken is vanaf nu een auteursbeslissing.
+    # hierboven. De parameternamen zijn Nederlands (`paden`/`terugvalcodering`), anders
+    # dan de bevroren Engelse van `load_dataset`/`laad_met_cache`: de auteur koos bij #33
+    # voor `CLAUDE.md` (Nederlandse identifiers) boven symmetrie, op het moment dat de
+    # naam nog vrij lag. Vanaf hier ligt hij vast.
     "dataset.lees_ontologie": (
-        "(ontology_paths: 'list[Path] | None' = None, "
-        "fallback_encoding: 'str | None' = None, *, voortgang: 'Voortgang' = "
+        "(paden: 'list[Path] | None' = None, "
+        "terugvalcodering: 'str | None' = None, *, voortgang: 'Voortgang' = "
         "<gwsw_orox_helpers.voortgang.NulVoortgang object>) -> 'GraafIndex'"
     ),
     "dataset.GwswDataset": (

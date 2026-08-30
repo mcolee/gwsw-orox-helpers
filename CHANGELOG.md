@@ -75,9 +75,12 @@
   de bestaande handtekening vast en verandert er niets aan.
 - De ontologie-`GraafIndex` is als publieke functie bereikbaar (issue #33, vervolg op
   #19; architectuur, **additief** — geen bevroren contract geraakt). **Nieuw en publiek**:
-  `dataset.lees_ontologie(ontology_paths: list[Path] | None = None, fallback_encoding:
+  `dataset.lees_ontologie(paden: list[Path] | None = None, terugvalcodering:
   str | None = None, *, voortgang: Voortgang = NUL_VOORTGANG) -> GraafIndex`, ook
-  opgenomen in `dataset.__all__`. Hij levert precies de index die `load_dataset` intern
+  opgenomen in `dataset.__all__`. De parameternamen zijn Nederlands (auteursbeslissing
+  30-08, `CLAUDE.md` boven symmetrie met de bevroren Engelse van `load_dataset`; ze
+  landden eerst als `ontology_paths`/`fallback_encoding` en zijn vóór enige afnemer
+  hernoemd). Hij levert precies de index die `load_dataset` intern
   als `restrictiebron` opbouwt en daarna weggooit; wie de lezers van `ontologie`
   (`facetbereik`, `datatype_van_kenmerk`, `kenmerkbereik`, `verwachte_property`,
   `functie_van_klasse`) op een geladen dataset wil gebruiken, hoefde daarvoor tot nu toe

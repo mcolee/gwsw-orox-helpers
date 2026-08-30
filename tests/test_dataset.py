@@ -1050,7 +1050,7 @@ def test_lees_ontologie_geeft_de_terugvalcodering_door() -> None:
     with pytest.raises(DatasetError, match="geen geldige UTF-8"):
         lees_ontologie([TTL_DIR / "codering_cp850.ttl"])
 
-    index = lees_ontologie([TTL_DIR / "codering_cp850.ttl"], fallback_encoding="cp850")
+    index = lees_ontologie([TTL_DIR / "codering_cp850.ttl"], terugvalcodering="cp850")
 
     assert len(index) > 0
 

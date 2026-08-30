@@ -663,8 +663,8 @@ def _stapel_ontologie(
 
 
 def lees_ontologie(
-    ontology_paths: list[Path] | None = None,
-    fallback_encoding: str | None = None,
+    paden: list[Path] | None = None,
+    terugvalcodering: str | None = None,
     *,
     voortgang: Voortgang = NUL_VOORTGANG,
 ) -> GraafIndex:
@@ -681,7 +681,11 @@ def lees_ontologie(
     `None` betekent de gebundelde GWSW-ontologie, een lege lijst is de expliciete keuze
     om zonder ontologie te lezen (en levert een lege index op), en een opgegeven lijst
     wordt in volgorde in één index gestapeld. De terugvalcodering betekent hetzelfde als
-    daar; zie `codering.decodeer`.
+    daar; zie `codering.decodeer`. De parameters heten Nederlands (`paden`,
+    `terugvalcodering`) zoals `CLAUDE.md` vraagt, en dus anders dan de bevroren
+    `ontology_paths`/`fallback_encoding` van `load_dataset` -- een auteursbeslissing bij
+    issue #33; `paden` en niet `ontologiepaden`, omdat dat de naam van de padkeuzefunctie
+    hierboven is.
 
     De voortgang gaat per bestand, in een eigen fase "Ontologie laden" met één stap per
     bestand. Dat is een andere fase dan de "TTL laden" van `load_dataset` -- die telt de
@@ -698,11 +702,11 @@ def lees_ontologie(
     ligt de cyclische garbage collector van het hele proces stil en komt hij daarna terug,
     ook na een fout (zie `inlezen._gc_uit`).
     """
-    ontologie_paden = ontologiepaden(ontology_paths)
+    ontologie_paden = ontologiepaden(paden)
     voortgang.start_fase("Ontologie laden", len(ontologie_paden))
     with _gc_uit():
         try:
-            return _stapel_ontologie(ontologie_paden, fallback_encoding, voortgang)
+            return _stapel_ontologie(ontologie_paden, terugvalcodering, voortgang)
         finally:
             voortgang.einde_fase()
 

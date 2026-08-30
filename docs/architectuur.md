@@ -311,7 +311,7 @@ geen belofte aan de afnemer — ook waar hij een modulegrens oversteekt, zoals
 
 ### `lees_ontologie` naast `load_dataset`
 
-`lees_ontologie(ontology_paths=None, fallback_encoding=None, *, voortgang=NUL_VOORTGANG)`
+`lees_ontologie(paden=None, terugvalcodering=None, *, voortgang=NUL_VOORTGANG)`
 levert de ontologie-`GraafIndex` waarop de lezers van `ontologie` werken — dezelfde index
 die `load_dataset` intern als `restrictiebron` opbouwt en daarna weggooit. Zonder haar
 moest een afnemer die `facetbereik` of `kenmerkbereik` op een geladen dataset wilde

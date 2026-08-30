@@ -259,7 +259,8 @@ def _herlees_graaf(
 def _schrijf(map_: Path, dataset: GwswDataset) -> None:
     """Legt structuren en graaf weg, elk via een tijdelijk bestand.
 
-    De niet-init-velden (zoals de memo `_resolved_nodes`) blijven buiten de pickle:
+    De niet-init-velden (de memo's `_resolved_nodes` en `_types_memo`) blijven buiten de
+    pickle:
     `GwswDataset(**velden)` zou erop stuklopen, en zo'n memo hoort elke instantie
     vers op te bouwen. De lijst is afgeleid uit de dataclass zelf, zodat een volgend
     niet-init-veld niet stil het cacheleespad breekt.

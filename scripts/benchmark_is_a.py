@@ -22,10 +22,16 @@ inderdaad boven het miljoen uitkomt.
 
 **De klok loopt alleen om de lus.** Het laden gebeurt ervoor en telt niet mee -- dat is
 het pad van `scripts/benchmark.py`. Er wordt drie keer herhaald in hetzelfde proces en
-zowel het gemiddelde als het minimum wordt gemeld, plus de losse herhalingen: de memo van
-issue #12 is na de eerste herhaling warm, en dat verschil hoort zichtbaar te zijn in
-plaats van weggemiddeld. Het geheugenhoogwatermerk (`ru_maxrss`) staat erbij, want een
-memo ruilt geheugen voor tijd en die kant van de ruil hoort ook in het verslag.
+zowel het gemiddelde als het minimum wordt gemeld, plus de losse herhalingen, zodat
+uitschieters van een drukke machine te zien zijn in plaats van weggemiddeld.
+
+Wat er gemeten wordt is de lus in *warme* toestand, en dat is geen keuze maar een gevolg
+van de vorm: `of_class` raakt bij de eerste wortel al elke knoop en streng aan, dus de
+memo van issue #12 is vol vóór de eerste `is_a`-aanroep. Het vullen zelf staat dus in
+geen enkele herhaling apart; wie de koude kosten wil zien, moet de eerste `of_class`
+afzonderlijk klokken. Het geheugenhoogwatermerk (`ru_maxrss`) staat erbij, maar zegt
+alleen of de lus boven de piek van het laden uitkomt -- die piek zet de lader, en de
+ruil van een memo is er niet los in te zien.
 
 **Tussen het laden en de klok staat een `gc.collect()`, en die is er voor de eerlijkheid
 van de vergelijking.** `load_dataset` leest met de cyclische GC uit (zie zijn docstring),
@@ -68,6 +74,10 @@ from gwsw_orox_helpers.dataset import GwswDataset, load_dataset
 BRON = Path("/home/martin/nlriochecker/data/gwsw_orox_ttl/dewoldenhoogeveen_orox.ttl")
 FALLBACK_ENCODING = "cp850"
 
+# De standaardwortels van deze meting -- een default van dit script, geen constante van
+# de package: welke klassen een afnemer selecteert is zijn configuratie (`CLAUDE.md`,
+# Harde regels), en `--wortels` is de plek waar die keuze thuishoort.
+#
 # Bestaande GWSW-klassen uit de gebundelde ontologie. De eerste tien zijn de
 # netwerkwortels zoals nlriochecker ze configureert (dezelfde lijst als in
 # `tests/test_dataset.py::test_richting_van_geometrie_ziet_een_omgekeerd_getekende_lijn`):
@@ -143,8 +153,14 @@ def main(argv: list[str] | None = None) -> int:
     ontleder = argparse.ArgumentParser(description=__doc__)
     ontleder.add_argument("--bron", type=Path, default=BRON, help="de OroX-export (TTL)")
     ontleder.add_argument("--herhalingen", type=int, default=HERHALINGEN)
+    ontleder.add_argument(
+        "--wortels",
+        default=",".join(WORTELS),
+        help="komma-gescheiden GWSW-klassen; de schaal van de meting hangt eraan",
+    )
     argumenten = ontleder.parse_args(argv)
 
+    wortels = tuple(naam.strip() for naam in argumenten.wortels.split(",") if naam.strip())
     bron: Path = argumenten.bron
     if not bron.exists():
         print(f"Export ontbreekt: {bron} -- niets gemeten.")
@@ -156,7 +172,7 @@ def main(argv: list[str] | None = None) -> int:
     print(f"bron            {bron}")
     print(f"laden           {laadtijd:.1f} s (telt niet mee in de meting)")
     print(f"knopen/strengen {len(dataset.nodes)} / {len(dataset.conduits)}")
-    print(f"wortels         {len(WORTELS)}: {', '.join(WORTELS)}")
+    print(f"wortels         {len(wortels)}: {', '.join(wortels)}")
     print(f"piek na laden   {_piek_mib():.0f} MiB")
     # De uitgestelde GC-rekening van de lader afrekenen vóór de klok gaat lopen; waarom,
     # staat in de moduledocstring.
@@ -168,7 +184,7 @@ def main(argv: list[str] | None = None) -> int:
     uitkomsten: set[tuple[int, int]] = set()
     for ronde in range(1, argumenten.herhalingen + 1):
         begin = time.perf_counter()
-        uitkomst = checkfase_lus(dataset, WORTELS)
+        uitkomst = checkfase_lus(dataset, wortels)
         duur = time.perf_counter() - begin
         tijden.append(duur)
         uitkomsten.add(uitkomst)

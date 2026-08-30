@@ -14,14 +14,16 @@
   frozenset en tweede `_uri`-aanroep alleen nog op de miss-tak. Gemeten op De Wolden en
   Hoogeveen (112 MB, 23.485 knopen en 23.440 strengen) met het nieuwe
   `scripts/benchmark_is_a.py`, dat de checkfase-lus nabootst met 24 GWSW-wortels en zo op
-  1.126.200 `is_a`-aanroepen per ronde komt: **2,26 s -> 1,32 s op het minimum van drie
-  rondes (-42%)**, met dezelfde 266.650 treffers vóór en ná en een ongewijzigd
-  geheugenhoogwatermerk (1219 MiB). Vier procesmetingen in beide volgordes (oud, nieuw,
-  nieuw, oud) gaven 2,26 / 1,52 / 1,32 / 2,32 s als minimum -- de machine was onrustig,
-  dus de spreiding binnen elke kant is aanzienlijk. Een meting die de oude en de nieuwe
-  implementatie in hetzelfde proces op dezelfde geladen dataset afwisselt, waar die ruis
-  niet in past, gaf -38% (2,15 -> 1,33 s). De winst ligt dus rond de 38 tot 42%;
-  incrementeel, geen orde van grootte. Signaturen en retourwaarden van
+  1.126.200 `is_a`-aanroepen per ronde komt: de hele lus (`of_class` per wortel plus die
+  `is_a`-aanroepen) gaat van **2,26 s naar 1,32 s op het minimum van drie rondes (-42%)**,
+  met dezelfde 266.650 treffers vóór en ná. Vier procesmetingen in beide volgordes (oud,
+  nieuw, nieuw, oud) gaven 2,26 / 1,52 / 1,32 / 2,32 s als minimum -- de machine was
+  onrustig, dus de spreiding binnen elke kant is aanzienlijk; een eenmalige controle die
+  de oude en de nieuwe implementatie in hetzelfde proces op dezelfde geladen dataset
+  afwisselde, waar die ruis niet in past, gaf -38% (2,15 -> 1,33 s). De winst ligt dus
+  rond de 38 tot 42%: incrementeel, geen orde van grootte. De procespiek blijft 1219 MiB,
+  maar dat is een ondergrens en geen meting van de ruil -- die piek zet de lader.
+  Signaturen en retourwaarden van
   `is_a`, `types_of`, `graph_types_of`, `closure` en `of_class` zijn ongewijzigd: zuiver
   additief, `tests/test_publieke_api.py` blijft groen.
 - Schrijflaag veiliger tijdelijk bestand (issue #15, security; `schrijven.py`).

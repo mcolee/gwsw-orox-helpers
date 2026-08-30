@@ -195,16 +195,16 @@ class GwswDataset:
     _resolved_nodes: dict[tuple[str, tuple[str, ...]], str | None] = field(
         default_factory=dict, init=False, repr=False, compare=False
     )
-    # Memo voor `types_of`, om dezelfde reden en volgens hetzelfde patroon als
-    # `_resolved_nodes` hierboven: `is_a` vraagt de typen van een object ruim een miljoen
-    # keer per run op, en voor een knoop is dat elke keer een verse unie van zijn eigen
-    # typen en die van zijn orientatie. Ook hier `init=False`, zodat een
+    # Memo voor `types_of`, volgens hetzelfde patroon als `_resolved_nodes` hierboven;
+    # waarom hij er is, staat bij die methode. Ook hier `init=False`, zodat een
     # `replace()`-afgeleide (`subset`, `markeer_vulwaarden`, het cachepad) met een lege
     # memo begint: die afgeleiden hebben andere `nodes`/`conduits`, dus een gedeelde memo
-    # zou typen melden voor een knoop die er niet meer in staat. De aanname is dat
-    # `nodes` en `conduits` van een eenmaal gemaakte dataset niet meer muteren -- de
-    # dataclass is bevroren en de lader vult ze voordat hij haar aanmaakt.
-    # `cache._schrijf` slaat ook dit veld bij het picklen over.
+    # zou typen melden voor een knoop die er niet meer in staat -- en `cache._schrijf`
+    # houdt het veld daardoor net zo goed buiten de pickle.
+    # Hij groeit met het aantal *bevraagde* URI's en niet met `len(nodes) +
+    # len(conduits)`: `graph_types_of` voert er ook URI's doorheen die alleen in de graaf
+    # staan, en die missers worden net zo goed onthouden. Dat is bedoeld -- ze zijn de
+    # hele run een misser -- maar het is de grens van wat hij aan geheugen kost.
     _types_memo: dict[str, frozenset[str]] = field(
         default_factory=dict, init=False, repr=False, compare=False
     )
@@ -250,6 +250,8 @@ class GwswDataset:
         De memo neemt aan dat `nodes` en `conduits` na het aanmaken van de dataset niet
         meer wijzigen; een `replace()`-afgeleide begint met een lege memo (zie het veld).
         """
+        # `.get()` en niet `in`: dat scheelt op dit pad de tweede opzoeking, en een
+        # opgeslagen waarde is nooit `None` -- ook de lege uitkomst is een frozenset.
         onthouden = self._types_memo.get(uri)
         if onthouden is not None:
             return onthouden

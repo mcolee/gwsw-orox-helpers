@@ -21,11 +21,19 @@ dat is geen gemak maar de kern van issue #19: `load_dataset` leest de ontologie 
 `functie_van_klasse`, terwijl `facetbereik`, `datatype_van_kenmerk` en `kenmerkbereik` via
 `rdflib.collection.Collection` een echte `Graph` eisten. Die drie draaiden daardoor alleen
 in tests -- de belofte van issue #35 was op de echte leesweg niet aan te roepen en liep er
-op een `AttributeError` stuk. `lijstitems` wandelt de `rdf:first`/`rdf:rest`-ketting nu
-zelf, met niets anders dan de `value`/`objects` die allebei de vormen aanbieden. Twee
-concrete graaftypen en geen protocol: dat de vier lezers precies dezelfde handvol
-bewerkingen gebruiken is wat een `GraafLezer`-protocol (issue #21) hier later overheen kan
-leggen, zonder aan de handtekeningen iets anders te veranderen dan de naam van het type.
+op een `AttributeError` stuk. `_lijstleden` wandelt de `rdf:first`/`rdf:rest`-ketting nu
+zelf, met niets anders dan de `value` die allebei de vormen aanbieden. Twee concrete
+graaftypen en geen protocol: dat de vijf lezers precies dezelfde handvol bewerkingen
+gebruiken (`objects` en `value`, meer niet) is wat een `GraafLezer`-protocol (issue #21)
+hier later overheen kan leggen, zonder aan de handtekeningen iets anders te veranderen dan
+de naam van het type.
+
+**Wat hiermee nog niet af is**, en bewust niet: `load_dataset` bouwt zijn
+ontologie-`GraafIndex` als lokale `restrictiebron` en bewaart hem niet op `GwswDataset`.
+Een afnemer die deze lezers op een geladen dataset wil loslaten, moet de ontologie dus nog
+altijd zelf inlezen. Dat dichten betekent een veld bij `GwswDataset`, en dat is een
+bevroren contract (`CLAUDE.md`, Harde regels; `tests/test_publieke_api.py` pint de
+handtekening): een auteursbeslissing, geen agentbeslissing.
 """
 
 from __future__ import annotations
@@ -55,7 +63,7 @@ class Facetbereik:
     maximum: Decimal | None
 
 
-def lijstitems(graph: Graph | GraafIndex, kop: RdfNode) -> Iterator[RdfNode]:
+def _lijstleden(graph: Graph | GraafIndex, kop: RdfNode) -> Iterator[RdfNode]:
     """De leden van een RDF-lijst (`rdf:first`/`rdf:rest`), vanaf `kop`.
 
     De tegenhanger van `rdflib.collection.Collection` die het op de leesweg ook doet:
@@ -63,9 +71,20 @@ def lijstitems(graph: Graph | GraafIndex, kop: RdfNode) -> Iterator[RdfNode]:
     terwijl `load_dataset` een `GraafIndex` als restrictiebron levert (issue #19). Deze
     wandeling gebruikt niets anders dan `value`, dat allebei de graafvormen aanbieden.
 
-    Het gedrag is dat van `Graph.items` -- de iterator achter `Collection` -- opzettelijk
-    tot in de randgevallen; `tests/test_ontologie.py` houdt de twee lid voor lid en
-    foutmelding voor foutmelding naast elkaar:
+    **Intern, met een underscore**, ook al is het een algemeen bruikbaar RDF-primitief:
+    `facetbereik` is de enige aanroeper, en deze module belooft naar buiten wat een
+    `owl:Restriction` over een klasse of kenmerk zegt -- niet hoe je een RDF-lijst
+    wandelt. In `graaf` hoort hij evenmin: die index kent met opzet geen enkele
+    RDF-woordenschat (zie zijn moduledocstring), en dat hoeft ook niet -- dat een lijst
+    met alleen `value` te wandelen is, is juist de reden dat `GraafIndex` geen
+    collectie-bewerking hoeft aan te bieden. Meldt zich een tweede aanroeper, dan is de
+    underscore weghalen een additieve stap.
+
+    Het gedrag is dat van `Graph.items` -- de iterator achter `Collection`, en de
+    ontlening is letterlijk: de lus, de `gezien`-verzameling die met de kop begint en de
+    tekst van de fout komen daarvandaan (rdflib 7.6.0, BSD-3-Clause). Opzettelijk tot in
+    de randgevallen; `tests/test_ontologie.py` houdt de twee lid voor lid en foutmelding
+    voor foutmelding naast elkaar:
 
     - een **afgebroken lijst** (een schakel zonder `rdf:rest`) eindigt stil met wat er
       wél stond, net als een lijst die netjes op `rdf:nil` uitkomt. De ontologie is de
@@ -106,7 +125,7 @@ def facetbereik(graph: Graph | GraafIndex, datatype: URIRef) -> Facetbereik | No
 
     minimum: Decimal | None = None
     maximum: Decimal | None = None
-    for restrictie in lijstitems(graph, restricties):
+    for restrictie in _lijstleden(graph, restricties):
         ondergrens = graph.value(restrictie, XSD.minInclusive)
         if ondergrens is not None:
             minimum = Decimal(str(ondergrens))

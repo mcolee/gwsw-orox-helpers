@@ -112,7 +112,7 @@ Tot issue #19 hing daar een scheur in: `facetbereik`, `datatype_van_kenmerk` en
 ontologie haalt — liepen via `rdflib.collection.Collection` over de
 `owl:withRestrictions`-lijst, en `Collection` itereert via `Graph.items` en eist dus een
 echte `Graph`. Die drie functies draaiden daardoor **alleen in tests**; op de leesweg
-liepen ze op een `AttributeError` stuk. `ontologie.lijstitems` wandelt de
+liepen ze op een `AttributeError` stuk. `ontologie._lijstleden` wandelt de
 `rdf:first`/`rdf:rest`-ketting nu zelf, met niets anders dan de `value` die allebei de
 vormen aanbieden, en alle vijf de lezers nemen `Graph | GraafIndex`.
 
@@ -121,7 +121,17 @@ is met `value` te wandelen, dus het leescontract in de docstring van `graaf` bli
 handvol bewerkingen die het was. En het is de naad waar issue #21 een
 `GraafLezer`-protocol overheen kan leggen: de vijf lezers gebruiken precies dezelfde
 bewerkingen, dus dat protocol vervangt straks alleen de naam van het type in de
-handtekening.
+handtekening. Daarom staat er nu ook nog geen type-alias voor `Graph | GraafIndex`: die
+zou de naam vastleggen die #21 juist te vergeven heeft.
+
+Eén stap is er bewust *niet* gezet. `load_dataset` bouwt de ontologie-`GraafIndex` als
+lokale `restrictiebron` (`dataset.py`, in `load_dataset`) en bewaart hem niet: `GwswDataset`
+draagt alleen de kleine afgeleide woordenboeken (`subclasses`, `kenmerk_property`,
+`functie_per_klasse`) en zijn `graph` is de *dataset*graaf, niet de ontologie. Een afnemer
+die de gedeclareerde bereiken op een geladen dataset wil opvragen, leest de ontologie dus
+nog altijd zelf in. Dat dichten vraagt een veld bij `GwswDataset`, en die handtekening is
+gepind in `tests/test_publieke_api.py`: een auteursbeslissing volgens de Harde regels in
+`CLAUDE.md`, niet iets wat een agent er zelf bij doet.
 
 ## Twee paden door pyoxigraph, en dat blijft zo
 

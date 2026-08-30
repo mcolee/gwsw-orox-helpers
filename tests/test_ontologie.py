@@ -12,7 +12,7 @@ from __future__ import annotations
 from decimal import Decimal
 
 import pytest
-from rdflib import RDF, RDFS, Graph, URIRef
+from rdflib import OWL, RDF, RDFS, Graph, URIRef
 from rdflib.collection import Collection
 
 from gwsw_orox_helpers.bronnen import gebundelde_ontologie
@@ -22,10 +22,11 @@ from gwsw_orox_helpers.inlezen import _parse
 from gwsw_orox_helpers.klassen import _afsluiting, _subclass_closure
 from gwsw_orox_helpers.ontologie import (
     Facetbereik,
+    _lijstleden,
     datatype_van_kenmerk,
     facetbereik,
+    functie_van_klasse,
     kenmerkbereik,
-    lijstitems,
     verwachte_property,
 )
 from gwsw_orox_helpers.rdfmotor import ontleed_turtle
@@ -88,21 +89,27 @@ gwsw:Straatnaam a owl:Class ;
 """
 
 
-@pytest.fixture(params=["graph", "index"])
-def graaf(request: pytest.FixtureRequest) -> Graph | GraafIndex:
-    """De handgeschreven fixture met precies de facetstructuur die de lezer volgt.
+def _in_vorm(ttl: str, vorm: str) -> Graph | GraafIndex:
+    """Dezelfde Turtle als rdflib-`Graph` of als `GraafIndex`.
 
-    In allebei de graafvormen die de lezer kent: de rdflib-`Graph` waarop de facetlezing
-    tot issue #19 alleen liep, en de `GraafIndex` die `load_dataset` als restrictiebron
-    levert. Elke test hieronder draait dus op allebei en het verschil zou meteen opvallen.
+    De twee graafvormen die de lezers van `ontologie` kennen: de `Graph` waarop de
+    facetlezing tot issue #19 alleen liep, en de `GraafIndex` die `load_dataset` als
+    restrictiebron levert. Elke fixture hieronder draait beide, zodat een verschil
+    tussen de twee wegen meteen opvalt.
     """
-    if request.param == "graph":
+    if vorm == "graph":
         graph = Graph()
-        graph.parse(data=FIXTURE, format="turtle")
+        graph.parse(data=ttl, format="turtle")
         return graph
     index = GraafIndex()
-    index.vul_uit(ontleed_turtle(FIXTURE.encode("utf-8")))
+    index.vul_uit(ontleed_turtle(ttl.encode("utf-8")))
     return index
+
+
+@pytest.fixture(params=["graph", "index"])
+def graaf(request: pytest.FixtureRequest) -> Graph | GraafIndex:
+    """De handgeschreven fixture met precies de facetstructuur die de lezer volgt."""
+    return _in_vorm(FIXTURE, request.param)
 
 
 @pytest.fixture(scope="module")
@@ -224,8 +231,6 @@ def test_bekende_bereiken_uit_de_echte_ontologie(
 def test_functie_van_klasse_uit_de_echte_ontologie(
     echte_graaf: Graph, klasse: str, verwacht: str | None
 ) -> None:
-    from gwsw_orox_helpers.ontologie import functie_van_klasse
-
     assert functie_van_klasse(echte_graaf, URIRef(GWSW + klasse)) == verwacht
 
 
@@ -253,6 +258,7 @@ AANTAL_DATATYPES = 39
 AANTAL_FACETBEREIKEN = 38
 AANTAL_KENMERKKLASSEN = 709
 AANTAL_KENMERKBEREIKEN = 40
+AANTAL_KLASSEN = 2087
 
 
 def test_de_facetlezing_van_de_hele_ontologie_is_op_beide_graafvormen_gelijk(
@@ -286,6 +292,32 @@ def test_de_kenmerklezing_van_de_hele_ontologie_is_op_beide_graafvormen_gelijk(
     assert via_graph == via_index
     gevonden = [bereik for bereik in via_index.values() if bereik is not None]
     assert len(gevonden) == AANTAL_KENMERKBEREIKEN
+
+
+def test_de_restrictielezers_zijn_op_beide_graafvormen_gelijk_over_alle_klassen(
+    echte_graaf: Graph, echte_index: GraafIndex
+) -> None:
+    """De twee lezers die al `Graph | GraafIndex` namen, over de hele ontologie.
+
+    `verwachte_property` en `functie_van_klasse` liepen ook vóór issue #19 al op allebei
+    de vormen, maar dat stond alleen op de vijf klassen van de handgeschreven fixture
+    vast. Hier gaan ze over elke `owl:Class` die de ontologie kent -- de klassen waar
+    `klassen._kenmerk_properties` en `_klassefuncties` hun woordenboeken uit vullen -- en
+    is de gelijkwaardigheid van de twee wegen dus niet meer een steekproef. `value()` geeft
+    "het eerste object", en de volgorde van rdflib's store is een andere dan de
+    insertievolgorde van `GraafIndex`; deze test is de bewaker die het zou merken als
+    de ontologie ooit een klasse met twee concurrerende restricties krijgt.
+    """
+    klassen = sorted(
+        term for term in echte_graaf.subjects(RDF.type, OWL.Class) if isinstance(term, URIRef)
+    )
+    assert len(klassen) == AANTAL_KLASSEN
+    assert {klasse: verwachte_property(echte_graaf, klasse) for klasse in klassen} == {
+        klasse: verwachte_property(echte_index, klasse) for klasse in klassen
+    }
+    assert {klasse: functie_van_klasse(echte_graaf, klasse) for klasse in klassen} == {
+        klasse: functie_van_klasse(echte_index, klasse) for klasse in klassen
+    }
 
 
 # --- De collectiewandeling zelf, tegen `rdflib.collection.Collection` gehouden --------
@@ -322,13 +354,7 @@ EX = "http://example.org/"
 @pytest.fixture(params=["graph", "index"])
 def lijsten(request: pytest.FixtureRequest) -> Graph | GraafIndex:
     """`LIJSTEN` als rdflib-`Graph` en als `GraafIndex`; elke test draait op allebei."""
-    if request.param == "graph":
-        graph = Graph()
-        graph.parse(data=LIJSTEN, format="turtle")
-        return graph
-    index = GraafIndex()
-    index.vul_uit(ontleed_turtle(LIJSTEN.encode("utf-8")))
-    return index
+    return _in_vorm(LIJSTEN, request.param)
 
 
 @pytest.mark.parametrize(
@@ -347,27 +373,27 @@ def lijsten(request: pytest.FixtureRequest) -> Graph | GraafIndex:
         (URIRef(EX + "bestaat_niet"), []),
     ],
 )
-def test_lijstitems_wandelt_de_rdf_lijst(
+def test_lijstleden_wandelt_de_rdf_lijst(
     lijsten: Graph | GraafIndex, kop: URIRef, verwacht: list[str]
 ) -> None:
     """De randgevallen van een RDF-lijst, gelijk op allebei de graafvormen."""
-    assert [str(lid) for lid in lijstitems(lijsten, kop)] == verwacht
+    assert [str(lid) for lid in _lijstleden(lijsten, kop)] == verwacht
 
 
 @pytest.mark.parametrize("kop", ["goed", "afgebroken", "met_gat", "genest"])
-def test_lijstitems_geeft_hetzelfde_als_rdflibs_collection(kop: str) -> None:
+def test_lijstleden_geeft_hetzelfde_als_rdflibs_collection(kop: str) -> None:
     """De ijking: dezelfde leden als `rdflib.collection.Collection`, die dit eerst deed."""
     graph = Graph()
     graph.parse(data=LIJSTEN, format="turtle")
     uri = URIRef(EX + kop)
-    assert list(lijstitems(graph, uri)) == list(Collection(graph, uri))
+    assert list(_lijstleden(graph, uri)) == list(Collection(graph, uri))
 
 
 @pytest.mark.parametrize("kop", ["cyclus", "zelflus"])
-def test_lijstitems_weigert_een_cyclische_lijst(lijsten: Graph | GraafIndex, kop: str) -> None:
+def test_lijstleden_weigert_een_cyclische_lijst(lijsten: Graph | GraafIndex, kop: str) -> None:
     """Geen oneindige lus maar dezelfde `ValueError` die `Collection` gaf."""
     with pytest.raises(ValueError, match="recursive rdf:rest reference"):
-        list(lijstitems(lijsten, URIRef(EX + kop)))
+        list(_lijstleden(lijsten, URIRef(EX + kop)))
 
 
 @pytest.mark.parametrize("kop", ["cyclus", "zelflus"])
@@ -377,17 +403,17 @@ def test_de_cyclusfout_is_dezelfde_als_die_van_rdflibs_collection(kop: str) -> N
     graph.parse(data=LIJSTEN, format="turtle")
     uri = URIRef(EX + kop)
     with pytest.raises(ValueError) as eigen:
-        list(lijstitems(graph, uri))
+        list(_lijstleden(graph, uri))
     with pytest.raises(ValueError) as rdflib_fout:
         list(Collection(graph, uri))
     assert str(eigen.value) == str(rdflib_fout.value)
 
 
-def test_lijstitems_laat_de_graaf_ongemoeid(lijsten: Graph | GraafIndex) -> None:
+def test_lijstleden_laat_de_graaf_ongemoeid(lijsten: Graph | GraafIndex) -> None:
     """De wandeling leest en schrijft niet; een lezing mag de ontologie niet verbouwen."""
     voor = len(lijsten)
     for kop in ("goed", "afgebroken", "met_gat", "genest"):
-        list(lijstitems(lijsten, URIRef(EX + kop)))
+        list(_lijstleden(lijsten, URIRef(EX + kop)))
     assert len(lijsten) == voor
 
 

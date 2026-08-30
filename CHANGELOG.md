@@ -13,16 +13,29 @@
   `datatype_van_kenmerk(graph: Graph, kenmerk)` en `kenmerkbereik(graph: Graph, kenmerk)`
   nemen nu alle drie `graph: Graph | GraafIndex` — dezelfde verbreding die
   `verwachte_property` en `functie_van_klasse` al hadden. Verbreden, niet versmallen: elke
-  bestaande aanroep met een `Graph` doet wat hij deed. **Nieuw en publiek in `ontologie`**:
-  `lijstitems(graph: Graph | GraafIndex, kop: RdfNode) -> Iterator[RdfNode]`, dat de
+  bestaande aanroep met een `Graph` doet wat hij deed. **Nieuw en intern in `ontologie`**:
+  `_lijstleden(graph: Graph | GraafIndex, kop: RdfNode) -> Iterator[RdfNode]`, dat de
   `rdf:first`/`rdf:rest`-ketting zelf afloopt met niets anders dan de `value` die allebei
-  de graafvormen aanbieden. **Dekking van de leesweg: van 0 naar 39 datatypes en 709
-  kenmerkklassen**, waarvan er 38 respectievelijk 40 daadwerkelijk een bereik dragen
-  (GWSW 1.6). Twee nieuwe tests lezen die hele populatie langs allebei de wegen en
-  vergelijken de uitkomsten woordelijk; de `GraafIndex` erin komt uit `inlezen._parse` op
-  de gebundelde ontologie, dus dat is de leesweg zelf en geen nabootsing. De
+  de graafvormen aanbieden. Bewust met een underscore: `facetbereik` is de enige
+  aanroeper, en een tweede aanroeper maakt hem later additief publiek. **Dekking van de
+  leesweg: van 0 naar 39 datatypes en 709 kenmerkklassen**, waarvan er 38 respectievelijk
+  40 daadwerkelijk een bereik dragen (GWSW 1.6). Dat getal meet *aanroepbaarheid op de
+  graafvorm die de lader levert* en niet gebruik: binnen deze package roept nog niets in
+  `src/` deze drie lezers aan — zij zijn er voor nlriochecker. Drie nieuwe tests lezen die
+  hele populatie langs allebei de wegen en vergelijken de uitkomsten woordelijk; de
+  `GraafIndex` erin komt uit `inlezen._parse` op de gebundelde ontologie, dus dat is de
+  leesweg zelf en geen nabootsing. De derde pint meteen `verwachte_property` en
+  `functie_van_klasse` over alle 2.087 `owl:Class`en vast — die twee namen allebei de
+  vormen al, maar dat stond alleen op een fixture van vijf klassen vast. Ook de
   handgeschreven fixture draait sinds deze wijziging op allebei de graafvormen
   (geparametriseerde `graaf`-fixture), zodat een verschil tussen de twee meteen opvalt.
+  **Wat hiermee nog niet af is**, en bewust niet: `load_dataset` bouwt zijn
+  ontologie-`GraafIndex` als lokale `restrictiebron` en bewaart hem niet op `GwswDataset`
+  (dat draagt alleen de kleine afgeleide woordenboeken; `.graph` is de *dataset*graaf).
+  Een afnemer die deze lezers op een geladen dataset wil loslaten, leest de ontologie dus
+  nog altijd zelf in. Dat dichten vraagt een veld bij `GwswDataset`, en die handtekening
+  is gepind in `tests/test_publieke_api.py`: een auteursbeslissing volgens de Harde regels
+  in `CLAUDE.md`, geen agentbeslissing — dus hier gemeld en niet gedaan.
   **De randgevallen van een RDF-lijst zijn opzettelijk die van `Graph.items`**, tegen
   `Collection` geijkt in de tests: een afgebroken lijst (schakel zonder `rdf:rest`)
   eindigt stil met wat er wél stond, een schakel zonder `rdf:first` slaat een lid over,

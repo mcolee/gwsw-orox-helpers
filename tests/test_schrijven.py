@@ -30,8 +30,9 @@ TTL_DIR = Path(__file__).parent / "fixtures" / "ttl"
 MINI = TTL_DIR / "mini_orox.ttl"
 CP850 = TTL_DIR / "codering_cp850.ttl"
 
-# De echte export van Stichting RIOned (Juinen); niet in deze repo getrackt.
-JUINEN = Path("/home/martin/nlriochecker/data/gwsw_orox_ttl/GwswDataset__Voorbeeld_v1_6_orox.ttl")
+# De echte voorbeeldexport van Stichting RIONED (Juinen), sinds issue #10 byte-exact als
+# fixture gebundeld; de test hangt daarmee niet meer aan een pad buiten de repo.
+JUINEN = TTL_DIR / "juinen_voorbeeld_v1_6.ttl"
 # De export van De Wolden en Hoogeveen: 112 MB, ook niet getrackt (marker `zwaar`).
 DEWOLDEN = Path("/home/martin/nlriochecker/data/gwsw_orox_ttl/dewoldenhoogeveen_orox.ttl")
 
@@ -376,7 +377,6 @@ def test_lege_prefixsleutel_is_de_dataset_basis(tmp_path: Path) -> None:
     assert "@prefix : <http://sparql.gwsw.nl/x#> ." in doel.read_text(encoding="utf-8")
 
 
-@pytest.mark.skipif(not JUINEN.exists(), reason="de Juinen-export ligt niet op deze machine")
 def test_juinen_blijft_isomorf(tmp_path: Path) -> None:
     """De echte voorbeeldexport (119 kB) overleeft de heen-en-weerweg ongeschonden."""
     doel = tmp_path / "juinen_terug.ttl"

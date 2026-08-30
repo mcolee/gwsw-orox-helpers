@@ -1,6 +1,11 @@
 # Changelog
 
 ## [Unreleased]
+- `tests/test_schrijven.py::test_juinen_blijft_isomorf` leest de sinds #10 gebundelde
+  Juinen-fixture in plaats van een pad buiten de repo (uitgestelde minor uit #10). Aanleiding:
+  de externe map `nlriochecker/data/gwsw_orox_ttl` was op 30-08 tussentijds afwezig, waardoor
+  de dekkingsstap van de poort één keer rood werd terwijl de gewone pytest-run groen was; de
+  test slaat zichzelf nu nooit meer over en is niet meer machinegebonden.
 - De twee hete lezers bouwen hun termen niet meer per aanroep (issue #23, performance;
   **additief** — geen bevroren contract geraakt). `GwswDataset.graph_types_of` maakte per
   aanroep een `URIRef` mét rdflib's validatieregex uit tekst die al een geldige

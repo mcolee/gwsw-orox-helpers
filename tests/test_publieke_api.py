@@ -111,9 +111,9 @@ CLIP_MAG_IMPORTEREN = frozenset({"clip", "errors", "geometry", "namen", "schrijv
 
 # De twee spellingshelpers die sinds issue #29 in `namen` wonen: `_uri` schrijft een korte
 # klassenaam uit tot een GWSW-IRI, `_short` leest hem er weer uit terug. Ze stonden in
-# `klassen` en waren daarmee de reden dat drie modules die alleen wilden spellen een rand
-# naar de klassenlaag hielden. Net als `BESTAND_FUNCTIES` en `NETWERK_FUNCTIES` staan ze
-# hier als *snit* en niet als contract -- ze zijn privé en nlriochecker importeert ze niet.
+# `klassen`, en daardoor liep het spellen van twee andere modules (`inlezen` en `dataset`)
+# langs de klassenlaag. Net als `BESTAND_FUNCTIES` en `NETWERK_FUNCTIES` staan ze hier als
+# *snit* en niet als contract -- ze zijn privé en nlriochecker importeert ze niet.
 NAAMHELPERS = ("_short", "_uri")
 
 
@@ -126,6 +126,22 @@ def _clipbronnen() -> dict[str, str]:
         module = importlib.import_module(f"gwsw_orox_helpers.clip.{naam}")
         bronnen_[f"clip.{naam}"] = inspect.getsource(module)
     return bronnen_
+
+
+def _gepunt(knoop: ast.expr) -> str:
+    """De gepunte naam waarop een attribuut wordt opgevraagd (`gwsw_orox_helpers.klassen`).
+
+    Alles wat geen naam of attribuutketting is -- een aanroep, een index -- levert de lege
+    string, en die valt bij de aanroeper vanzelf buiten de toegestane verzameling.
+    """
+    delen: list[str] = []
+    while isinstance(knoop, ast.Attribute):
+        delen.append(knoop.attr)
+        knoop = knoop.value
+    if not isinstance(knoop, ast.Name):
+        return ""
+    delen.append(knoop.id)
+    return ".".join(reversed(delen))
 
 
 def _pakketimporten(bron: str) -> set[str]:
@@ -599,26 +615,42 @@ def test_de_netwerksnit_ligt_vast() -> None:
 def test_de_namensnit_ligt_vast() -> None:
     """De twee spellingshelpers wonen in `namen`, en `namen` blijft een blad (issue #29).
 
-    Vier dingen tegelijk, elk op de AST. Dat `namen` geen enkele module van de package
-    importeert -- dat is wat hem een blad maakt en wat elke andere laag toestaat hem te
-    lezen zonder iets binnen te halen. Dat `_short` en `_uri` er *staan*. Dat geen tweede
-    module ze definieert: een teruggekopieerde `rsplit` levert overal hetzelfde antwoord
-    op, dus geen enkele gedragstest zou daarvan omvallen, en dan spelt de package zijn
-    IRI's op twee plekken. En dat wie ze gebruikt, ze bij `namen` haalt: ze stonden in
-    `klassen`, en een her-import daarlangs zou de rand die deze verhuizing weghaalt stil
-    terugzetten -- `inlezen` en `dataset` hielden hem puur om te kunnen spellen.
+    Vier dingen tegelijk. Dat `namen` geen enkele module van de package importeert -- dat
+    is wat hem een blad maakt en wat elke andere laag toestaat hem te lezen zonder iets
+    binnen te halen. Dat `_short` en `_uri` er *staan*. Dat geen tweede module ze
+    definieert: een teruggekopieerde `rsplit` levert overal hetzelfde antwoord op, dus
+    geen enkele gedragstest zou daarvan omvallen, en dan spelt de package zijn IRI's op
+    twee plekken. En dat wie ze gebruikt, ze bij `namen` haalt en niet bij `klassen`, waar
+    ze stonden.
+
+    Die vierde gaat *niet* over een rand die verdwijnt -- er verdwijnt er geen, `inlezen`
+    houdt `klassen` nodig voor `_afsluiting` en `dataset` voor tien andere namen. Hij gaat
+    over de reden dat de verhuizing iets oplevert: wie voortaan alleen wil spellen, hoeft
+    de klassenlaag niet binnen te halen, en dat blijft alleen waar zolang niemand de oude
+    route weer gebruikt.
 
     Wat hier bewust *niet* staat: dat `klassen` ze niet meer kent. Hij is zelf een
     gebruiker (`_afsluiting` roept `_uri` aan, `_kenmerk_properties` en `_klassefuncties`
-    roepen `_short` aan), dus ze staan met recht in zijn namespace. De vierde assert is
-    het scherpere antwoord op dezelfde vraag: hij mag ze importeren, maar alleen bij de
-    bron.
+    roepen `_short` aan), dus ze staan met recht in zijn namespace en `from
+    gwsw_orox_helpers.klassen import _short` blijft van buiten de package gewoon werken.
+    Wat deze test afdwingt is smaller en eerlijker: *binnen* de package gaat niemand meer
+    die weg.
+
+    De drie sweeps kijken naar de boom en niet naar de regels, en ze vangen elk een vorm
+    die een naïeve variant zou missen: een her-definitie als toewijzing (`_short = ...`)
+    naast een `def`, en een gebruik via de module (`klassen._short(...)`) naast een
+    `from ... import _short`. Juist die tweede is de makkelijke terugval -- `_pakketimporten`
+    hierboven documenteert bij zijn eigen sweep al dat een moduleimport langs een
+    naamgerichte controle glipt. De laatste assert is de runtime-tegenhanger: een naam die
+    ná de import herbonden wordt (een blijven staan monkeypatch, een `globals()`-toewijzing)
+    is aan de AST niet te zien, en `is` toetst dat het echt hetzelfde object is.
 
     Net als bij `bestand` en `netwerk` hoort `namen` in `cache.LADERMODULES`; hij stond er
     al, en `tests/test_cache.py::test_de_ladermodulelijst_dekt_de_hele_leeslaag` bewaakt
     dat er geen module buiten valt.
     """
-    from gwsw_orox_helpers import klassen, namen
+    from gwsw_orox_helpers import dataset as dataset_module
+    from gwsw_orox_helpers import inlezen, klassen, namen
 
     assert _pakketimporten(inspect.getsource(namen)) == set(), (
         "`namen` is een blad: hij spelt alleen tekst en importeert niets uit de package"
@@ -630,31 +662,48 @@ def test_de_namensnit_ligt_vast() -> None:
     for pad in sorted(pakket.rglob("*.py")):
         naam = pad.relative_to(pakket).with_suffix("").as_posix().replace("/", ".")
         boom = ast.parse(pad.read_text(encoding="utf-8"))
-        definieert[naam] = {
-            knoop.name
-            for knoop in ast.walk(boom)
-            if isinstance(knoop, ast.FunctionDef | ast.AsyncFunctionDef)
-            and knoop.name in NAAMHELPERS
-        }
+        eigen: set[str] = set()
         for knoop in ast.walk(boom):
-            if isinstance(knoop, ast.ImportFrom) and any(
+            if isinstance(knoop, ast.FunctionDef | ast.AsyncFunctionDef):
+                if knoop.name in NAAMHELPERS:
+                    eigen.add(knoop.name)
+            elif isinstance(knoop, ast.Assign | ast.AnnAssign | ast.NamedExpr):
+                # Een `def` is niet de enige manier om er een tweede te maken.
+                doelen = knoop.targets if isinstance(knoop, ast.Assign) else [knoop.target]
+                eigen.update(
+                    doel.id
+                    for doel in doelen
+                    if isinstance(doel, ast.Name) and doel.id in NAAMHELPERS
+                )
+            elif isinstance(knoop, ast.ImportFrom) and any(
                 alias.name in NAAMHELPERS for alias in knoop.names
             ):
-                haalt_bij.setdefault(naam, set()).add(knoop.module or "")
+                herkomst = knoop.module or ""
+                if knoop.level:  # `from ..namen import _short`, binnen `clip/`
+                    herkomst = f"gwsw_orox_helpers.{herkomst}"
+                haalt_bij.setdefault(naam, set()).add(herkomst)
+            elif isinstance(knoop, ast.Attribute) and knoop.attr in NAAMHELPERS:
+                haalt_bij.setdefault(naam, set()).add(_gepunt(knoop.value))
+        definieert[naam] = eigen
 
     assert definieert.pop("namen") == set(NAAMHELPERS)
     tweede = {naam: gevonden for naam, gevonden in definieert.items() if gevonden}
     assert tweede == {}, f"{tweede} spelt zijn IRI's zelf; dat hoort `namen` één keer te doen"
 
+    bij_de_bron = {"namen", "gwsw_orox_helpers.namen"}
     verkeerd = {
-        naam: gevonden
+        naam: sorted(gevonden - bij_de_bron)
         for naam, gevonden in haalt_bij.items()
-        if gevonden != {"gwsw_orox_helpers.namen"}
+        if not gevonden <= bij_de_bron
     }
     assert verkeerd == {}, f"{verkeerd} haalt `_short`/`_uri` niet bij `namen`"
 
     for helper in NAAMHELPERS:
-        assert getattr(klassen, helper) is getattr(namen, helper)
+        bron = getattr(namen, helper)
+        for gebruiker in (klassen, inlezen, dataset_module):
+            gevonden_helper = getattr(gebruiker, helper, None)
+            if gevonden_helper is not None:  # `inlezen` gebruikt alleen `_short`
+                assert gevonden_helper is bron, f"{gebruiker.__name__}.{helper} is een ander object"
 
 
 def test_de_clipsubmodules_houden_de_importrichting() -> None:

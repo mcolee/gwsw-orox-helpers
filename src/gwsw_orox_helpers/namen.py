@@ -9,12 +9,14 @@ projectafspraak en staat in `CLAUDE.md`.
 
 Sinds issue #29 staat hier ook het *spellen zelf*: `_uri` schrijft een korte klassenaam
 uit tot een GWSW-IRI en `_short` leest hem er weer uit terug. Ze stonden in `klassen`, en
-dat maakte van elke module die alleen wilde spellen een lezer van de klassenlaag --
-`inlezen` importeerde `_short` puur om een type te trimmen. Het zijn twee `rsplit`-en op
-een string: ze horen bij de IRI's die ze uit elkaar halen, niet bij de afsluitingen.
+dat liet het spellen van `inlezen` en `dataset` langs de klassenlaag lopen -- `inlezen`
+haalt met `_short` de korte naam van een soort, een referentie of een klasse. Het zijn
+twee `rsplit`-en op een string: ze horen bij de IRI's die ze uit elkaar halen, niet bij de
+afsluitingen.
 
-Alleen tekst, en geen enkele import. De lagen rekenen in verschillende munteenheden -- de
-leeslaag in rdflib-termen, de schrijf- en cliplaag in pyoxigraph-termen -- en die
+Alleen tekst -- die twee `rsplit`-en meegerekend -- en geen enkele import. De lagen rekenen
+in verschillende munteenheden -- de leeslaag in rdflib-termen, de schrijf- en cliplaag in
+pyoxigraph-termen -- en die
 vertaling hoort bij de laag die haar nodig heeft (`inlezen` maakt er `URIRef`-en van,
 `clip` `NamedNode`-en). Zouden de termen hier al gemaakt worden, dan bond deze module
 elke laag aan de bibliotheek van de andere.

@@ -37,10 +37,9 @@ from gwsw_orox_helpers.geometry import (
 from gwsw_orox_helpers.graaf import GraafIndex, _uriref_snel
 from gwsw_orox_helpers.klassen import _afsluiting
 
-# Naast `from gwsw_orox_helpers import namen` hierboven, en met opzet: `_short` staat in de
-# hete lus (per aspect en per object, op een gemeentebrede export honderdduizenden keren)
-# en een `namen._short(...)` zou daar een attribuutopzoeking per aanroep bij zetten. Het
-# is dezelfde functie; alleen de naam is hier lokaal.
+# Als naam en niet als `namen._short`, ook al staat `namen` hierboven al als module: zo
+# blijven de aanroepen hieronder letterlijk wat ze waren toen `_short` nog uit `klassen`
+# kwam. Het is dezelfde functie -- `test_de_namensnit_ligt_vast` toetst dat met `is`.
 from gwsw_orox_helpers.namen import _short
 
 # `RDF.type` en `RDFS.label` zijn geen attributen maar een `__getattr__` op rdflib's

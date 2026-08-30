@@ -6,15 +6,21 @@
   importeert geen van beide, geverifieerd met de AST-sweep uit de docstring van
   `tests/test_publieke_api.py`). Ze zijn **byte-identiek** verplaatst: 0 verschillen in
   brontekst én in `ast.dump` tegenover db9bcc9. `klassen`, `inlezen` en `dataset` halen ze
-  voortaan bij `namen`; er is geen her-export via `klassen`, zodat de oude route niet stil
-  terug kan komen. Aan de lagentabel verandert niets — geen enkele rand valt weg, want
-  `inlezen` houdt `klassen` nodig voor `_afsluiting` en `dataset` voor tien andere namen —
-  maar het gewicht van die randen daalt (`inlezen -> klassen` van twee namen naar één,
-  `dataset -> klassen` van twaalf naar tien) en wie voortaan alleen wil spellen, hoeft de
-  klassenlaag niet meer binnen te halen. `namen` blijft een blad: nul pakketimporten.
+  voortaan bij `namen`. `klassen` bindt ze nog wel — hij is zelf een gebruiker — dus van
+  buiten de package blijft `from gwsw_orox_helpers.klassen import _short` werken; wat
+  vastligt is smaller en eerlijker: *binnen* de package gaat niemand meer die weg.
+  **Aan de lagentabel verandert niets.** Gemeten in pakketimporten per module: `namen`
+  0 → 0, `klassen` 3 → 3, `inlezen` 5 → 5, `dataset` 12 → 12. Geen enkele rand valt weg,
+  want `inlezen` houdt `klassen` nodig voor `_afsluiting` en `dataset` voor tien andere
+  namen. Wat wél daalt is het gewicht van die randen — `inlezen -> klassen` van twee
+  geïmporteerde namen naar één, `dataset -> klassen` van twaalf naar tien — en wie
+  voortaan alléén wil spellen, hoeft de klassenlaag niet meer binnen te halen. `namen`
+  blijft een blad: nul pakketimporten, geen rdflib, geen pyoxigraph.
   `test_de_namensnit_ligt_vast` bewaakt alle vier op de AST, inclusief de eis dat geen
   tweede module `_uri`/`_short` definieert — een teruggekopieerde `rsplit` geeft overal
-  hetzelfde antwoord en zou dus door geen enkele gedragstest opgemerkt worden. `namen`,
+  hetzelfde antwoord en zou dus door geen enkele gedragstest opgemerkt worden. De sweep
+  kijkt daarbij ook naar de vormen die een naamgerichte controle mist: een her-definitie
+  als toewijzing en een gebruik via de module (`klassen._short(...)`). `namen`,
   `klassen`, `inlezen` en `dataset` staan alle vier in `cache.LADERMODULES`, dus **de
   cachesleutel roteert**: bestaande caches worden één keer opnieuw opgebouwd en zijn
   daarna weer een treffer. Dat is de bedoelde werking van een sleutel die bestanden hasht

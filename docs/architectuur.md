@@ -66,17 +66,14 @@ want een teruggekopieerde wandeling laat elke gedragstest groen.
 **`namen` spelt sinds issue #29 twee kanten op.** `_uri` (korte klassenaam → GWSW-IRI) en
 `_short` (het omgekeerde) stonden in `klassen` en zijn twee `rsplit`-en op een string:
 geen klassenkennis, geen graaf, geen rdflib. Ze horen bij de IRI's die ze uit elkaar
-halen. Aan de *tekening* verandert dat niets -- geen enkele rand valt weg -- en dat is
-geen tegenvaller maar de meting: `inlezen` importeerde `_short` puur om een type te
-trimmen, maar houdt `klassen` nodig voor `_afsluiting`, en `dataset` haalt er nog tien
-andere namen. Wat wél verschuift is het gewicht van die randen (`inlezen -> klassen` van
-twee namen naar één, `dataset -> klassen` van twaalf naar tien) en wie er in de toekomst
-alleen wil spellen: die hoeft de klassenlaag niet meer binnen te halen.
-`test_de_namensnit_ligt_vast` in `tests/test_publieke_api.py` legt vier dingen op de AST
-vast: dat `namen` geen enkele pakketimport heeft, dat de twee helpers er staan, dat geen
-tweede module ze definieert (een teruggekopieerde `rsplit` geeft overal hetzelfde antwoord
-en zou dus door geen enkele gedragstest opgemerkt worden) en dat elke gebruiker ze bij
-`namen` haalt in plaats van via een her-import langs `klassen`.
+halen. Aan de tekening hierboven verandert dat **niets** -- geen enkele rand valt weg,
+want `inlezen` houdt `klassen` nodig voor `_afsluiting` en `dataset` voor tien andere
+namen. Wat het oplevert is dat een module die alléén wil spellen de klassenlaag niet meer
+hoeft binnen te halen. `test_de_namensnit_ligt_vast` in `tests/test_publieke_api.py` legt
+dat vast: `namen` zonder pakketimport, de twee helpers erin, geen tweede module die ze
+definieert (een teruggekopieerde `rsplit` geeft overal hetzelfde antwoord en zou dus door
+geen gedragstest opvallen) en geen gebruiker binnen de package die ze nog via `klassen`
+haalt.
 
 `rdfmotor` ligt naast `codering`: allebei bladeren op `errors` na, en allebei door de
 leesweg én de schrijfweg gebruikt. De cliplaag komt er niet langs -- die parseert en
@@ -247,8 +244,8 @@ die anders uit elkaar loopt, en die staat één keer:
 | Gedeelde kennis | Woont in | Gelezen door |
 |---|---|---|
 | De aanroep van de motor zelf: `pyoxigraph.parse` en `pyoxigraph.serialize` op Turtle, plus de reeks pyoxigraph-versies waarop de package getoetst is | `rdfmotor` | `bestand._parse` (bytes), `schrijven.lees_orox` (een pad, of tekst bij een terugvalcodering) en `schrijven.schrijf_orox_quads` (de serializer) |
-| De IRI's: `GWSW` en de naamruimten, `hasAspect`/`hasPart`/`hasConnection`, `geo:gmlLiteral` | `namen` (tekst) | `inlezen` (als `URIRef`), `clip.termen` (als `NamedNode`), `clip.plan`/`clip.stroom`/`clip.merge` (als tekst), `schrijven` (prefixkop), `graaf` (`xsd:string`), `ontologie`, `klassen` en `dataset` (via `_uri`/`_short`), `dataset` (`GWSW`, en het exporteert hem) |
-| Het spellen van een korte klassenaam heen en terug (`_uri`, `_short`) | `namen` | `klassen` (`_afsluiting`, `_kenmerk_properties`, `_klassefuncties`), `inlezen` (het type van een aspect trimmen), `dataset` (`beheerobjecttype`, `is_connection_class`) |
+| De IRI's: `GWSW` en de naamruimten, `hasAspect`/`hasPart`/`hasConnection`, `geo:gmlLiteral` | `namen` (tekst) | `inlezen` (als `URIRef`), `clip.termen` (als `NamedNode`), `clip.plan`/`clip.stroom`/`clip.merge` (als tekst), `schrijven` (prefixkop), `graaf` (`xsd:string`), `ontologie`, `dataset` (`GWSW`, en het exporteert hem) |
+| Het spellen van een korte klassenaam heen en terug (`_uri`, `_short`) | `namen` | `klassen` (`_afsluiting`, `_kenmerk_properties`, `_klassefuncties`), `inlezen` (de korte naam van een soort, een referentie of een klasse), `dataset` (`beheerobjecttype`, `is_connection_class`) |
 | De prefixkop van een OroX-export | `schrijven.STANDAARD_PREFIXEN`, opgebouwd uit `namen` | `schrijven`, `clip.orkest` (krijgt ze via `lees_orox` en vult `knip:` aan) |
 | UTF-8 met terugvalcodering, inclusief beide foutmeldingen | `codering.decodeer` | `bestand._decode`, `schrijven._gedecodeerd` |
 | Het verslag van zo'n terugval (`DecodeFallback`) | `codering.terugvalverslag` | alleen `bestand` |

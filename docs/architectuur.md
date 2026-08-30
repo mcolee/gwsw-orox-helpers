@@ -38,11 +38,14 @@ __init__   -> clip, schrijven
 `bestand` en `inlezen` zijn sinds issue #26 twee rijen en niet één. Ze deelden alleen de
 `GraafIndex`: `bestand` máákt er een (de bytes van schijf, de codering, de parser en de
 procesbrede GC eromheen), `inlezen` bevráágt hem (hasPart/hasAspect, de kenmerklezers,
-`_read_nodes` en `_read_conduits`). Er loopt daarom géén rand tussen de twee -- `inlezen`
-importeert `bestand` niet en her-exporteert hem ook niet; `dataset` haalt `_parse` en
-`_gc_uit` rechtstreeks bij `bestand`. Dat is wat het testen van de lezers van echte
-bestanden losmaakt, en `test_de_bestandssnit_ligt_vast` in `tests/test_publieke_api.py`
-legt de vier namen, de toegestane imports en die ontbrekende rand vast.
+`_read_nodes` en `_read_conduits`). Let op wat die twee rijen wél en niet zeggen:
+`bestand` staat *onder* `inlezen` omdat hij alleen op de bladeren leunt, maar er loopt
+géén rand tússen de twee -- `inlezen` importeert `bestand` niet en her-exporteert hem ook
+niet; `dataset` haalt `_parse` en `_gc_uit` rechtstreeks bij `bestand`. De volgorde is
+hier dus een rangschikking en geen afhankelijkheid. Dat is wat het testen van de lezers
+van echte bestanden losmaakt, en `test_de_bestandssnit_ligt_vast` in
+`tests/test_publieke_api.py` legt de vier namen, de toegestane imports en die ontbrekende
+rand vast.
 
 `rdfmotor` ligt naast `codering`: allebei bladeren op `errors` na, en allebei door de
 leesweg én de schrijfweg gebruikt. De cliplaag komt er niet langs -- die parseert en
@@ -215,7 +218,7 @@ die anders uit elkaar loopt, en die staat één keer:
 | De IRI's: `GWSW` en de naamruimten, `hasAspect`/`hasPart`/`hasConnection`, `geo:gmlLiteral` | `namen` (tekst) | `inlezen` (als `URIRef`), `clip.termen` (als `NamedNode`), `clip.plan`/`clip.stroom`/`clip.merge` (als tekst), `schrijven` (prefixkop), `graaf` (`xsd:string`), `ontologie`, `klassen` (`GWSW`, voor de korte namen), `dataset` (`GWSW`, en het exporteert hem) |
 | De prefixkop van een OroX-export | `schrijven.STANDAARD_PREFIXEN`, opgebouwd uit `namen` | `schrijven`, `clip.orkest` (krijgt ze via `lees_orox` en vult `knip:` aan) |
 | UTF-8 met terugvalcodering, inclusief beide foutmeldingen | `codering.decodeer` | `bestand._decode`, `schrijven._gedecodeerd` |
-| Het verslag van zo'n terugval (`DecodeFallback`) | `codering.terugvalverslag` | alleen `inlezen` |
+| Het verslag van zo'n terugval (`DecodeFallback`) | `codering.terugvalverslag` | alleen `bestand` |
 | De GML-lezers | `geometry` | `inlezen` (`parse_gml_met_z`), `clip.knip`, `clip.plan`, `clip.merge` (`parse_gml` / `parse_gml_z`), `dataset` (doorgeefluik) |
 | De tekstkant van diezelfde literaal: de coordinatenlijst als tokens, het terugleggen ervan in het omhulsel, en hoeveel getallen er op een punt gaan (`coordinaattokens`, `vervang_coordinaten`, `tokens_per_punt`) | `geometry` | `clip.knip` (de knip), `clip.stroom` (het stuk wegschrijven), `clip.merge` (de omkering) |
 | De `knip:`-naamruimte en de stuknamen (`<origineel>__knip<k>`) | `clip.termen` | `clip.plan`, `clip.stroom`, `clip.merge`, `clip.orkest` |
@@ -296,7 +299,7 @@ valt pas op als de twee lagen dezelfde bron verschillend lezen, en dan is het te
 
 ## `dataset` is het gezicht, niet de bak
 
-De leeslaag is intern in vier modules verdeeld (`domein`, `inlezen`, `klassen`,
+De leeslaag is intern in vijf modules verdeeld (`domein`, `bestand`, `inlezen`, `klassen`,
 `codering`), maar **het oppervlak ligt in `dataset`**: elke naam die nlriochecker uit
 `gwsw_orox_helpers.dataset` importeert komt daar naar buiten, met dezelfde handtekening
 en hetzelfde gedrag. Dat is een Harde regel uit `CLAUDE.md` en `tests/test_publieke_api.py`

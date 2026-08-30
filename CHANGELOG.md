@@ -18,8 +18,13 @@
   `docs/architectuur.md` draagt de nieuwe rij in de lagentabel. `bestand` staat in
   `cache.LADERMODULES`, zoals elke leeslaagmodule: de sleutel hasht bestanden en niet
   functies, dus **bestaande caches worden één keer opnieuw opgebouwd** — de bedoelde
-  werking van een hersnit en geen gedragswijziging. Geen perf-claim; gepaard nagemeten op
-  de De Wolden- en Hoogeveen-export lag `load_dataset` binnen de ruis van bea76a7.
+  werking van een hersnit en geen gedragswijziging. **Geen perf-claim, en er valt niets te
+  meten**: elke verplaatste functie is AST-gelijk, dus de hete lus voert exact dezelfde
+  bytecode uit; wat erbij komt is één module-import bij het laden van de package. Als
+  regressiecheck wél gepaard nagemeten op de De Wolden- en Hoogeveen-export
+  (`scripts/benchmark.py --paden load_dataset --herhalingen 3`, back-to-back): mediaan
+  20,11 s vóór tegen 20,28 s ná en een piek van 1220 tegen 1219 MiB — ruis — met een
+  identieke lezing (1.877.729 triples, 23.485 knopen, 23.440 strengen).
 - `cache.LuieGraaf` draagt het leescontract expliciet (issue #34, typeveiligheid;
   **additief** — geen bevroren contract geraakt). De vijf bewerkingen die `GraafIndex`
   aanbiedt (`objects`, `subjects`, `value`, `subject_objects`, `heeft_subject`) staan nu
@@ -94,7 +99,7 @@
   en ze per ronde afwisselt. **Twee dingen die wél veranderen en geen antwoord zijn**:
   `_uriref_snel` slaat `_is_valid_uri` over, dus een misvormde IRI levert op deze twee
   opvraagplekken geen `logger.warning` meer op (bij het vullen was die er al niet — zie
-  `inlezen._quiet_rdflib`), en een aanroep met een niet-`str` liep vroeger op een
+  `bestand._quiet_rdflib`), en een aanroep met een niet-`str` liep vroeger op een
   `TypeError` stuk waar hij nu een misser geeft. Allebei buiten de getypeerde afspraak,
   allebei genoteerd in de docstring van `_uriref_snel`. **Cachesleutel**: `dataset`,
   `inlezen` en `graaf` staan alle drie in `cache.LADERMODULES`, dus deze wijziging
@@ -130,7 +135,7 @@
   als `restrictiebron` opbouwt en daarna weggooit; wie de lezers van `ontologie`
   (`facetbereik`, `datatype_van_kenmerk`, `kenmerkbereik`, `verwachte_property`,
   `functie_van_klasse`) op een geladen dataset wil gebruiken, hoefde daarvoor tot nu toe
-  `inlezen._parse` na te bootsen — en die is privé. De padkeuze is die van
+  `bestand._parse` na te bootsen — en die is privé. De padkeuze is die van
   `ontologiepaden`: `None` is de gebundelde GWSW 1.6, een lege lijst is de expliciete
   keuze om zonder ontologie te lezen, meerdere bestanden stapelen in volgorde in één
   index. **Gemeten**: de gebundelde ontologie levert 63.614 triples (het getal uit #19,
@@ -218,7 +223,7 @@
   graafvorm die de lader levert* en niet gebruik: binnen deze package roept nog niets in
   `src/` deze drie lezers aan — zij zijn er voor nlriochecker. Drie nieuwe tests lezen die
   hele populatie langs allebei de wegen en vergelijken de uitkomsten woordelijk; de
-  `GraafIndex` erin komt uit `inlezen._parse` op de gebundelde ontologie, dus dat is de
+  `GraafIndex` erin komt uit `bestand._parse` op de gebundelde ontologie, dus dat is de
   leesweg zelf en geen nabootsing. De derde pint meteen `verwachte_property` en
   `functie_van_klasse` over alle 2.087 `owl:Class`en vast — die twee namen allebei de
   vormen al, maar dat stond alleen op een fixture van vijf klassen vast. Ook de
@@ -251,7 +256,7 @@
   handtekeningen iets anders te veranderen dan de naam van het type.
 - Eén naad naar pyoxigraph: de nieuwe interne module `gwsw_orox_helpers.rdfmotor`
   (issue #18, upgradebaarheid; geen gedragswijziging). **Alle vier de parse/serialize-
-  callsites gaan er nu doorheen** — `inlezen._parse` (bytes), `schrijven.lees_orox` (een
+  callsites gaan er nu doorheen** — `bestand._parse` (bytes), `schrijven.lees_orox` (een
   pad, of tekst bij een `fallback_encoding`) en `schrijven.schrijf_orox_quads` (de
   serializer) — waar er vier keer een eigen `pyoxigraph.parse(...)` /
   `pyoxigraph.serialize(...)` met `RdfFormat.TURTLE` stond. Na de wijziging staat
@@ -275,7 +280,7 @@
   `test_een_str_pad_leest_het_bestand_en_niet_de_padtekst`. De adapter is verder een
   doorgeefluik: hij vangt niets af, dus `OSError`, de
   syntaxfout van de motor en een fout uit een luie quadstroom komen er onveranderd uit
-  en `inlezen._parse`, `schrijven._gecontroleerd` en `schrijf_orox_quads` houden hun
+  en `bestand._parse`, `schrijven._gecontroleerd` en `schrijf_orox_quads` houden hun
   eigen, contractvaste `DatasetError`-teksten. De **term-fabrieken** (`NamedNode`,
   `BlankNode`, `Literal`, `Quad`, `Triple`) gaan er met opzet *niet* doorheen: die staan
   op tientallen plekken in `clip/` en `graaf`, zijn sinds 0.3 ongewijzigd, en een wrapper
@@ -288,7 +293,7 @@
   omzeilde cap (`pip install --no-deps`, conda, een handmatige upgrade) — en
   `test_de_reeks_is_dezelfde_als_de_cap_in_pyproject` knoopt de twee aan elkaar zodat ze
   niet uit elkaar lopen. Bij import en niet per aanroep, omdat de fout aan de aanroepkant
-  in de `except Exception` van `inlezen._parse` zou belanden en er als "geen geldige
+  in de `except Exception` van `bestand._parse` zou belanden en er als "geen geldige
   Turtle" uit zou komen. Gevolg voor de auteur om te weten: `import gwsw_orox_helpers` kan
   daardoor met een `DatasetError` falen in plaats van te slagen — alleen op een pyoxigraph
   buiten de reeks, waar het alternatief een rauwe `TypeError` bij de eerste quad is.

@@ -69,10 +69,12 @@ CLIPLAGEN = ("termen", "grenzen", "knip", "plan", "stroom", "merge", "orkest")
 # de procesbrede GC -- en `inlezen` houdt de domeinlezers, die uitsluitend een gevulde
 # `GraafIndex` consumeren. Alle vier de namen zijn privé; ze staan hier niet als contract
 # maar als *snit*, net als `CLIPLAGEN` hierboven.
-BESTANDSNAMEN = ("_decode", "_gc_uit", "_parse", "_quiet_rdflib")
+BESTAND_FUNCTIES = ("_decode", "_gc_uit", "_parse", "_quiet_rdflib")
 
-# De modules die `bestand` mag zien. Hij ligt onder `inlezen` en weet dus niets van de
-# lezers, van `dataset` of van `cache`; wat hij nodig heeft zijn de bladeren eronder.
+# De modules die `bestand` mag zien. Hij staat in de lagentabel onder `inlezen` omdat hij
+# alleen op deze bladeren leunt, en hij weet dus niets van de lezers, van `dataset` of van
+# `cache`. Tussen `bestand` en `inlezen` loopt géén rand: die volgorde is een
+# rangschikking en geen afhankelijkheid (zie `docs/architectuur.md`, "De lagen").
 BESTAND_MAG_IMPORTEREN = frozenset({"codering", "errors", "graaf", "rdfmotor"})
 
 # De enige modules van de package die de cliplaag mag importeren. `dataset`, `graaf`,
@@ -462,10 +464,16 @@ def test_de_bestandssnit_ligt_vast() -> None:
     Drie dingen tegelijk, elk op de AST en niet op de tekst. Welke functies `bestand`
     draagt -- precies de vier, niet meer -- zodat een domeinlezer er niet stilzwijgend bij
     komt te staan. Dat `inlezen` ze niet meer kent, ook niet als her-import: hij raakt geen
-    bestand meer aan, en dat is de winst van de snit. En de importrichting: `bestand` ligt
-    *onder* `inlezen` (hij mag op `codering`/`errors`/`graaf`/`rdfmotor` leunen) en
-    `inlezen` wijst niet terug naar beneden. Zou een van die twee randen omdraaien, dan zou
-    het testen van de lezers weer een echt bestand vergen.
+    bestand meer aan, en dat is de winst van de snit. En de importrichting: `bestand` leunt
+    alleen op de bladeren (`codering`, `errors`, `graaf`, `rdfmotor`) en er loopt geen rand
+    tússen hem en `inlezen` -- in geen van beide richtingen. Zou zo'n rand er alsnog komen,
+    dan zou het testen van de lezers weer een echt bestand vergen.
+
+    De importtoets is een **deelverzameling** en geen gelijkheid, net als bij
+    `CLIP_MAG_IMPORTEREN`: de constante is een toestemmingslijst ("mag importeren"), en een
+    gelijkheid zou een module rood maken die er met goede reden eentje minder nodig heeft.
+    Wat bewaakt moet worden is de andere kant -- een rand naar `inlezen`, `dataset` of
+    `cache` -- en die vangt de deelverzameling wél.
 
     Wat hier niet staat maar er wel bij hoort: `bestand` hoort in `cache.LADERMODULES`,
     anders blijft een cache na een wijziging aan het parseerpad de oude lezing teruggeven.
@@ -483,16 +491,16 @@ def test_de_bestandssnit_ligt_vast() -> None:
             if isinstance(knoop, ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef)
         )
     )
-    assert definities == BESTANDSNAMEN
+    assert definities == BESTAND_FUNCTIES
 
-    achtergebleven = sorted(naam for naam in BESTANDSNAMEN if naam in vars(inlezen))
+    achtergebleven = sorted(naam for naam in BESTAND_FUNCTIES if naam in vars(inlezen))
     assert achtergebleven == [], (
         f"{achtergebleven} hoort in `bestand` te wonen; `inlezen` leest geen bestanden meer"
     )
 
     assert _pakketimporten(inspect.getsource(bestand)) <= BESTAND_MAG_IMPORTEREN
     assert "bestand" not in _pakketimporten(inspect.getsource(inlezen)), (
-        "`bestand` ligt onder `inlezen`; die rand hoort niet terug te wijzen"
+        "tussen `bestand` en `inlezen` hoort geen rand te lopen, ook niet als her-import"
     )
 
 

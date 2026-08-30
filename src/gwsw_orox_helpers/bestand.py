@@ -2,11 +2,17 @@
 
 Alles wat een *bestand* aanraakt om die index te vullen staat hier: de bytes van schijf,
 de codering met haar terugval, de aanroep van de parser en het procesbrede neveneffect
-dat daaromheen hangt (de cyclische GC). `inlezen` staat ernaast en niet eronder: de
-domeinlezers daar bevragen uitsluitend een al gevulde `GraafIndex` en kennen geen paden,
-geen bytes en geen coderingen meer (issue #26). Die twee clusters deelden niets anders
-dan die index, en uit elkaar gehaald is het testen van de lezers geen kwestie van een
-echt bestand meer.
+dat daaromheen hangt (de cyclische GC). De domeinlezers van `inlezen` bevragen
+uitsluitend een al gevulde `GraafIndex` en kennen sinds issue #26 geen paden, geen bytes
+en geen coderingen meer. Die twee clusters deelden niets anders dan die index, en uit
+elkaar gehaald is het testen van de lezers geen kwestie van een echt bestand meer.
+
+**In de lagentabel staat deze module ónder `inlezen`, maar er loopt geen rand tússen de
+twee.** Onder, omdat hij alleen op de bladeren leunt (`codering`, `errors`, `graaf`,
+`rdfmotor`) en `inlezen` daar nog `domein`, `geometry`, `klassen` en `namen` bij heeft;
+géén rand, omdat geen van beide de ander importeert -- `dataset` haalt `_parse` en
+`_gc_uit` rechtstreeks hier op en `inlezen` her-exporteert ze niet.
+`test_de_bestandssnit_ligt_vast` bewaakt precies die twee dingen.
 
 **De leeskant van pyoxigraph.** `_parse` leest een TTL-bestand als quadstroom en vult
 daarmee een `GraafIndex` met rdflib-termen. Dat is bewust een ander pad dan dat van

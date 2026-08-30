@@ -217,7 +217,7 @@ def test_de_sleutel_verandert_mee_met_de_broncode_van_elke_ladermodule(
     dus vanzelf zijn geval erbij; wie een module uit de lijst haalt, verliest een geval en
     struikelt over `test_de_ladermodulelijst_dekt_de_hele_leeslaag`.
 
-    Wat elk van de tien bijdraagt staat bij `cache.LADERMODULES`; de gevoeligste zijn
+    Wat elk van de elf bijdraagt staat bij `cache.LADERMODULES`; de gevoeligste zijn
     `ontologie` (de `kenmerk_property` die `load_dataset` eruit afleidt en die mee gecachet
     wordt, ATTR-014) en `graaf` (de termconversie en volgordegarantie van de gepicklede
     `GraafIndex`).

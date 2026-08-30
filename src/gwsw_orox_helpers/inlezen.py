@@ -8,8 +8,10 @@ uitkomst aan; `domein` draagt de objecten die hier gevuld worden.
 **Het bestand zelf staat er niet meer in.** Het parsen, de codering en het procesbrede
 GC-neveneffect wonen sinds issue #26 in `bestand` (`_parse`, `_decode`, `_quiet_rdflib`,
 `_gc_uit`). De twee clusters deelden alleen de `GraafIndex`: wat hier staat krijgt die
-index gevuld aangeleverd en kent geen paden, geen bytes en geen coderingen. `bestand`
-ligt daarmee náást deze module en niet eronder -- er loopt geen rand tussen de twee, en
+index gevuld aangeleverd en kent geen paden, geen bytes en geen coderingen. In de
+lagentabel staat `bestand` ónder deze module -- hij leunt alleen op de bladeren -- maar
+er loopt geen rand tússen de twee: deze module importeert hem niet en her-exporteert hem
+niet, `dataset` haalt `_parse` en `_gc_uit` er rechtstreeks op.
 `test_de_bestandssnit_ligt_vast` houdt dat zo.
 
 De IRI's staan hier als `URIRef`, gemaakt uit de tekst in `namen`. Ze komen via `dataset`

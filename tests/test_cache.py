@@ -27,7 +27,18 @@ BUITEN_DE_SLEUTEL = {
     "__init__",  # alleen re-exports, geen leeslogica
     "bronnen",  # levert paden; de inhoud van die bestanden wordt zelf al gehasht
     "cache",  # de sleutel zelf; `LADER_VERSIE` is hier de knop om aan te draaien
-    "clip",  # eigen pad naast de leeslaag; raakt de gecachete lezing niet
+    # Het hele `clip`-package: eigen pad naast de leeslaag, raakt de gecachete lezing niet.
+    # Per submodule opgesomd en niet als voorvoegsel afgevangen -- `rglob` ziet elke module
+    # in een submap, en een nieuwe fase hoort zich hier net zo goed te melden als een
+    # nieuwe module in de wortel.
+    "clip.__init__",
+    "clip.grenzen",
+    "clip.knip",
+    "clip.merge",
+    "clip.orkest",
+    "clip.plan",
+    "clip.stroom",
+    "clip.termen",
     "errors",  # uitzonderingstypen; er wordt niets van gecachet
     "schrijven",  # idem als clip
     "voortgang",  # meldt alleen voortgang; de lezing verandert er niet van

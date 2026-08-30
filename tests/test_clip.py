@@ -1060,7 +1060,7 @@ def test_knippunt_zonder_bruikbare_hoogte_is_een_dataseterror() -> None:
     ook drie. Een verzonnen `0.00` in de delen zou wel meteen als NAP-hoogte gelezen
     worden, dus zegt de knip liever dat zijn aanname niet opgaat.
     """
-    from gwsw_orox_helpers.clip import _hoogte
+    from gwsw_orox_helpers.clip.knip import _hoogte
 
     with pytest.raises(DatasetError, match="geen hoogte"):
         _hoogte([0.0, 10.0], [None, None], 5.0)

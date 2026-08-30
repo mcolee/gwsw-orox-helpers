@@ -35,8 +35,10 @@ de foto.
 from __future__ import annotations
 
 import dataclasses
+import importlib
 import inspect
 import re
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -55,6 +57,31 @@ MODULES = {
 
 # Een default die een objectrepr is, draagt een geheugenadres; dat is geen contract.
 ADRES = re.compile(r" object at 0x[0-9a-f]+>")
+
+# De submodules van het `clip`-package, in de volgorde van de importrichting: een submodule
+# mag alleen naar een zuster *boven* zich wijzen. Zie de docstring van `gwsw_orox_helpers.clip`
+# en de lagentabel in `docs/architectuur.md`. Wie een fase toevoegt, hernoemt of verplaatst,
+# komt langs `test_de_clipsnit_ligt_vast` en `test_de_clipsubmodules_houden_de_importrichting`.
+CLIPLAGEN = ("termen", "grenzen", "knip", "plan", "stroom", "merge", "orkest")
+
+# De enige modules van de package die de cliplaag mag importeren. `dataset`, `graaf`,
+# `inlezen`, `klassen`, `ontologie` en `cache` staan er nadrukkelijk niet bij: de clip heeft
+# een eigen pad naast de leeslaag en bouwt geen domeinmodel.
+CLIP_MAG_IMPORTEREN = frozenset({"clip", "errors", "geometry", "namen", "schrijven"})
+
+# Een `from gwsw_orox_helpers.<module> import ...`-regel, ook met haakjes op vervolgregels.
+IMPORTREGEL = re.compile(r"^from gwsw_orox_helpers\.([A-Za-z_.]+) import", re.MULTILINE)
+
+
+def _clipbronnen() -> dict[str, str]:
+    """De broncode van het clip-package en van elke submodule, per naam."""
+    from gwsw_orox_helpers import clip
+
+    bronnen_ = {"clip": inspect.getsource(clip)}
+    for naam in CLIPLAGEN:
+        module = importlib.import_module(f"gwsw_orox_helpers.clip.{naam}")
+        bronnen_[f"clip.{naam}"] = inspect.getsource(module)
+    return bronnen_
 
 
 def _op(naam: str) -> Any:
@@ -326,7 +353,51 @@ def test_cliplaag_is_additief() -> None:
 
     assert gwsw_orox_helpers.clip_orox is clip.clip_orox
     assert gwsw_orox_helpers.merge_orox is clip.merge_orox
-    # De clip hangt net zomin aan de leeslaag; alleen de GML-lezers worden gedeeld.
-    bron = inspect.getsource(clip)
-    assert "from gwsw_orox_helpers.dataset import" not in bron
+    # De clip hangt net zomin aan de leeslaag; alleen de GML-lezers worden gedeeld. Sinds de
+    # hersnit is `clip` een package, dus de vraag geldt niet alleen aan het oppervlak maar aan
+    # elke submodule: een enkele `from ...dataset import` in een fase zou de laag alsnog op de
+    # leeslaag laten hangen zonder dat het her-exporterende `__init__.py` er iets van laat zien.
+    for naam, bron in _clipbronnen().items():
+        assert "from gwsw_orox_helpers.dataset import" not in bron, naam
+
+
+def test_de_clipsnit_ligt_vast() -> None:
+    """Het clip-package bestaat uit precies deze fasen, elk in een eigen submodule."""
+    from gwsw_orox_helpers import clip
+
+    pakket = Path(clip.__file__ or "").parent
+    aanwezig = {pad.stem for pad in pakket.glob("*.py")} - {"__init__"}
+
+    assert aanwezig == set(CLIPLAGEN)
+    # Het `__init__.py` is dun: het draagt het verhaal en de her-export, geen fase.
+    kop = inspect.getsource(clip)
+    assert clip.__doc__ is not None and len(clip.__doc__.splitlines()) > 50, (
+        "het verhaal van de clip hoort in de package-docstring te blijven staan"
+    )
+    assert "def " not in kop, "een functiedefinitie in __init__.py hoort in een fase te staan"
+
+
+def test_de_clipsubmodules_houden_de_importrichting() -> None:
+    """Elke fase importeert alleen de bladeren onder de cliplaag en zusters boven zich.
+
+    Twee dingen tegelijk, en allebei aan de brontekst: welke modules van de package een fase
+    mag zien (`CLIP_MAG_IMPORTEREN` -- geen `dataset`/`graaf`/`inlezen`/`cache`), en dat de
+    zusterranden binnen het package een richting houden. Die richting is de volgorde van
+    `CLIPLAGEN`: `termen` weet van niemand, `orkest` weet van iedereen. Zonder deze test kan
+    een fase stil een lus met een andere sluiten, en dan is de hersnit weer een bak.
+    """
+    for naam, bron in _clipbronnen().items():
+        eigen = naam.removeprefix("clip.") if naam != "clip" else None
+        for pad in IMPORTREGEL.findall(bron):
+            kop, *rest = pad.split(".")
+            assert kop in CLIP_MAG_IMPORTEREN, f"{naam} importeert {pad}"
+            if kop != "clip" or not rest:
+                continue
+            zuster = rest[0]
+            assert zuster in CLIPLAGEN, f"{naam} importeert onbekende zuster {zuster}"
+            if eigen is None:  # __init__.py mag elke fase her-exporteren
+                continue
+            assert CLIPLAGEN.index(zuster) < CLIPLAGEN.index(eigen), (
+                f"{naam} importeert {zuster}, dat onder hem ligt; de importrichting draait om"
+            )
     assert "from gwsw_orox_helpers.graaf import" not in bron

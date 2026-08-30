@@ -93,7 +93,7 @@ Elke module beantwoordt één vraag; in deze volgorde heeft niets ooit iets van 
 | `klassen` | Wat volgt daaruit? (subklasse-afsluiting, `kenmerk_property`, functies) |
 | `domein` | Wat *is* een knoop of streng? (waardeobjecten, zonder graaf) |
 | `inlezen` | Hoe vul je die objecten uit een graaf? (parsen, hasPart/hasAspect, lezers) |
-| `dataset` | Wat kun je een ingelezen dataset vragen? (`GwswDataset`, `load_dataset`) |
+| `dataset` | Wat kun je een ingelezen dataset vragen? (`GwswDataset`, `load_dataset`, `lees_ontologie`) |
 | `cache` | Hoe sla je die lezing over? (pickle, sleutel op inhoud én broncode) |
 | `schrijven` | Hoe komt een quadstroom er als OroX-Turtle weer uit? |
 | `clip` | Hoe verdeel je die stroom over vlakken, en hoe draai je dat terug? (package) |
@@ -161,14 +161,19 @@ Wat er **niet** mee verschoven is, en bewust niet: de gepinde
 op `LuieGraaf` in `cache` staat er ook nog. Die handtekeningen liggen vast in
 `tests/test_publieke_api.py` en zijn een auteursbeslissing (`CLAUDE.md`, Harde regels).
 
-Eén stap is er bewust *niet* gezet. `load_dataset` bouwt de ontologie-`GraafIndex` als
-lokale `restrictiebron` (`dataset.py`, in `load_dataset`) en bewaart hem niet: `GwswDataset`
-draagt alleen de kleine afgeleide woordenboeken (`subclasses`, `kenmerk_property`,
-`functie_per_klasse`) en zijn `graph` is de *dataset*graaf, niet de ontologie. Een afnemer
-die de gedeclareerde bereiken op een geladen dataset wil opvragen, leest de ontologie dus
-nog altijd zelf in. Dat dichten vraagt een veld bij `GwswDataset`, en die handtekening is
-gepind in `tests/test_publieke_api.py`: een auteursbeslissing volgens de Harde regels in
-`CLAUDE.md`, niet iets wat een agent er zelf bij doet.
+Eén stap is er bewust *niet* gezet, en één stap wél -- maar niet dezelfde. `load_dataset`
+bouwt de ontologie-`GraafIndex` als lokale `restrictiebron` (`dataset.py`, in
+`load_dataset`) en bewaart hem niet: `GwswDataset` draagt alleen de kleine afgeleide
+woordenboeken (`subclasses`, `kenmerk_property`, `functie_per_klasse`) en zijn `graph` is
+de *dataset*graaf, niet de ontologie. Dát dichten -- een ontologieveld op `GwswDataset` --
+vraagt een wijziging aan een handtekening die in `tests/test_publieke_api.py` gepind
+staat, en dat blijft een auteursbeslissing volgens de Harde regels in `CLAUDE.md`, niet
+iets wat een agent er zelf bij doet.
+
+Wat er sinds issue #33 wél is, is de andere helft van datzelfde probleem: de afnemer
+hoefde die index niet op de dataset te krijgen, hij moest hem alleen kúnnen bouwen zonder
+`inlezen._parse` (privé) na te bootsen. `dataset.lees_ontologie()` is die weg; zie
+[`lees_ontologie` naast `load_dataset`](#lees_ontologie-naast-load_dataset) hieronder.
 
 ## Twee paden door pyoxigraph, en dat blijft zo
 
@@ -303,6 +308,37 @@ is de scheidsrechter. Praktisch:
 `dataset.__all__` is die lijst. Een naam met een underscore is intern aan de leeslaag en
 geen belofte aan de afnemer — ook waar hij een modulegrens oversteekt, zoals
 `inlezen._read_aspects` dat `GwswDataset.onderdeel_aspecten` gebruikt.
+
+### `lees_ontologie` naast `load_dataset`
+
+`lees_ontologie(ontology_paths=None, fallback_encoding=None, *, voortgang=NUL_VOORTGANG)`
+levert de ontologie-`GraafIndex` waarop de lezers van `ontologie` werken — dezelfde index
+die `load_dataset` intern als `restrictiebron` opbouwt en daarna weggooit. Zonder haar
+moest een afnemer die `facetbereik` of `kenmerkbereik` op een geladen dataset wilde
+gebruiken de ontologie zelf parsen, en de enige weg daarheen (`inlezen._parse`) is privé.
+De padkeuze is die van `ontologiepaden` en dus letterlijk dezelfde als bij de lader: `None`
+is de gebundelde GWSW 1.6 (63.614 triples, circa 0,4 s), een lege lijst is de expliciete
+keuze om zonder ontologie te lezen, en meerdere bestanden stapelen in volgorde in één
+index.
+
+**De snit zit onder de fase, niet erop.** Beide functies lopen langs één privé-hulp,
+`_stapel_ontologie(paden, fallback_encoding, voortgang)`: de lus die per bestand
+`inlezen._parse(pad, ..., index=...)` doet en daarna een voortgangsstap met de
+bestandsnaam meldt. Die hulp opent zelf geen fase, en dat is precies de reden dat hij
+bestaat. `load_dataset` telt de ontologiebestanden mee in zijn eigen fase `"TTL laden"`
+met `1 + len(paden)` stappen (de dataset eerst), en die voortgang is bevroren; zou
+`load_dataset` de nieuwe functie *inclusief* haar `start_fase` aanroepen, dan kreeg elke
+afnemer met een voortgangsbalk er stilzwijgend een tweede fase bij.
+`lees_ontologie` opent voor zichzelf wél een fase, `"Ontologie laden"`, met één stap per
+bestand. `test_de_voortgang_van_load_dataset_blijft_een_enkele_ttl_fase` in
+`tests/test_dataset.py` is de bewaker van de eerste helft;
+`test_lees_ontologie_levert_de_restrictiebron_van_load_dataset` onderschept
+`_subclass_closure` en houdt de twee wegen op tripelinhoud gelijk, zodat "hetzelfde
+parseerpad" geen belofte in een docstring blijft.
+
+De GC ligt in allebei de gevallen stil (`inlezen._gc_uit`, hersteld in een `finally`), en
+de fout bij een onleesbaar of ongeldig bestand is dezelfde `DatasetError` als bij de
+lader. Wat er níét bij hoort: een veld op `GwswDataset` — zie de vorige sectie.
 
 ## De cache leest mee met de lader
 

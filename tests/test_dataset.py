@@ -7,10 +7,19 @@ from pathlib import Path
 
 import pytest
 from rdflib import URIRef
+from rdflib.term import Node as RdfNode
 
 from gwsw_orox_helpers import dataset as dataset_module
-from gwsw_orox_helpers.dataset import GWSW, GwswDataset, aspects_of, load_dataset, parts_of
+from gwsw_orox_helpers.dataset import (
+    GWSW,
+    GwswDataset,
+    aspects_of,
+    lees_ontologie,
+    load_dataset,
+    parts_of,
+)
 from gwsw_orox_helpers.errors import DatasetError
+from gwsw_orox_helpers.graaf import GraafIndex
 
 TOETS = "http://example.org/toets#"
 NETWERKWORTELS = ["Put", "Gemaal", "Lozingspunt"]
@@ -746,6 +755,170 @@ def test_cyclische_gc_komt_ook_na_een_dataseterror_terug(tmp_path: Path, soort: 
 
     with pytest.raises(DatasetError):
         load_dataset(pad, ontology_paths=[])
+
+    assert gc.isenabled()
+
+
+# --- De ontologie als eigen leesweg (issue #33) ----------------------------------------
+
+# Het aantal triples van de gebundelde GWSW 1.6-ontologie (`owl:versionInfo` versie=1.6;
+# zie de Harde regels in `CLAUDE.md`). Het getal komt uit issue #19 en staat hier als
+# onafhankelijke ijkwaarde: het bewijst dat `lees_ontologie()` zonder argumenten de
+# gebundelde ontologie leest en niet per ongeluk een lege of halve index oplevert.
+AANTAL_TRIPELS_GWSW16 = 63_614
+
+
+def _tripels(index: GraafIndex) -> set[tuple[RdfNode, RdfNode, RdfNode]]:
+    """Alle triples van een index als verzameling.
+
+    De index biedt met opzet geen iteratie over de hele graaf (zie de docstring van
+    `graaf`): het leescontract van de checks heeft die niet nodig. Voor een
+    inhoudsvergelijking tussen twee indexen is ze wel nodig, en dan is de spo-index de
+    enige weg erheen. Een test mag daarvoor naar binnen kijken; productiecode niet.
+    """
+    return {
+        (subject, predicate, object_)
+        for subject, per_predicaat in index._spo.items()
+        for predicate, objecten in per_predicaat.items()
+        for object_ in objecten
+    }
+
+
+def test_lees_ontologie_met_een_lege_lijst_geeft_een_lege_index() -> None:
+    """Een lege lijst is de expliciete keuze om zonder ontologie te lezen (`ontologiepaden`)."""
+    assert len(lees_ontologie([])) == 0
+
+
+def test_lees_ontologie_levert_de_restrictiebron_van_load_dataset(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Precies de index die `load_dataset` intern opbouwt en daarna weggooit (issue #33).
+
+    De `restrictiebron` is een lokale van `load_dataset` en komt nergens naar buiten; ze
+    is alleen te pakken te krijgen op de plek waar de lader haar gebruikt. Vandaar de
+    onderschepping van `_subclass_closure`: wat daar binnenkomt *is* de bron waarop de
+    klassenafleiding draait. Zonder deze test zou "dezelfde weg" een belofte in een
+    docstring zijn -- een tweede parseerpad met een net andere aanroep zou hier
+    stilzwijgend een andere index opleveren.
+
+    Op de gebundelde ontologie, want dat is het geval dat de afnemer krijgt als hij
+    niets opgeeft; het tripelaantal is de ijkwaarde uit issue #19.
+    """
+    gevangen: list[GraafIndex] = []
+    echte_afsluiting = dataset_module._subclass_closure
+
+    def bespied(bron: GraafIndex) -> dict[str, frozenset[str]]:
+        gevangen.append(bron)
+        return echte_afsluiting(bron)
+
+    monkeypatch.setattr(dataset_module, "_subclass_closure", bespied)
+    load_dataset(TTL_DIR / "dataset_voorbeeld.ttl")
+
+    (restrictiebron,) = gevangen
+    los = lees_ontologie()
+
+    assert len(los) == len(restrictiebron) == AANTAL_TRIPELS_GWSW16
+    assert _tripels(los) == _tripels(restrictiebron)
+
+
+class _Verslag:
+    """Een `Voortgang` die opschrijft wat er gemeld werd; leest alleen, stuurt niets."""
+
+    def __init__(self) -> None:
+        self.fasen: list[tuple[str, int | None]] = []
+        self.stappen: list[str | None] = []
+        self.eindes = 0
+
+    def start_fase(self, naam: str, totaal: int | None) -> None:
+        self.fasen.append((naam, totaal))
+
+    def stap(self, n: int = 1, label: str | None = None) -> None:
+        self.stappen.append(label)
+
+    def einde_fase(self) -> None:
+        self.eindes += 1
+
+
+def test_lees_ontologie_meldt_een_eigen_fase_met_een_stap_per_bestand(tmp_path: Path) -> None:
+    """Een fase "Ontologie laden" met één stap per bestand, in de opgegeven volgorde."""
+    eerste = tmp_path / "eerste.ttl"
+    eerste.write_text("@prefix ex: <http://example.org/> .\nex:a ex:b ex:c .\n", encoding="utf-8")
+    tweede = tmp_path / "tweede.ttl"
+    tweede.write_text("@prefix ex: <http://example.org/> .\nex:d ex:e ex:f .\n", encoding="utf-8")
+    verslag = _Verslag()
+
+    index = lees_ontologie([eerste, tweede], voortgang=verslag)
+
+    assert verslag.fasen == [("Ontologie laden", 2)]
+    assert verslag.stappen == ["eerste.ttl", "tweede.ttl"]
+    assert verslag.eindes == 1
+    # De bestanden stapelen in één index; de tweede overschrijft de eerste niet.
+    assert len(index) == 2
+
+
+def test_de_voortgang_van_load_dataset_blijft_een_enkele_ttl_fase(tmp_path: Path) -> None:
+    """De fase van de lader is bevroren: "TTL laden", `1 + len(paden)` stappen (issue #33).
+
+    `lees_ontologie` deelt zijn parseerpad met `load_dataset`. Zou dat delen op faseniveau
+    gebeuren -- de nieuwe functie aanroepen inclusief haar `start_fase` -- dan kreeg de
+    lader er stilzwijgend een tweede fase bij en zag elke afnemer met een voortgangsbalk
+    iets anders dan voorheen. Dit is de bewaker daarvoor: de dataset gaat voorop, de
+    ontologiebestanden tellen in dezelfde fase mee, en er is er precies één.
+    """
+    ontologie = tmp_path / "mini_ontologie.ttl"
+    ontologie.write_text(
+        "@prefix gwsw: <http://data.gwsw.nl/1.6/totaal/> .\n"
+        "@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .\n"
+        "gwsw:Inspectieput rdfs:subClassOf gwsw:Put .\n",
+        encoding="utf-8",
+    )
+    verslag = _Verslag()
+
+    load_dataset(TTL_DIR / "dataset_voorbeeld.ttl", [ontologie], voortgang=verslag)
+
+    assert verslag.fasen == [("TTL laden", 2)]
+    assert verslag.stappen == ["dataset_voorbeeld.ttl", "mini_ontologie.ttl"]
+    assert verslag.eindes == 1
+
+
+def test_lees_ontologie_legt_de_cyclische_gc_stil_en_zet_hem_terug(tmp_path: Path) -> None:
+    """Hetzelfde neveneffect als `load_dataset`, en met dezelfde toezegging in de docstring.
+
+    De voortgangsmelding is ook hier het enige moment binnen het leesblok waarop de
+    functie zich van buitenaf laat zien; `_GcWaarnemer` noteert er de stand van de GC.
+    """
+    assert gc.isenabled(), "voorwaarde: de testrun begint met een ingeschakelde GC"
+    pad = tmp_path / "mini.ttl"
+    pad.write_text("@prefix ex: <http://example.org/> .\nex:a ex:b ex:c .\n", encoding="utf-8")
+    waarnemer = _GcWaarnemer()
+
+    lees_ontologie([pad], voortgang=waarnemer)
+
+    assert waarnemer.bij_stap == [False]
+    assert gc.isenabled()
+
+
+def test_lees_ontologie_geeft_de_terugvalcodering_door() -> None:
+    """Dezelfde coderingsregel als bij `load_dataset`: UTF-8, tenzij de afnemer anders zegt."""
+    with pytest.raises(DatasetError, match="geen geldige UTF-8"):
+        lees_ontologie([TTL_DIR / "codering_cp850.ttl"])
+
+    index = lees_ontologie([TTL_DIR / "codering_cp850.ttl"], fallback_encoding="cp850")
+
+    assert len(index) > 0
+
+
+def test_lees_ontologie_geeft_dataseterror_bij_een_ontbrekend_pad(tmp_path: Path) -> None:
+    with pytest.raises(DatasetError, match="kan niet gelezen worden"):
+        lees_ontologie([tmp_path / "bestaat_niet.ttl"])
+
+
+def test_lees_ontologie_zet_de_gc_ook_na_een_fout_terug(tmp_path: Path) -> None:
+    """Het herstel hangt aan een `finally`; een fout halverwege laat de GC niet uit."""
+    assert gc.isenabled(), "voorwaarde: de testrun begint met een ingeschakelde GC"
+
+    with pytest.raises(DatasetError):
+        lees_ontologie([tmp_path / "bestaat_niet.ttl"])
 
     assert gc.isenabled()
 

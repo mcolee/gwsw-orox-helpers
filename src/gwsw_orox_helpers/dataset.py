@@ -148,6 +148,7 @@ __all__ = [
     "aspect_holders_of",
     "aspects_of",
     "is_multipart_literal",
+    "lees_ontologie",
     "load_dataset",
     "markeer_vulwaarden",
     "ontologiepaden",
@@ -608,6 +609,70 @@ def ontologiepaden(ontology_paths: list[Path] | None) -> list[Path]:
     return [Path(pad) for pad in ontology_paths]
 
 
+def _stapel_ontologie(
+    paden: Sequence[Path], fallback_encoding: str | None, voortgang: Voortgang
+) -> GraafIndex:
+    """Parseert de ontologiebestanden op volgorde in één index, met een stap per bestand.
+
+    **Zonder eigen fase, en dat is de hele reden dat deze functie bestaat.** `load_dataset`
+    en `lees_ontologie` moeten hetzelfde parseerpad delen -- één plek die weet dat
+    meerdere ontologiebestanden in dezelfde `GraafIndex` stapelen -- maar ze melden hun
+    voortgang anders: `load_dataset` telt de ontologiebestanden mee in zijn eigen fase
+    "TTL laden" (`1 + len(paden)` stappen, met de dataset als eerste), `lees_ontologie`
+    opent er zijn eigen fase "Ontologie laden" voor. Zou het delen op het niveau van de
+    fase gebeuren, dan zou `load_dataset` er een tweede fase bij krijgen en dus een
+    andere voortgang tonen dan voorheen -- en die is bevroren (`CLAUDE.md`, Harde
+    regels). Wat hier staat is precies de lus die `load_dataset` altijd al had: per
+    bestand een `_parse` in de gedeelde index en daarna een `stap` met de bestandsnaam.
+
+    Ook de GC blijft buiten deze functie: allebei de aanroepers zetten hem zelf stil
+    (`_gc_uit`), `load_dataset` om zijn hele leesblok en `lees_ontologie` om deze lus.
+    """
+    ontology = GraafIndex()
+    for pad in paden:
+        _parse(pad, fallback_encoding, index=ontology)
+        voortgang.stap(label=pad.name)
+    return ontology
+
+
+def lees_ontologie(
+    ontology_paths: list[Path] | None = None,
+    fallback_encoding: str | None = None,
+    *,
+    voortgang: Voortgang = NUL_VOORTGANG,
+) -> GraafIndex:
+    """Leest de ontologiebestanden in tot de `GraafIndex` waarop de lezers werken.
+
+    Dit is de index die `load_dataset` intern als `restrictiebron` opbouwt en daarna
+    weggooit: `GwswDataset.graph` is de *dataset*graaf en `GwswDataset.ontologies` draagt
+    alleen de paden. Wie de ontologische lezers van `gwsw_orox_helpers.ontologie` op een
+    geladen dataset wil gebruiken -- `facetbereik`, `datatype_van_kenmerk`,
+    `kenmerkbereik`, `verwachte_property`, `functie_van_klasse` -- haalt de bron ervoor
+    hier op, langs precies dezelfde weg als de lader (issue #33, vervolg op #19).
+
+    De padkeuze is die van `ontologiepaden` en dus dezelfde als bij `load_dataset`:
+    `None` betekent de gebundelde GWSW-ontologie, een lege lijst is de expliciete keuze
+    om zonder ontologie te lezen (en levert een lege index op), en een opgegeven lijst
+    wordt in volgorde in één index gestapeld. De terugvalcodering betekent hetzelfde als
+    daar; zie `codering.decodeer`.
+
+    De voortgang gaat per bestand, in een eigen fase "Ontologie laden" met één stap per
+    bestand. Dat is een andere fase dan de "TTL laden" van `load_dataset` -- die telt de
+    ontologie bij de dataset in één fase, en dat blijft zo.
+
+    Hetzelfde neveneffect als bij `load_dataset`, en om dezelfde reden: tijdens het lezen
+    ligt de cyclische garbage collector van het hele proces stil en komt hij daarna terug,
+    ook na een fout (zie `inlezen._gc_uit`).
+    """
+    ontologie_paden = ontologiepaden(ontology_paths)
+    voortgang.start_fase("Ontologie laden", len(ontologie_paden))
+    with _gc_uit():
+        try:
+            return _stapel_ontologie(ontologie_paden, fallback_encoding, voortgang)
+        finally:
+            voortgang.einde_fase()
+
+
 def load_dataset(
     dataset_path: Path,
     ontology_paths: list[Path] | None = None,
@@ -648,10 +713,10 @@ def load_dataset(
             graph, fallback = _parse(dataset_path, fallback_encoding)
             voortgang.stap(label=dataset_path.name)
 
-            ontology = GraafIndex()
-            for pad in ontologie_paden:
-                _parse(pad, fallback_encoding, index=ontology)
-                voortgang.stap(label=pad.name)
+            # Dezelfde lus als voorheen, nu gedeeld met `lees_ontologie`; hij meldt zijn
+            # stappen in de fase die hierboven al loopt en opent er geen eigen (zie
+            # `_stapel_ontologie`).
+            ontology = _stapel_ontologie(ontologie_paden, fallback_encoding, voortgang)
         finally:
             voortgang.einde_fase()
 

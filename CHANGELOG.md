@@ -1,6 +1,35 @@
 # Changelog
 
 ## [Unreleased]
+- De ontologie-`GraafIndex` is als publieke functie bereikbaar (issue #33, vervolg op
+  #19; architectuur, **additief** — geen bevroren contract geraakt). **Nieuw en publiek**:
+  `dataset.lees_ontologie(ontology_paths: list[Path] | None = None, fallback_encoding:
+  str | None = None, *, voortgang: Voortgang = NUL_VOORTGANG) -> GraafIndex`, ook
+  opgenomen in `dataset.__all__`. Hij levert precies de index die `load_dataset` intern
+  als `restrictiebron` opbouwt en daarna weggooit; wie de lezers van `ontologie`
+  (`facetbereik`, `datatype_van_kenmerk`, `kenmerkbereik`, `verwachte_property`,
+  `functie_van_klasse`) op een geladen dataset wil gebruiken, hoefde daarvoor tot nu toe
+  `inlezen._parse` na te bootsen — en die is privé. De padkeuze is die van
+  `ontologiepaden`: `None` is de gebundelde GWSW 1.6, een lege lijst is de expliciete
+  keuze om zonder ontologie te lezen, meerdere bestanden stapelen in volgorde in één
+  index. **Gemeten**: de gebundelde ontologie levert 63.614 triples (het getal uit #19,
+  nu als pin in `tests/test_dataset.py`) in circa 0,43 s per lezing (drie lezingen:
+  0,418 / 0,447 / 0,434 s; indicatief, geen perf-claim).
+  **`load_dataset` blijft gedragsgelijk**, en de snit is daarop gekozen: beide functies
+  delen de privé-hulp `_stapel_ontologie`, die per bestand parseert en een voortgangsstap
+  meldt maar **zelf geen fase opent**. `load_dataset` houdt daardoor zijn ene fase
+  `"TTL laden"` met `1 + len(paden)` stappen; `lees_ontologie` opent zijn eigen fase
+  `"Ontologie laden"` met één stap per bestand. Zou het delen op faseniveau gebeuren, dan
+  kreeg elke afnemer met een voortgangsbalk er stilzwijgend een tweede fase bij.
+  Twee nieuwe bewakers in `tests/test_dataset.py`:
+  `test_de_voortgang_van_load_dataset_blijft_een_enkele_ttl_fase` (fase, stappen en
+  volgorde van de lader) en `test_lees_ontologie_levert_de_restrictiebron_van_load_dataset`
+  (onderschept `_subclass_closure` en houdt de twee wegen op tripelaantal én tripelinhoud
+  gelijk). **Cachesleutel**: `dataset` staat in `cache.LADERMODULES`, dus deze wijziging
+  verschuift de sleutel en bestaande caches worden één keer opnieuw opgebouwd — bedoelde
+  werking, geen gedragswijziging. **Bewust níét meegenomen**: een ontologieveld op
+  `GwswDataset`. Die dataclass staat gepind in `tests/test_publieke_api.py` en blijft
+  dicht; dat is een auteursbeslissing (`CLAUDE.md`, Harde regels).
 - De laaggrens tussen `ontologie` en de graaf is een `typing.Protocol` geworden (issue
   #21, architectuur; additief, geen bevroren contract geraakt). **Nieuw en publiek**:
   `graaf.GraafLezer`, een protocol met precies twee leden —

@@ -90,7 +90,7 @@ def merge_orox(delen: list[Path], doel: Path) -> None:
 
     De delen moeten samen compleet zijn -- van elke geknipte lijn moeten alle stukken
     er zijn. Ontbreekt er een, dan is de lijn niet te herstellen en volgt een
-    `DatasetError` in plaats van een stilzwijgend kortere geometrie.
+    `KnipError` in plaats van een stilzwijgend kortere geometrie.
     """
     if not delen:
         raise KnipError("merge_orox: geen delen opgegeven; er valt niets samen te voegen.")

@@ -22,7 +22,13 @@ merkt er niets van.
 daarom een `BestandError` en geen `GrenslaagError`: het besturingssysteem gaf het bestand
 niet, en dat is dezelfde soort fout als bij een TTL-bron. `GrenslaagError` gaat over wat
 er in de grenslaag *staat*. Zo blijft de indeling voorspelbaar voor wie een nieuwe
-raise-plek moet plaatsen: eerst de vraag "wat ging er stuk", pas daarna "waarin".
+raise-plek moet plaatsen: eerst de vraag "wat ging er stuk", pas daarna "waarin". De regel
+heeft één naad, en die staat bij `GrenslaagError` uitgeschreven.
+
+Welke module welke familie hoeveel keer gooit, staat per klasse hieronder en wordt door
+`test_de_raise_plekken_staan_waar_de_docstrings_ze_beloven` (`tests/test_uitzonderingen.py`)
+tegen de code aan gehouden -- anders zou een raise-plek erbij deze docstrings stilletjes
+laten verlopen.
 
 De basisklasse zelf wordt binnen de package nergens meer rechtstreeks gegooid. Ze blijft
 staan als het vangnet van de afnemer en als de plek voor een toekomstige oorzaak die in
@@ -80,13 +86,19 @@ class TurtleError(DatasetError):
 
 
 class InhoudError(DatasetError):
-    """De dataset is gelezen en geparseerd, maar draagt niet wat er gevraagd wordt.
+    """De lezing lukte, en toch is er geen bruikbaar antwoord.
 
-    Niets aan het bestand is stuk; de bron is alleen geen bruikbaar antwoord op de vraag.
-    Een export zonder een enkel knooppunt of streng is waarschijnlijk geen GWSW-OroX, en
-    een rol die op een verbindingsklasse geconfigureerd is kan op dit domeinmodel nooit
-    een object opleveren. Beide zouden als stille nul niet van een lege uitkomst te
-    onderscheiden zijn.
+    Niets aan het bestand is stuk: het ging open, het parseerde, en pas daarna blijkt de
+    vraag niets te kunnen opleveren. Dat gebeurt van twee kanten. Van de bron: een export
+    zonder een enkel knooppunt of streng is waarschijnlijk geen GWSW-OroX. En van de
+    vraag: een rol die op een verbindingsklasse geconfigureerd is, kan op dít domeinmodel
+    nooit een object opleveren, hoe rijk de dataset verder ook is.
+
+    Wat die twee tot één familie maakt is niet waar de fout vandaan komt maar wat er
+    zonder haar zou gebeuren -- allebei zouden ze een **stille nul** teruggeven, en die is
+    niet te onderscheiden van een dataset die dit type nu eenmaal niet bevat. Op een
+    geconfigureerde rol is dat het verschil tussen "niets gevonden" en "hier valt nooit
+    iets te vinden".
 
     Twee plekken, allebei in `dataset`: `load_dataset` en `GwswDataset.of_class`.
     """
@@ -99,6 +111,14 @@ class GrenslaagError(DatasetError):
     clip niet gebruiken: geen leesbare GeoJSON, geen features, een feature zonder de
     naamproperty of met een naam die al gebruikt is, een geometrie die niet te lezen is,
     of een geometrie die geen (multi)vlak is.
+
+    **De ene naad in de indelingsregel hierboven.** "Geen leesbare GeoJSON" valt ook als
+    de bytes van de grenslaag geen UTF-8 zijn, en naar de oorzaak gerekend was dat een
+    `CoderingError`. Het blijft hier, want die `UnicodeDecodeError` deelt in
+    `_lees_grenzen` zijn `except`-blok én zijn meldtekst met de JSON-fout, en die tekst is
+    bevroren; twee families op één melding zou de afnemer een onderscheid beloven dat de
+    boodschap niet draagt. Het scheelt hem bovendien niets: de terugvalcodering waar
+    `CoderingError` om vraagt, kent de grenslaag niet -- GeoJSON *is* UTF-8.
 
     Zes plekken, alle in `clip.grenzen._lees_grenzen`.
     """

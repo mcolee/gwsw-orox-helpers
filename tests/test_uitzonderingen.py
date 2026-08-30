@@ -19,11 +19,12 @@ Welke raise-plek in welke familie hoort, staat in de docstrings van
 `gwsw_orox_helpers.errors`; `tests/test_publieke_api.py` pint de hiërarchie zelf.
 """
 
+import ast
 from pathlib import Path
 
 import pytest
 
-from gwsw_orox_helpers import codering, rdfmotor
+from gwsw_orox_helpers import codering, errors, rdfmotor
 from gwsw_orox_helpers.clip import clip_orox, merge_orox
 from gwsw_orox_helpers.dataset import load_dataset
 from gwsw_orox_helpers.errors import (
@@ -39,6 +40,25 @@ from gwsw_orox_helpers.schrijven import schrijf_orox_quads
 
 TTL_DIR = Path(__file__).parent / "fixtures" / "ttl"
 MINI = TTL_DIR / "mini_orox.ttl"
+
+# Welke module welke familie hoeveel keer gooit. Dit is de tabel achter de "Vier plekken:
+# ..."-regels in de docstrings van `gwsw_orox_helpers.errors` en achter de aantallen in de
+# CHANGELOG-regel van #31, en zonder bewaker is dat precies het soort belofte dat wegslijt:
+# een raise-plek erbij verandert de code en laat de docstring staan. Uitgeschreven en niet
+# uit de code afgeleid, want een lijst die zichzelf afleidt bewaakt niets.
+RAISE_PLEKKEN = {
+    "BestandError": {"bestand": 1, "clip.grenzen": 1, "schrijven": 2},
+    "CoderingError": {"codering": 2, "schrijven": 1},
+    "GrenslaagError": {"clip.grenzen": 6},
+    "InhoudError": {"dataset": 2},
+    "KnipError": {"clip.knip": 2, "clip.merge": 5, "clip.orkest": 1, "clip.plan": 1},
+    "MotorError": {"rdfmotor": 2},
+    "TurtleError": {"bestand": 1, "schrijven": 2},
+    # Leeg, en dat is de helft van de belofte die het makkelijkst wegslijt: sinds #31 wordt
+    # de basisklasse binnen de package nergens meer rechtstreeks gegooid. Wie een nieuwe
+    # raise-plek erbij zet zonder familie, komt hierlangs.
+    "DatasetError": {},
+}
 
 
 def test_een_bestand_dat_niet_open_gaat_is_een_bestanderror(tmp_path: Path) -> None:
@@ -101,3 +121,31 @@ def test_een_pyoxigraph_buiten_de_reeks_is_een_motorerror() -> None:
     """`MotorError`: niet de invoer deugt niet maar de installatie eronder."""
     with pytest.raises(MotorError, match="valt buiten de reeks"):
         rdfmotor.controleer_versie("0.6.0")
+
+
+def test_de_raise_plekken_staan_waar_de_docstrings_ze_beloven() -> None:
+    """De indeling zelf, mechanisch: elke `raise` in de package, geteld per familie.
+
+    De acht tests hierboven pinnen per familie één plek; die blijven groen terwijl de
+    andere 22 plekken ongemerkt van familie wisselen. Deze test loopt de AST van elke
+    module af en legt de volledige verdeling naast `RAISE_PLEKKEN`. Valt hij om, dan hoort
+    in dezelfde stap de docstring van de betrokken klasse in `gwsw_orox_helpers.errors`
+    mee -- die noemt de aantallen en de modules met naam.
+    """
+    pakket = Path(errors.__file__ or "").parent
+    geteld: dict[str, dict[str, int]] = {naam: {} for naam in RAISE_PLEKKEN}
+    for pad in sorted(pakket.rglob("*.py")):
+        if "__pycache__" in pad.parts:
+            continue
+        module = ".".join(pad.relative_to(pakket).with_suffix("").parts)
+        boom = ast.parse(pad.read_text(encoding="utf-8"))
+        for knoop in ast.walk(boom):
+            if not isinstance(knoop, ast.Raise) or not isinstance(knoop.exc, ast.Call):
+                continue
+            soort = knoop.exc.func
+            if isinstance(soort, ast.Name) and soort.id in geteld:
+                geteld[soort.id][module] = geteld[soort.id].get(module, 0) + 1
+
+    assert geteld == RAISE_PLEKKEN
+    # Het getal uit de moduledocstring van `errors` en uit de CHANGELOG-regel van #31.
+    assert sum(sum(per_module.values()) for per_module in geteld.values()) == 29

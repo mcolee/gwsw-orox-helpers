@@ -211,7 +211,7 @@ def schrijf_orox_quads(
         # levert een bestand af in andermans uitmap en mag de rechten van de gebruiker niet
         # verstrengen. `O_EXCL` geeft dezelfde symlink-afsluiting; de kernel past
         # `0o666 & ~umask` toe, zoals `open('wb')` deed. Een naambotsing (kans ~0 bij 8 hex)
-        # is een `FileExistsError` en gaat als `DatasetError` naar boven, net als elke
+        # is een `FileExistsError` en gaat als `BestandError` naar boven, net als elke
         # andere OSError hier.
         kandidaat = doel.parent / f"{doel.name}.{os.getpid()}.{secrets.token_hex(4)}.tijdelijk"
         with open(kandidaat, "xb") as bestand:
@@ -252,7 +252,7 @@ def _gedecodeerd(bron: Path, fallback_encoding: str) -> str:
 def _gecontroleerd(
     bron: Path, parser: Iterator[pyoxigraph.Quad], fallback_encoding: str | None
 ) -> Iterator[pyoxigraph.Quad]:
-    """Vertaalt parsefouten onderweg naar `DatasetError`, net als de leeslaag doet.
+    """Vertaalt parsefouten onderweg naar `TurtleError`, net als de leeslaag doet.
 
     De parser is lui: een syntaxfout halverwege een export van 112 MB komt pas boven bij
     de quad waar hij staat, dus midden in het schrijven. Zonder deze laag zou de afnemer

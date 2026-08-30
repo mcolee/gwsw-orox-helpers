@@ -20,9 +20,11 @@
   is de enige familie die niet over invoer gaat maar over de installatie eronder — de
   docstring van `rdfmotor`, die tot nu toe "geen eigen soort" beloofde, zegt nu waarom een
   *subklasse* die belofte juist nakomt. Nieuw: `tests/test_uitzonderingen.py` pint per
-  familie één representatieve plek; de hiërarchie-pin in `tests/test_publieke_api.py`
-  groeide additief mee en een tweede test laat een achtste familie niet ongemerkt
-  ontstaan. **Cachesleutel**: `errors` staat met reden buiten `cache.LADERMODULES`, maar
+  familie één representatieve plek en houdt daarnaast de **volledige verdeling** (welke
+  module welke familie hoeveel keer gooit, plus het totaal van 29) tegen de AST van de
+  package aan, zodat de aantallen in de docstrings hierboven niet stilletjes kunnen
+  verlopen; de hiërarchie-pin in `tests/test_publieke_api.py` groeide additief mee en een
+  tweede test laat een achtste familie niet ongemerkt ontstaan. **Cachesleutel**: `errors` staat met reden buiten `cache.LADERMODULES`, maar
   vier van de geraakte modules staan erin (`bestand`, `codering`, `dataset`, `rdfmotor`),
   dus **de cachesleutel roteert** en bestaande caches worden één keer opnieuw opgebouwd.
 - De stille CRS-mismatch van de clip is vastgelegd en krijgt een opt-in waarschuwing

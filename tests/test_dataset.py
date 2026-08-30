@@ -166,6 +166,35 @@ def test_dataset_zonder_objecten_geeft_dataseterror(tmp_path: Path) -> None:
         load_dataset(leeg, ontology_paths=[])
 
 
+def test_een_onleesbare_gml_literaal_belandt_in_geometry_errors(tmp_path: Path) -> None:
+    """Een kapotte geometrie breekt de lezing niet af; ze wordt per orientatie gemeld.
+
+    Twee soorten kapot tegelijk, want `inlezen._geometry` vangt ze op een plek af: een
+    niet-numerieke coordinaat (een `GeometryError` uit de lezer zelf) op een put, en een
+    lijn met een enkel punt (waar GEOS struikelt en de lezer de `ShapelyError` omzet) op
+    een streng. Allebei de objecten blijven bestaan, zonder geometrie en zonder z --
+    dat is het bedoelde gedrag en het is de reden dat `geometry_errors` bestaat.
+    """
+    bron = (TTL_DIR / "top001_losliggende_put.ttl").read_text(encoding="utf-8")
+    bron = bron.replace("1000.0 2000.0 1050.0 2000.0", "1000.0 2000.0")
+    bron = bron.replace("1200.0 2500.0", "een twee")
+    pad = tmp_path / "kapotte_geometrie.ttl"
+    pad.write_text(bron, encoding="utf-8")
+
+    gelezen = load_dataset(pad, ontology_paths=[])
+
+    assert set(gelezen.geometry_errors) == {f"{TOETS}PutC_ori", f"{TOETS}L1_ori"}
+    assert "niet-numerieke coordinaat" in gelezen.geometry_errors[f"{TOETS}PutC_ori"]
+    assert "onbruikbare LineString-geometrie" in gelezen.geometry_errors[f"{TOETS}L1_ori"]
+    assert gelezen.nodes[f"{TOETS}PutC"].point is None
+    assert gelezen.nodes[f"{TOETS}PutC"].z is None
+    assert gelezen.conduits[f"{TOETS}L1"].line is None
+    assert gelezen.conduits[f"{TOETS}L1"].z_values == ()
+    # De rest van de export komt gewoon binnen; een onleesbaar object is geen
+    # afgebroken lezing.
+    assert gelezen.nodes[f"{TOETS}PutA"].point is not None
+
+
 def test_hasconnection_is_symmetrisch(tmp_path: Path) -> None:
     """gwsw:hasConnection is een owl:SymmetricProperty en heeft geen inverse.
 

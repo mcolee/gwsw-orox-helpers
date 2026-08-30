@@ -12,6 +12,7 @@ from gwsw_orox_helpers.geometry import (
     coordinaattokens,
     is_multipart_literal,
     parse_gml,
+    parse_gml_met_z,
     parse_gml_z,
     tokens_per_punt,
     vervang_coordinaten,
@@ -153,6 +154,192 @@ def test_lijn_met_een_enkel_punt_is_een_leesfout() -> None:
     )
     with pytest.raises(GeometryError, match="onbruikbare LineString-geometrie"):
         parse_gml(literal)
+
+
+# --------------------------------------------------------------------------------------
+# De eenpaslezer: dezelfde uitkomst als de twee losse lezers, in een gang
+# --------------------------------------------------------------------------------------
+
+# Elk paar is (literaal, of de oude weg een GeometryError gaf). De vlag is geen
+# gemak maar de helft van de vraag: de gelijkwaardigheid moet blijken op de
+# geslaagde *en* op de mislukte literalen, en zonder haar zou een corpus dat stil
+# helemaal naar de fouttak schuift er nog steeds groen uitzien.
+GELIJKWAARDIG = [
+    pytest.param(PUNT_3D, False, id="punt-3d"),
+    pytest.param(PUNT_2D, False, id="punt-2d-zonder-srsdimension"),
+    pytest.param(LIJN_3D, False, id="lijn-3d"),
+    pytest.param(LIJN_2D, False, id="lijn-2d"),
+    pytest.param(RING, False, id="linearring-als-polygoon"),
+    pytest.param(
+        '<gml:LineString xmlns:gml="g"><gml:pos>1 2 4 5</gml:pos></gml:LineString>',
+        False,
+        id="dimensie-uit-even-aantal",
+    ),
+    pytest.param(
+        '<gml:LineString xmlns:gml="g"><gml:pos>1 2 3 4 5 6 7 8 9</gml:pos></gml:LineString>',
+        False,
+        id="dimensie-uit-drievoud",
+    ),
+    pytest.param(
+        '<gml:LineString xmlns:gml="g"><gml:posList srsDimension="4">'
+        "1 2 3 4 5 6 7 8</gml:posList></gml:LineString>",
+        False,
+        id="vier-getallen-per-punt",
+    ),
+    pytest.param(
+        '<gml:MultiCurve xmlns:gml="g"><gml:curveMember><gml:LineString>'
+        '<gml:posList srsDimension="2">1 2 4 5</gml:posList></gml:LineString>'
+        "</gml:curveMember></gml:MultiCurve>",
+        False,
+        id="multi-leest-het-eerste-deel",
+    ),
+    pytest.param(
+        '<gml:LineString xmlns:gml="g"><gml:posz>1 2 4 5</gml:pos></gml:LineString>',
+        False,
+        id="misvormde-openingstag",
+    ),
+    pytest.param("<gml:Kromme>1 2</gml:Kromme>", True, id="fout-geen-gml-soort"),
+    pytest.param('<gml:Point xmlns:gml="g"></gml:Point>', True, id="fout-geen-gml-pos"),
+    # Het geval waar de herordening op aankomt: de eenpaslezer leest de getallen vóór de
+    # srsDimension, de oude weg andersom. Draagt de literaal wél een srsDimension maar
+    # geen `gml:pos`, dan sloeg de oude weg `_values` in de dimensiestap over en liep hij
+    # er meteen daarna alsnog tegenaan. Beide horen dus dezelfde melding te geven.
+    pytest.param(
+        '<gml:Point srsDimension="3" xmlns:gml="g"></gml:Point>',
+        True,
+        id="fout-srsdimension-zonder-lijst",
+    ),
+    pytest.param(
+        '<gml:Point xmlns:gml="g"><gml:pos>een twee</gml:pos></gml:Point>',
+        True,
+        id="fout-niet-numeriek",
+    ),
+    pytest.param(
+        '<gml:LineString xmlns:gml="g"><gml:posList srsDimension="3">1 2 3 4'
+        "</gml:posList></gml:LineString>",
+        True,
+        id="fout-rest-op-srsdimension",
+    ),
+    pytest.param(
+        '<gml:LineString xmlns:gml="g"><gml:pos>1 2 3 4 5</gml:pos></gml:LineString>',
+        True,
+        id="fout-niet-te-duiden",
+    ),
+    pytest.param(
+        '<gml:LineString xmlns:gml="g"><gml:posList srsDimension="2">'
+        "1000.0 2000.0</gml:posList></gml:LineString>",
+        True,
+        id="fout-shapelyerror-lijn-met-een-punt",
+    ),
+    pytest.param(
+        '<gml:Polygon xmlns:gml="g"><gml:exterior><gml:LinearRing>'
+        '<gml:posList srsDimension="2">0 0 1 1</gml:posList>'
+        "</gml:LinearRing></gml:exterior></gml:Polygon>",
+        True,
+        id="fout-shapelyerror-vlak-met-twee-punten",
+    ),
+    pytest.param(
+        '<gml:LineString xmlns:gml="g"><gml:posList srsDimension="2"></gml:posList>'
+        "</gml:LineString>",
+        True,
+        id="fout-lege-lijst-met-srsdimension",
+    ),
+    pytest.param(
+        '<gml:LineString xmlns:gml="g"><gml:posList></gml:posList></gml:LineString>',
+        True,
+        id="fout-lege-lijst-zonder-srsdimension",
+    ),
+    pytest.param(
+        '<gml:LineString xmlns:gml="g"><gml:posList srsDimension="0">1 2'
+        "</gml:posList></gml:LineString>",
+        True,
+        id="fout-srsdimension-nul",
+    ),
+    pytest.param(
+        '<gml:LineString xmlns:gml="g"><gml:posList srsDimension="1">1 2'
+        "</gml:posList></gml:LineString>",
+        True,
+        id="fout-srsdimension-een",
+    ),
+    pytest.param(
+        '<gml:Point xmlns:gml="g"><gml:pos srsDimension="3">1 2</gml:pos></gml:Point>',
+        True,
+        id="fout-punt-mist-een-waarde",
+    ),
+]
+
+
+def _langs_de_twee_lezers(literal: str) -> tuple[object, list[float | None]]:
+    """Wat `inlezen._geometry` vroeger deed: eerst `parse_gml`, daarna `parse_gml_z`."""
+    return parse_gml(literal), parse_gml_z(literal)
+
+
+def _uitkomst(lezer, literal: str) -> tuple[object, ...]:
+    """De volledige waarneembare uitkomst: de geometrie, de z-lijst, of de fout.
+
+    De geometrie als WKT en niet als object, zodat een verschil in soort of in
+    coordinaten in de vergelijking zichtbaar wordt en niet in een `__eq__` verdwijnt.
+    """
+    try:
+        geometrie, z = lezer(literal)
+    except GeometryError as fout:
+        return ("GeometryError", str(fout))
+    return ("geometrie", geometrie.wkt, z)
+
+
+@pytest.mark.parametrize(("literal", "geeft_fout"), GELIJKWAARDIG)
+def test_parse_gml_met_z_is_gelijkwaardig_aan_de_twee_losse_lezers(
+    literal: str, geeft_fout: bool
+) -> None:
+    """De eenpaslezer geeft precies wat `parse_gml` en `parse_gml_z` samen gaven.
+
+    Inclusief de foutpaden: dezelfde `GeometryError` met dezelfde melding, ook op de
+    ShapelyError-tak (een lijn met een enkel punt laat GEOS zelf struikelen). De oude
+    weg is hier de maatstaf; hij blijft bevroren omdat de clip en nlriochecker hem
+    rechtstreeks aanroepen.
+    """
+    oud = _uitkomst(_langs_de_twee_lezers, literal)
+    nieuw = _uitkomst(parse_gml_met_z, literal)
+
+    assert nieuw == oud
+    assert (oud[0] == "GeometryError") is geeft_fout
+
+
+@pytest.mark.parametrize(
+    ("literal", "oud"),
+    [(LIJN_2D, 2), (LIJN_3D, 2), (PUNT_3D, 4), (PUNT_2D, 5)],
+    ids=["lijn-2d", "lijn-3d", "punt-3d", "punt-2d"],
+)
+def test_parse_gml_met_z_converteert_de_getallen_een_keer(
+    literal: str, oud: int, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """De reden dat de functie bestaat: een float-conversie in plaats van twee tot vijf.
+
+    Deze test kijkt met opzet naar binnen -- naar `geometry._values`, de plek waar de
+    coordinatenlijst getallen wordt. De winst is niet aan de uitkomst te zien (die is
+    per contract identiek, zie de gelijkwaardigheidstest hierboven), dus zonder deze
+    telling is 'een pass' een bewering en geen eigenschap. Wie de indeling van de module
+    verandert, hoort langs deze test te komen.
+    """
+    from gwsw_orox_helpers import geometry
+
+    tellingen: list[str] = []
+    echte_values = geometry._values
+
+    def geteld(tekst: str) -> list[float]:
+        tellingen.append(tekst)
+        return echte_values(tekst)
+
+    monkeypatch.setattr(geometry, "_values", geteld)
+
+    parse_gml(literal)
+    parse_gml_z(literal)
+    assert len(tellingen) == oud
+
+    tellingen.clear()
+    parse_gml_met_z(literal)
+
+    assert len(tellingen) == 1
 
 
 # --------------------------------------------------------------------------------------

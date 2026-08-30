@@ -1,6 +1,45 @@
 # Changelog
 
 ## [Unreleased]
+- De leeslaag leest een GML-literaal nog één keer in plaats van twee (issue #13,
+  performance; geen gedragswijziging). `inlezen._geometry` riep per geometrie zowel
+  `parse_gml` als `parse_gml_z` aan, en die twee liepen elk hun eigen regex en
+  float-conversie over dezelfde tekst: twee volledige lezingen op de vorm die een
+  GWSW-export schrijft (`srsDimension` aanwezig) en tot vijf op een `gml:pos` zonder
+  `srsDimension`. **Nieuw in `geometry`, additief**:
+  `parse_gml_met_z(literal) -> tuple[Point | LineString | Polygon, list[float | None]]`,
+  dat beide antwoorden uit één gang geeft; `inlezen._geometry` gebruikt die nu.
+  `parse_gml`, `parse_gml_z`, `is_multipart_literal`, `COORDINATEN_PATROON` en
+  `GeometryError` zijn onaangeraakt -- de knip en nlriochecker roepen ze rechtstreeks
+  aan en hun handtekening, retourvorm en foutmeldingen staan gepind. Wat er intern wél
+  veranderde is dat de drie lezers hun stappen delen (`_kind`, `_values`,
+  `_dimensie_van`, `_tupels`, `_bouw`), zodat de dimensieregel en de
+  `ShapelyError`-vangst niet in twee exemplaren kunnen gaan uiteenlopen.
+  Gelijkwaardigheid **gepaard** getoetst over 23 literalen, geslaagde én mislukte:
+  dezelfde geometrie, dezelfde z-lijst en dezelfde `GeometryError`-melding
+  (`test_parse_gml_met_z_is_gelijkwaardig_aan_de_twee_losse_lezers`), plus een nieuwe
+  test dat een onleesbare literaal nog steeds in `GwswDataset.geometry_errors` belandt
+  zonder de lezing af te breken, en dezelfde vergelijking op de **69.288
+  `geo:gmlLiteral`-teksten van de De Wolden/Hoogeveen-export**: nul afwijkingen, op de
+  geometrie, de z-lijst én de foutmelding. **Gemeten, gepaard** (oud en nieuw om en om
+  in hetzelfde proces op diezelfde 69.288 literalen, `scripts/benchmark_gml.py`,
+  5 herhalingen): de literaalparsing gaat van 1,650 s naar 1,298 s gemiddeld (-21,4%),
+  van 1,609 s naar 1,291 s op de mediaan (-19,8%) en van 1,446 s naar 1,164 s op het
+  minimum (-19,5%); de nieuwe weg won alle vijf herhalingen. Dat is circa **4,1 µs
+  minder per literaal**. Op het hele laadpad valt dat weg in de ruis, en dat hoort
+  eerlijk opgeschreven: `inlezen._geometry` leest circa 47.000 literalen per export, dus
+  de winst is daar ~0,2 s op een `load_dataset` van circa 22 s (~1%), terwijl de
+  run-op-run-spreiding van `scripts/benchmark.py` op deze machine groter is (3x voor
+  22,14 / 21,87 / 22,37 s tegen 3x na 21,10 / 28,87 / 20,27 s -- mediaan 22,14 → 21,10 s,
+  het gemiddelde vertekend door één uitschieter). Het geheugen blijft gelijk: piek
+  1.248.668 KiB vóór tegen 1.248.376 KiB ná (-0,02%), en de lezing levert aan beide
+  kanten dezelfde 1.877.729 triples, 23.485 knopen, 23.440 strengen en 0
+  geometriefouten. De winst is dus reëel maar klein; wat hier vooral verandert is dat de
+  literaal nog maar op één plek gelezen wordt. `geometry` en `inlezen` staan allebei in
+  `cache.LADERMODULES`, dus **de cachesleutel verschuift** en bestaande caches worden
+  één keer opnieuw opgebouwd; dat is de bedoelde werking van die sleutel en geen
+  gedragswijziging. Nieuw meetscript `scripts/benchmark_gml.py` (naast
+  `scripts/benchmark_is_a.py`) dat de literaalparsing geïsoleerd en gepaard meet.
 - De coordinaat-tekstchirurgie woont nu één keer, in `geometry` (issue #17, modulariteit;
   geen gedragswijziging op een leesbare GML-literaal -- zie de uitzondering onderaan deze
   regel). `clip` droeg een eigen coordinaat-regex (`clip.knip._COORDINATEN`)

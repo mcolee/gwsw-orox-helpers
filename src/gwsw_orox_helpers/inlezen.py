@@ -38,8 +38,7 @@ from gwsw_orox_helpers.errors import DatasetError
 from gwsw_orox_helpers.geometry import (
     GeometryError,
     is_multipart_literal,
-    parse_gml,
-    parse_gml_z,
+    parse_gml_met_z,
 )
 from gwsw_orox_helpers.graaf import GraafIndex
 from gwsw_orox_helpers.klassen import _afsluiting, _short
@@ -421,7 +420,14 @@ def _types(graph: GraafIndex, subject: RdfNode) -> frozenset[str]:
 
 
 def _geometry(graph: GraafIndex, orientation: RdfNode, klasse: URIRef, errors: dict[str, str]):
-    """Zoekt de geometrie van een orientatie en geeft die met haar z-waarden terug."""
+    """Zoekt de geometrie van een orientatie en geeft die met haar z-waarden terug.
+
+    Via `parse_gml_met_z` en niet via `parse_gml` plus `parse_gml_z`: die twee zouden
+    dezelfde literaal twee tot vijf keer regexen en naar floats omzetten, en dit is het
+    pad dat dat voor elke geometrie in de export doet. De uitkomst en elke foutmelding
+    zijn per contract dezelfde (`test_parse_gml_met_z_is_gelijkwaardig_aan_de_twee_losse_lezers`);
+    een onleesbare literaal belandt dus nog altijd in `errors` en levert `None, []` op.
+    """
     for aspect in aspects_of(graph, orientation):
         if (aspect, _RDF_TYPE, klasse) not in graph:
             continue
@@ -429,7 +435,7 @@ def _geometry(graph: GraafIndex, orientation: RdfNode, klasse: URIRef, errors: d
         if literal is None:
             continue
         try:
-            return parse_gml(str(literal)), parse_gml_z(str(literal))
+            return parse_gml_met_z(str(literal))
         except GeometryError as error:
             errors[str(orientation)] = str(error)
             return None, []

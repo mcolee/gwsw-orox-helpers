@@ -76,7 +76,7 @@ Elke module beantwoordt één vraag; in deze volgorde heeft niets ooit iets van 
 | `voortgang` | Hoe meldt een lange stap zich? (protocol; `NUL_VOORTGANG` doet niets) |
 | `bronnen` | Waar liggen de meegeleverde ontologie en vocabulaire-index? |
 | `namen` | Hoe spellen we een IRI? (alleen tekst, geen imports) |
-| `geometry` | Wat staat er in een GML-literaal? (shapely; z apart van xy; en de coordinatentekst zelf, voor wie hem letterlijk moet terugleggen) |
+| `geometry` | Wat staat er in een GML-literaal? (shapely; z apart van xy of allebei in een gang; en de coordinatentekst zelf, voor wie hem letterlijk moet terugleggen) |
 | `graaf` | Hoe vraag je een graaf iets? (`GraafIndex`: twee dicts, rdflib-termen) |
 | `codering` | Hoe worden de bytes van een TTL tekst? (UTF-8 met terugval) |
 | `ontologie` | Wat zegt een `owl:Restriction` over een klasse of kenmerk? |
@@ -115,7 +115,7 @@ die anders uit elkaar loopt, en die staat één keer:
 | De prefixkop van een OroX-export | `schrijven.STANDAARD_PREFIXEN`, opgebouwd uit `namen` | `schrijven`, `clip.orkest` (krijgt ze via `lees_orox` en vult `knip:` aan) |
 | UTF-8 met terugvalcodering, inclusief beide foutmeldingen | `codering.decodeer` | `inlezen._decode`, `schrijven._gedecodeerd` |
 | Het verslag van zo'n terugval (`DecodeFallback`) | `codering.terugvalverslag` | alleen `inlezen` |
-| De GML-lezers | `geometry` | `inlezen`, `clip.knip`, `clip.plan`, `clip.merge`, `dataset` (doorgeefluik) |
+| De GML-lezers | `geometry` | `inlezen` (`parse_gml_met_z`), `clip.knip`, `clip.plan`, `clip.merge` (`parse_gml` / `parse_gml_z`), `dataset` (doorgeefluik) |
 | De tekstkant van diezelfde literaal: de coordinatenlijst als tokens, het terugleggen ervan in het omhulsel, en hoeveel getallen er op een punt gaan (`coordinaattokens`, `vervang_coordinaten`, `tokens_per_punt`) | `geometry` | `clip.knip` (de knip), `clip.stroom` (het stuk wegschrijven), `clip.merge` (de omkering) |
 | De `knip:`-naamruimte en de stuknamen (`<origineel>__knip<k>`) | `clip.termen` | `clip.plan`, `clip.stroom`, `clip.merge`, `clip.orkest` |
 
@@ -123,6 +123,21 @@ Dat laatste onderscheid is opzettelijk: het verslag telt de afwijkende bytes en 
 regels waarin ze staan, en dat is een tweede gang over het hele bestand. Een lezing wordt
 gerapporteerd (`GwswDataset.decode_fallback`), een terugschrijving niet — dus betaalt de
 schrijfweg er ook niet voor.
+
+**Drie GML-lezers, omdat de twee lagen niet dezelfde vraag stellen.** `parse_gml` (de
+meetkunde in het platte vlak) en `parse_gml_z` (de z-waarde per punt) zijn de losse
+vragen; de knip stelt er per literaal precies één van en ze staan gepind in
+`tests/test_publieke_api.py`. De leeslaag stelt ze allebei over elke geometrie in de
+export, en dat kostte de regex en de float-conversie twee tot vijf keer over dezelfde
+tekst (twee op de vorm die een GWSW-export schrijft, vijf op een `gml:pos` zonder
+`srsDimension`). `parse_gml_met_z` beantwoordt ze in één gang en is wat `inlezen._geometry`
+aanroept. De drie delen hun private stappen (`_kind`, `_values`, `_dimensie_van`,
+`_tupels`, `_bouw`), zodat de dimensieregel en de shapely-tak — inclusief de
+`ShapelyError`-vangst — maar één keer bestaan; een tweede exemplaar daarvan zou pas
+opvallen als de leeslaag en de knip dezelfde literaal verschillend gaan lezen. Wat de
+uitkomst betreft is de eenpaslezer per contract `(parse_gml(l), parse_gml_z(l))`, tot en
+met de foutmelding, en `test_parse_gml_met_z_is_gelijkwaardig_aan_de_twee_losse_lezers`
+toetst dat op de geslaagde én de mislukte literalen.
 
 ## Wat "additief" hier betekent
 

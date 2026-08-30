@@ -1,6 +1,7 @@
 """De clip verdeelt een OroX ruimtelijk en de merge maakt er weer het origineel van."""
 
 import json
+import sys
 from collections import Counter
 from pathlib import Path
 
@@ -974,8 +975,26 @@ def test_ontbrekende_grenslaag_is_een_dataseterror(tmp_path: Path) -> None:
 def test_onleesbare_grenslaag_is_een_dataseterror(tmp_path: Path) -> None:
     pad = tmp_path / "grens.geojson"
     pad.write_text("{ dit is geen json", encoding="utf-8")
-    with pytest.raises(DatasetError, match="geen leesbare GeoJSON"):
+    with pytest.raises(DatasetError, match="geen leesbare GeoJSON") as gevangen:
         clip_orox(MINI, pad, tmp_path / "uit", sleutel="naam")
+    # De gewone JSON-fout deelt zijn `except`-blok sinds #22 met `RecursionError`; deze
+    # twee regels pinnen dat zijn melding daar niet van verschoof.
+    assert isinstance(gevangen.value.__cause__, json.JSONDecodeError)
+    assert str(gevangen.value) == f"{pad}: geen leesbare GeoJSON ({gevangen.value.__cause__})."
+
+
+def test_diep_geneste_grenslaag_is_een_dataseterror(tmp_path: Path) -> None:
+    """20000x `[` laat `json.loads` een kale `RecursionError` gooien (issue #22).
+
+    Die ontsnapte uit de publieke `clip_orox`, terwijl het hele grenzenpad `DatasetError`
+    belooft. `pytest.raises(DatasetError)` legt dat allebei vast: hij faalt zowel als er
+    niets vliegt als wanneer de `RecursionError` er kaal doorheen komt.
+    """
+    pad = tmp_path / "grens.geojson"
+    pad.write_text("[" * 20000, encoding="utf-8")
+    with pytest.raises(DatasetError, match="geen leesbare GeoJSON") as gevangen:
+        clip_orox(MINI, pad, tmp_path / "uit", sleutel="naam")
+    assert isinstance(gevangen.value.__cause__, RecursionError)
 
 
 def test_grenslaag_zonder_vlakken_is_een_dataseterror(tmp_path: Path) -> None:
@@ -1044,6 +1063,32 @@ def test_vlak_zonder_geometrie_is_een_dataseterror(tmp_path: Path) -> None:
     )
     with pytest.raises(DatasetError, match="geen leesbare geometrie"):
         clip_orox(MINI, pad, tmp_path / "uit", sleutel="naam")
+
+
+def test_diep_geneste_geometrie_is_een_dataseterror(tmp_path: Path) -> None:
+    """Dezelfde lek als in `test_diep_geneste_grenslaag...`, een stap verderop (issue #22).
+
+    De twee grenzen liggen niet gelijk: de C-scanner van `json` bewaakt de C-stack (hier
+    ~4990 niveaus diep), terwijl shapely's `shape()` gewone Python-recursie is en dus op
+    `sys.getrecursionlimit()` (1000) stukloopt. Een `GeometryCollection` van 2000 diep
+    valt daarom precies tussen de twee in: de JSON komt er nog door, de geometrie niet.
+    """
+    assert sys.getrecursionlimit() < 2000, "de diepte hieronder gaat uit van de standaardlimiet"
+    geometrie: dict[str, object] = {"type": "Point", "coordinates": [0, 0]}
+    for _ in range(2000):
+        geometrie = {"type": "GeometryCollection", "geometries": [geometrie]}
+    pad = _grenslaag(
+        tmp_path,
+        {
+            "type": "FeatureCollection",
+            "features": [
+                {"type": "Feature", "properties": {"naam": "diep"}, "geometry": geometrie}
+            ],
+        },
+    )
+    with pytest.raises(DatasetError, match="geen leesbare geometrie") as gevangen:
+        clip_orox(MINI, pad, tmp_path / "uit", sleutel="naam")
+    assert isinstance(gevangen.value.__cause__, RecursionError)
 
 
 def test_bron_met_een_knipnaam_is_een_dataseterror(tmp_path: Path) -> None:

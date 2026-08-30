@@ -33,7 +33,13 @@ def _lees_grenzen(grenzen: Path, sleutel: str) -> tuple[_Vlak, ...]:
         rauw = json.loads(Path(grenzen).read_text(encoding="utf-8"))
     except OSError as fout:
         raise DatasetError(f"{grenzen}: grenslaag kan niet gelezen worden ({fout}).") from fout
-    except (json.JSONDecodeError, UnicodeDecodeError) as fout:
+    # `RecursionError` staat hier bij de onleesbare invoer en niet bij de fouten van ons:
+    # diep genest GeoJSON (20000x `[`) laat de C-scanner van `json` hem gooien, en verderop
+    # doet een even diepe `GeometryCollection` hetzelfde in shapely's `shape()`. Zonder deze
+    # tak ontsnapt hij kaal uit de publieke `clip_orox`, die op dit hele pad `DatasetError`
+    # belooft. `MemoryError` blijft er bewust buiten: die gaat niet over dit bestand maar
+    # over het proces, en is niets om een afnemer als "onleesbare grenslaag" af te laten doen.
+    except (json.JSONDecodeError, UnicodeDecodeError, RecursionError) as fout:
         raise DatasetError(f"{grenzen}: geen leesbare GeoJSON ({fout}).") from fout
 
     kenmerken = rauw.get("features") if isinstance(rauw, dict) else None
@@ -59,7 +65,7 @@ def _lees_grenzen(grenzen: Path, sleutel: str) -> tuple[_Vlak, ...]:
 
         try:
             meetkunde = _vorm(kenmerk["geometry"])
-        except (KeyError, TypeError, ValueError, AttributeError) as fout:
+        except (KeyError, TypeError, ValueError, AttributeError, RecursionError) as fout:
             raise DatasetError(
                 f"{grenzen}: {naam!r} heeft geen leesbare geometrie ({fout})."
             ) from fout

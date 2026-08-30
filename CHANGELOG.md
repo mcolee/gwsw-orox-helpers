@@ -1,6 +1,21 @@
 # Changelog
 
 ## [Unreleased]
+- Diep genest GeoJSON laat de grenslezing geen kale `RecursionError` meer ontsnappen
+  (issue #22, robuustheid; **additief** — geen bevroren contract geraakt, het gat wordt
+  juist gedicht). `_lees_grenzen` in `clip.grenzen` vangt `RecursionError` nu mee in de
+  twee `except`-blokken die er al stonden: bij `json.loads` (runtime bevestigd met een
+  bestand van 20000x `[`, waar de C-scanner van `json` hem gooit) en bij shapely's
+  `shape()` (een `GeometryCollection` van 2000 diep — de twee grenzen liggen niet gelijk,
+  want `json` bewaakt de C-stack en `shape()` loopt op `sys.getrecursionlimit()` stuk).
+  Beide gevallen kwamen tot nu toe kaal uit de publieke `clip_orox`, terwijl dat pad
+  `DatasetError` belooft; ze leveren nu de bestaande meldingen `<bestand>: geen leesbare
+  GeoJSON (...)` en `<bestand>: <naam> heeft geen leesbare geometrie (...)`, met de
+  `RecursionError` als `__cause__`. **Bestaande foutpaden en meldingen zijn byte-gelijk**
+  — er kwam alleen een uitzonderingstype bij elk van de twee tupels bij; een test pint de
+  melding van de gewone JSON-fout nu letterlijk vast. `MemoryError` blijft er bewust
+  buiten: die gaat niet over het bestand maar over het proces. **Cachesleutel**: `clip`
+  staat niet in `cache.LADERMODULES`, dus bestaande caches blijven geldig.
 - De drie gezien-set-lussen in `inlezen` gaan door één privé ontdubbelaar `_uniek`
   (issue #30, beheerbaarheid; **additief** — privé helper, geen bevroren contract
   geraakt). `_orientations_of_class`, `_orientations_with` en `_leiding_orientations`

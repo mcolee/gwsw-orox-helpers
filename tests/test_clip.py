@@ -23,10 +23,13 @@ GIS_DIR = Path(__file__).parent / "fixtures" / "gis"
 MINI = TTL_DIR / "mini_orox.ttl"
 MINI_GRENS = GIS_DIR / "mini_grens.geojson"
 
-# De echte export van Stichting RIOned (Juinen); niet in deze repo getrackt. Juinen ligt
+# Het publieke GWSW-Voorbeeld van Stichting RIONED (Juinen, 119 kB, bovenstrooms
+# `GwswDataset__Voorbeeld_v1.6.orox.ttl`), byte-exact als fixture in deze repo, zodat de
+# round-trip op een echte export ook in CI draait en niet alleen op de machine van de
+# auteur -- byte-exact omdat de knip tekstplakjes uit de posLists snijdt. Juinen ligt
 # rond x=168000-169100, y=442500-443300 en dus niet in De Wolden of Hoogeveen; hij krijgt
 # daarom een eigen grensfixture die zijn eigen omhullende in tweeen deelt.
-JUINEN = Path("/home/martin/nlriochecker/data/gwsw_orox_ttl/GwswDataset__Voorbeeld_v1_6_orox.ttl")
+JUINEN = TTL_DIR / "juinen_voorbeeld_v1_6.ttl"
 JUINEN_GRENS = GIS_DIR / "juinen_grens.geojson"
 # De export van De Wolden en Hoogeveen: 112 MB, ook niet getrackt (marker `zwaar`).
 DEWOLDEN = Path("/home/martin/nlriochecker/data/gwsw_orox_ttl/dewoldenhoogeveen_orox.ttl")
@@ -1089,7 +1092,6 @@ def test_stukken_uit_verschillende_knipbeurten_is_een_dataseterror(tmp_path: Pat
 # --------------------------------------------------------------------------------------
 
 
-@pytest.mark.skipif(not JUINEN.exists(), reason="de Juinen-export ligt niet op deze machine")
 def test_juinen_round_trip_is_isomorf(tmp_path: Path) -> None:
     """De voorbeeldexport (119 kB) overleeft knip en hereniging ongeschonden.
 
@@ -1107,7 +1109,6 @@ def test_juinen_round_trip_is_isomorf(tmp_path: Path) -> None:
     assert isomorphic(_graaf(doel), _graaf(JUINEN))
 
 
-@pytest.mark.skipif(not JUINEN.exists(), reason="de Juinen-export ligt niet op deze machine")
 def test_juinen_kent_grenskruisende_leidingen(tmp_path: Path) -> None:
     """De Juinen-grens loopt dwars door leidingen heen; anders toetst de knip niets."""
     delen = clip_orox(JUINEN, JUINEN_GRENS, tmp_path / "delen", sleutel="gemeentenaam")

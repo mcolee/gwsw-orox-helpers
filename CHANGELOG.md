@@ -1,6 +1,20 @@
 # Changelog
 
 ## [Unreleased]
+- Tests (issue #10, additief; geen `src`-wijziging): het publieke GWSW-Voorbeeld van
+  Stichting RIONED staat nu byte-exact als fixture in de repo
+  (`tests/fixtures/ttl/juinen_voorbeeld_v1_6.ttl`, 119.332 bytes, 1.621 triples, 567
+  objecten in 116 GWSW-klassen). Daarmee vervalt de `skipif` op
+  `test_juinen_round_trip_is_isomorf` en `test_juinen_kent_grenskruisende_leidingen`:
+  de verliesloze knip-en-hereniging wordt voortaan ook in CI op een échte export bewezen
+  en niet alleen op de synthetische 79-triple-fixture. Gemeten op een machine zonder de
+  externe export ging `uv run pytest -q` van 345 passed / 3 skipped naar 347 passed /
+  1 skipped (de overgebleven skip is de Juinen-test in `tests/test_schrijven.py`, die nog
+  naar het pad buiten de repo wijst); de looptijd van de snelle poort loopt daarmee op van
+  12,6 s naar 25,8 s, vrijwel geheel de canonicalisatie van `rdflib.compare.isomorphic`
+  over 1.621 triples met 1.347 blanke-knoopposities. De fixture draagt geen `zwaar`-marker
+  en wordt niet door `scripts/maak_fixtures.py` gegenereerd; die docstring somt hem nu op
+  als handwerk dat byte-exact moet blijven.
 - Ontwikkelstraat: de multi-lens review-swarm (`.claude/workflows/orox-10x-swarm.js`) is nu
   een **verplichte release-poort** — vóór elke versie draaien en de bevindingen wegen
   (overnemen niet verplicht), zie `CLAUDE.md`, Werkwijze. De additieve bevindingen van de

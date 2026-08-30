@@ -5,9 +5,12 @@ Elke fixture bevat precies een ingebouwd defect, met bovenaan in een DEFECT-rege
 wat dat defect is. De prelude met de klassenhierarchie is voor alle fixtures gelijk;
 die staat hier een keer in plaats van dertien keer in de bestanden.
 
-Vier van de zeventien fixtures in tests/fixtures/ttl zijn handwerk en staan hier niet:
-`codering_cp850.ttl` (niet-UTF-8), `net001_bouwwerk_eindknoop.ttl`, `schoon.ttl` en
-`top001_losliggende_put.ttl`.
+Zes van de twintig fixtures in tests/fixtures/ttl zijn handwerk en staan hier niet:
+`codering_cp850.ttl` (niet-UTF-8), `net001_bouwwerk_eindknoop.ttl`, `schoon.ttl`,
+`top001_losliggende_put.ttl`, `mini_orox.ttl` en `juinen_voorbeeld_v1_6.ttl`. Die laatste
+is het publieke GWSW-Voorbeeld van Stichting RIONED, byte-exact overgenomen: de
+round-trip-tests plakken er tekst uit, dus er mag niets aan veranderen -- ook niet door
+deze generator.
 
 Gebruik:  uv run python scripts/maak_fixtures.py
 """

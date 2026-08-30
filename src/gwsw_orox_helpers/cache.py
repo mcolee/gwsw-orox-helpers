@@ -113,13 +113,31 @@ class LuieGraaf:
     moduledocstring van `graaf` -- `objects`, `subjects`, `value`, `subject_objects` en
     `heeft_subject` -- plus `__len__` en `__contains__`, elk met dezelfde handtekening
     als op `GraafIndex` en elk niets anders doend dan doorgeven. Dat is geen dienst aan
-    de aanroeper (die kreeg via `__getattr__` hetzelfde antwoord) maar aan mypy: een
-    doorgifte via `__getattr__` typeert elke leesbewerking als `object`, en dan is een
-    typefout in zo'n aanroep pas zichtbaar als hij op de leesweg als `AttributeError`
-    valt. Met de methoden erop vervult `LuieGraaf` `graaf.GraafLezer` structureel;
+    de aanroeper (die kreeg via `__getattr__` hetzelfde antwoord) maar aan mypy, en de
+    winst valt in twee helften uiteen:
+
+    - **nu al** wordt de doorgifte zelf gecontroleerd. `self._geladen()` is een
+      `GraafIndex`, dus mypy leest hier vijf echte aanroepen op dat type; hernoemt of
+      verschuift `GraafIndex` een parameter, dan wordt *dit bestand* rood. Onder
+      `__getattr__` gebeurde dat niet: die forwardde blind en de fout viel pas als
+      `AttributeError` op de leesweg. `tests/test_cache.py` vergelijkt de vijf
+      handtekeningen bovendien met `inspect.signature`, want de body doet de doorgifte
+      positioneel en zou een hernoemde parameternaam overleven.
+    - **pas na stap 2** ziet de aanroeper er iets van. `laad_met_cache` cast het geheel
+      meteen naar `GraafIndex` (zie daar), dus binnen deze package houdt nog niemand een
+      `LuieGraaf`-getypeerde verwijzing vast. Zolang die cast er staat, is dat deel van de
+      winst geboekt maar niet geïnd.
+
+    Met de methoden erop vervult `LuieGraaf` `graaf.GraafLezer` structureel;
     `tests/typecheck/graaflezer.py` is daar het bewijs van en
     `tests/test_cache.py::test_de_luie_graaf_geeft_per_leesbewerking_hetzelfde_als_een_echte_graafindex`
     houdt antwoord én laadmoment per bewerking gelijk aan een verse `GraafIndex`.
+
+    Eén nuance bij "gedrag ongewijzigd", en ze gaat de goede kant op: het laden hangt nu
+    aan de *aanroep* en niet meer aan de attribuuttoegang. `getattr(luie, "objects")` of
+    `hasattr(luie, "value")` liep vroeger via `__getattr__` en las daarmee de pickle;
+    nu vindt Python de methode op de klasse en gebeurt er niets tot je haar aanroept.
+    Strikt luier dus, nooit gretiger -- en dat is precies waar deze klasse voor bestaat.
     """
 
     def __init__(self, pad: Path, herstel: Callable[[], GraafIndex]) -> None:
@@ -173,11 +191,12 @@ class LuieGraaf:
     def __getattr__(self, naam: str) -> object:
         """Vangnet voor alles buiten het leescontract hierboven.
 
-        Sinds issue #34 gaan de zeven bewerkingen van het contract niet meer hierlangs;
-        wat overblijft is de rest -- een `__getstate__`-achtige aanraking, `voeg_toe` of
-        `vul_uit` van een afnemer die de plaatsvervanger als volwaardige index gebruikt,
-        en elk lid dat `GraafIndex` er in de toekomst bij krijgt. Die blijven doorgegeven
-        (en dus getypeerd als `object`), zodat er aan het gedrag niets verandert.
+        Sinds issue #34 gaan de vijf leesbewerkingen niet meer hierlangs (`__len__` en
+        `__contains__` deden dat al niet: dunders worden op het type opgezocht, niet via
+        `__getattr__`). Wat overblijft is de rest -- een `__getstate__`-achtige aanraking,
+        `voeg_toe` of `vul_uit` van een afnemer die de plaatsvervanger als volwaardige
+        index gebruikt, en elk lid dat `GraafIndex` er in de toekomst bij krijgt. Die
+        blijven doorgegeven, en dus getypeerd als `object`.
         """
         return getattr(self._geladen(), naam)
 

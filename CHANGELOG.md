@@ -6,24 +6,23 @@
   aanbiedt (`objects`, `subjects`, `value`, `subject_objects`, `heeft_subject`) staan nu
   als methode op de klasse, met dezelfde handtekening en niets anders doend dan
   `self._geladen().<methode>(...)`; `__len__` en `__contains__` stonden er al.
-  `__getattr__` blijft als vangnet voor alles daarbuiten, dus aan het gedrag verandert er
-  niets: dezelfde antwoorden, hetzelfde laadmoment (pas de eerste aanraking leest de
-  pickle) en hetzelfde zelfherstel bij een beschadigde graafcache. Wat wél verandert is
-  wat mypy ziet: een doorgifte via `__getattr__` typeert elke leesbewerking als `object`,
-  waardoor een typefout in zo'n aanroep pas als `AttributeError` op de leesweg zichtbaar
-  werd. `LuieGraaf` vervult daarmee `graaf.GraafLezer` structureel — bewezen in
-  `tests/typecheck/graaflezer.py`, naast `Graph` en `GraafIndex`. De `cast(GraafIndex,
-  ...)` blijft staan: `GwswDataset.graph` is op de concrete `GraafIndex` gepind en dat
-  veld verbreden is een auteursbeslissing (stap 2, apart geparkeerd). De cachesleutel
-  verschuift niet — `cache` staat met reden in `BUITEN_DE_SLEUTEL` en niet in
-  `LADERMODULES` — dus bestaande caches blijven geldig; nagemeten op de De Wolden- en
-  Hoogeveen-export (sleutel `17fed55b…` vóór en ná). **Geen meetbaar verschil**, zoals het
-  hoort: gepaard gemeten op diezelfde export, met een al warme cachemap, geeft een
-  cache-hit via `laad_met_cache` 2,59/2,56 s vóór tegen 2,51/2,52/2,55 s ná, en de eerste
-  graafaanraking 8,63/8,60 s vóór tegen 8,55/8,55/8,72 s ná. (Een eerste, ongepaarde
-  meting gaf 1,54 s / 10,5 s vóór; die run volgde direct op een koude parse en meet dus de
-  paginacache, niet de wijziging — de cache-treffer voert na deze stap letterlijk dezelfde
-  regels uit.)
+  `__getattr__` blijft als vangnet voor alles daarbuiten. De antwoorden zijn dezelfde, het
+  zelfherstel bij een beschadigde graafcache is ongewijzigd, en de graafpickle komt nog
+  steeds pas bij de eerste leesbewerking van schijf. Eén nuance, en ze gaat de goede kant
+  op: dat laden hangt nu aan de *aanroep* en niet meer aan de attribuuttoegang, want
+  `getattr(luie, "objects")` liep vroeger via `__getattr__` en las de pickle al. Strikt
+  luier dus, nooit gretiger. Wat verandert is wat mypy ziet: een doorgifte via
+  `__getattr__` typeert elke leesbewerking als `object`, dus de vijf aanroepen op
+  `GraafIndex` in de doorgeefmethoden worden nu gecontroleerd — hernoemt `GraafIndex` een
+  parameter, dan wordt `cache.py` rood in plaats van pas de leesweg. `LuieGraaf` vervult
+  daarmee `graaf.GraafLezer` structureel — bewezen in `tests/typecheck/graaflezer.py`,
+  naast `Graph` en `GraafIndex` — al ziet een aanroeper daar pas iets van als de
+  `cast(GraafIndex, ...)` valt. Die blijft namelijk staan: `GwswDataset.graph` is op de
+  concrete `GraafIndex` gepind en dat veld verbreden is een auteursbeslissing (stap 2,
+  apart geparkeerd). De cachesleutel verschuift niet — `cache` staat met reden in
+  `BUITEN_DE_SLEUTEL` en niet in `LADERMODULES` — dus bestaande caches blijven geldig
+  (nagemeten op de De Wolden- en Hoogeveen-export: sleutel `17fed55b…` vóór en ná). Geen
+  perf-claim; indicatief gaf een cache-hit-run op diezelfde export geen meetbaar verschil.
 - `tests/test_schrijven.py::test_juinen_blijft_isomorf` leest de sinds #10 gebundelde
   Juinen-fixture in plaats van een pad buiten de repo (uitgestelde minor uit #10). Aanleiding:
   de externe map `nlriochecker/data/gwsw_orox_ttl` was op 30-08 tussentijds afwezig, waardoor

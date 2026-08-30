@@ -7,6 +7,7 @@ in de sleutel.
 
 from __future__ import annotations
 
+import inspect
 import logging
 from collections.abc import Callable
 from pathlib import Path
@@ -127,6 +128,14 @@ def test_de_luie_graaf_geeft_per_leesbewerking_hetzelfde_als_een_echte_graafinde
     """
     vraag = LEESCONTRACT[naam]
     assert naam in vars(LuieGraaf), "het leescontract hoort expliciet op de klasse te staan"
+    # En met exact dezelfde handtekening. `__getattr__` volgde die vanzelf; vijf
+    # overgeschreven `def`-regels doen dat niet, en een aanroeper mag ze op naam aanroepen
+    # (`graaf.subjects(predicate=..., object_=...)`). Zonder deze regel zou een hernoemde
+    # of verschoven parameter op `GraafIndex` hier stil uiteenlopen -- de doorgifte in de
+    # body blijft immers werken zolang ze positioneel gebeurt.
+    assert inspect.signature(getattr(LuieGraaf, naam)) == inspect.signature(
+        getattr(GraafIndex, naam)
+    )
 
     verwacht = vraag(load_dataset(VOORBEELD, []).graph)
     laad_met_cache(VOORBEELD, [], cache_dir=tmp_path)

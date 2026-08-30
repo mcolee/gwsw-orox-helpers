@@ -66,7 +66,11 @@ Er zijn twee wegen van een TTL-bestand naar triples, en ze zijn met opzet versch
 
 - **De leesweg** (`inlezen._parse`) decodeert het bestand, parseert het en giet de quads
   in een `GraafIndex` met rdflib-termen. Wie leest, moet daarna kunnen opzoeken; die
-  index kost tijd en geheugen en is precies wat de checks nodig hebben.
+  index kost tijd en geheugen en is precies wat de checks nodig hebben. Over die hele
+  lezing -- ook over de klassenafleiding en de objectopbouw ná het vullen van de index --
+  ligt de cyclische GC van het proces stil (`inlezen._gc_uit`, aangeroepen vanuit
+  `dataset.load_dataset`, dat het neveneffect in zijn docstring toezegt en de oude stand
+  in een `finally` herstelt).
 - **De schrijfweg** (`schrijven.lees_orox` → `schrijf_orox_quads`) laat de quads van de
   parser rechtstreeks naar de serializer stromen. Wie terugschrijft heeft geen index
   nodig en zou hem op een export van honderden megabytes ook niet willen betalen; de

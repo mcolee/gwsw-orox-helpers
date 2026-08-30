@@ -8,8 +8,8 @@ globale CLAUDE.md verbiedt maar die subagents blijven maken:
 Werkt op de hoofdsessie én op subagent-tool-calls (PreToolUse vuurt op beide).
 Niet-blokkerend: geeft alleen `additionalContext` terug, exit altijd 0.
 Faalt open: bij onleesbare invoer of twijfel geen output en exit 0, zodat een
-kapotte hook nooit een tool-call tegenhoudt. Leest stdin met python3 (de losse
-`jq`-CLI staat niet op deze machine)."""
+kapotte hook nooit een tool-call tegenhoudt. Leest stdin met python3 (los van
+de sinds 27-08 aanwezige `jq`-CLI, zodat de hook nergens van afhangt)."""
 
 import json
 import re
@@ -35,8 +35,10 @@ if re.search(r"(^|[\s;&(])cd\s+\S+\s*(&&|;)", cmd):
         "andere repo, gebruik dan `git -C <pad> …` in plaats van `cd`."
     )
 
-# 2. Decoratieve kopregels `echo "=== … ==="` (of ==== enz.).
-if re.search(r"""echo\s+['"]?==""", cmd):
+# 2. Decoratieve kopregels `echo "=== … ==="` (of ==== enz.). Alleen aan het
+#    begin van een commandosegment, zodat een stringliteral in bv. een
+#    python3-heredoc die toevallig 'echo "==' bevat geen vals alarm geeft.
+if re.search(r"""(^|[;&|(]\s*)echo\s+['"]?==""", cmd, re.MULTILINE):
     msgs.append(
         '`echo "=== kop ==="`: de tool labelt de uitvoer al per commando -- '
         "laat de kopregels weg (een korte `echo --` mag als het echt moet)."

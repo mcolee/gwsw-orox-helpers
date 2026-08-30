@@ -1,6 +1,39 @@
 # Changelog
 
 ## [Unreleased]
+
+## [0.2.0] - 2026-08-30
+- README herschreven als landingspagina met vaste opbouw (badges, Stand van zaken, Wat je
+  krijgt, Snel proberen, Verder lezen, Ontwikkelen, Bijdragen, Licentie), naar het model
+  van nlriochecker. Zelfde inhoud, geen apparatuur eromheen (geen getrackt voorbeeld,
+  rooktest of schermafdrukken): de bibliotheek heeft al een runbaar voorbeeld en
+  `docs/architectuur.md`.
+- Leesweg sneller (intern; geen API-wijziging, gedrag bevroren; issue #7): twee losse
+  stappen die elkaar niet raken. De cyclische GC ligt nu stil over het hele leesblok van
+  `load_dataset` -- beide parses, de klassenafleiding en de objectopbouw van
+  `_read_nodes`/`_read_conduits` -- en niet meer alleen om het vullen van de grafindex
+  heen; `inlezen._gc_uit` wordt daarvoor vanuit `dataset` aangeroepen en zet de oude stand
+  in een `finally` terug, ook na een fout. Dat verbreedt wat de regel hieronder over
+  `_gc_uit` zegt: `_parse` blijft de enige weg naar `GraafIndex.vul_uit`, maar
+  `load_dataset` is er nu de buitenste aanroeper omheen, en die zegt het procesbrede
+  neveneffect in haar eigen docstring toe. Daarnaast krijgen de twee dominante termvormen
+  in `graaf.naar_rdflib` een kort pad (`_uriref_snel`, `_literal_string_snel`) dat rdflib's
+  IRI-validatie en literaalconstructor overslaat zonder een ander object op te leveren; de
+  taal-literaal, elk ander datatype en de `BNode` blijven op de generieke weg.
+  Gemeten op de 112 MB-export van De Wolden en Hoogeveen met
+  `scripts/benchmark.py --paden load_dataset`, gepaard (n=4, referentie en experiment om
+  en om): mediaan 27,65 -> 25,46 s (-7,9%, de verhouding van de twee medianen), en alle
+  vier de rondes wezen dezelfde kant op (per paar 9,7%, 5,4%, 8,3% en 20,2% sneller).
+  Piekgeheugen ongewijzigd op 1218 MiB. De tellingen
+  zijn exact gelijk gebleven: 1.877.729 triples, 23.485 knopen, 23.440 strengen, 0
+  geometriefouten; `schrijf_orox`, `clip_orox` en `merge_orox` zijn niet aangeraakt.
+  `_literal_string_snel` zet vier rdflib-interne velden rechtstreeks -- er is geen publieke
+  weg om een literaal zonder de constructor te bouwen -- en de snelpad-tests in
+  `tests/test_graaf.py` zijn de enige bewaker daarvoor bij een rdflib-upgrade. Wat wegvalt
+  is rdflib's `logger.warning` bij een vreemd ogende IRI; op de leesweg was die al gedempt,
+  maar wie `GraafIndex.vul_uit` rechtstreeks aanroept ziet hem voortaan ook niet. `graaf`
+  en `dataset` staan in `cache.LADERMODULES`, dus bestaande caches worden een keer opnieuw
+  opgebouwd -- bedoeld, geen gedragswijziging.
 - Performanceronde (intern; geen API-wijziging, gedrag bevroren): de vier hete paden zijn
   op de 112 MB-export van De Wolden en Hoogeveen gemeten met `scripts/benchmark.py` en
   daarna alleen bijgesteld waar het profiel dat aanwees. `load_dataset` gaat van 27,3 naar

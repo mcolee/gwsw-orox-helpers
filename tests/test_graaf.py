@@ -13,7 +13,7 @@ import pyoxigraph
 import pytest
 from rdflib import RDF, RDFS, BNode, Graph, Literal, URIRef
 
-from gwsw_orox_helpers.graaf import GraafIndex
+from gwsw_orox_helpers.graaf import GraafIndex, _literal_string_snel, _uriref_snel
 
 NS = "http://data.gwsw.nl/1.6/totaal/"
 P_TYPE = RDF.type
@@ -160,6 +160,119 @@ def test_vul_uit_bouwt_dezelfde_index_als_losse_rdflib_termen() -> None:
     assert list(index.objects(S1, P_PART)) == [S2]
     assert index.value(S2, P_LABEL) == Literal("put twee")
     assert len(index) == 4
+
+
+# --------------------------------------------------------------------------------------
+# Het snelpad voor de twee dominante termvormen
+# --------------------------------------------------------------------------------------
+
+# Wat de snelpaden op de proef stelt: de lege tekst, witruimte (ook een regeleinde, dat
+# `Literal.n3()` naar de drievoudig aangehaalde vorm duwt), unicode, cijfertekst, een IRI
+# met een fragment, en een IRI met een spatie -- die laatste zou `URIRef.__new__`'s
+# `_is_valid_uri` afkeuren en met een `logger.warning` beantwoorden. Juist die moet
+# hetzelfde object opleveren als de trage weg, want het snelpad slaat die controle over.
+SNELPAD_WAARDEN = [
+    "",
+    " ",
+    "\t\n ",
+    "42",
+    "0,5",
+    "één stráát mét ünïcode ☂",
+    "http://example.org/gewoon",
+    f"{NS}Put#fragment",
+    "http://example.org/met een spatie",
+    "urn:x-gwsw:leeg",
+]
+
+
+def _n3(term) -> object:
+    """`term.n3()`, of de fout die hij gooit; rdflib weigert een IRI met een spatie.
+
+    Beide wegen horen daar hetzelfde te doen, dus de fout is hier net zo goed een
+    uitkomst om te vergelijken als de tekst.
+    """
+    try:
+        return term.n3()
+    except Exception as fout:
+        # Breed vangen is hier het punt: welke fout rdflib kiest hoort ook gelijk te zijn,
+        # dus de soort en de tekst zijn de uitkomst en niet iets om weg te filteren.
+        return type(fout), str(fout)
+
+
+@pytest.mark.parametrize("waarde", SNELPAD_WAARDEN)
+def test_uriref_snel_is_niet_te_onderscheiden_van_de_trage_weg(waarde: str) -> None:
+    """`_uriref_snel(v)` levert exact wat `URIRef(v)` levert, tot en met het type.
+
+    Dit is de bewaker voor een rdflib-upgrade: het snelpad omzeilt `URIRef.__new__` en
+    steunt erop dat die in de zonder-`base`-tak niets anders doet dan valideren en
+    `str.__new__` aanroepen. Verandert dat, dan hoort deze test rood te worden.
+    """
+    snel = _uriref_snel(waarde)
+    traag = URIRef(waarde)
+
+    assert type(snel) is type(traag) is URIRef
+    assert snel == traag and traag == snel
+    assert hash(snel) == hash(traag)
+    assert str(snel) == str(traag)
+    assert _n3(snel) == _n3(traag)
+    assert snel.toPython() == traag.toPython()
+    # Een `URIRef` draagt geen `.datatype`, `.language` of `.value`; dat het snelpad daar
+    # niet stiekem wel iets neerzet hoort net zo goed vast te liggen.
+    for naam in ("datatype", "language", "value"):
+        assert hasattr(snel, naam) == hasattr(traag, naam) is False, naam
+
+
+@pytest.mark.parametrize("waarde", SNELPAD_WAARDEN)
+def test_literal_string_snel_is_niet_te_onderscheiden_van_de_trage_weg(waarde: str) -> None:
+    """`_literal_string_snel(v)` levert exact wat `Literal(v)` levert.
+
+    Dit is de bewaker voor een rdflib-upgrade die de interne veldnamen (`_language`,
+    `_datatype`, `_value`, `_ill_typed`) hernoemt of hun betekenis verandert: het snelpad
+    zet die vier rechtstreeks in plaats van de constructor te laten rekenen. Vandaar dat
+    hier niet alleen `==` maar ook `hash()`, `.n3()` en alle vier de afgeleide
+    eigenschappen vergeleken worden -- `==` alleen zou een verkeerde `_value` niet zien.
+    """
+    snel = _literal_string_snel(waarde)
+    traag = Literal(waarde)
+
+    assert type(snel) is type(traag) is Literal
+    assert snel == traag and traag == snel
+    assert hash(snel) == hash(traag)
+    assert str(snel) == str(traag)
+    assert _n3(snel) == _n3(traag)
+    assert snel.datatype == traag.datatype and traag.datatype is None
+    assert snel.language == traag.language and traag.language is None
+    assert snel.value == traag.value
+    assert snel.ill_typed == traag.ill_typed
+    assert snel.toPython() == traag.toPython()
+
+
+def _slots(klasse: type) -> tuple[str, ...]:
+    """Alle `__slots__` van een klasse en haar bovenklassen, zonder duplicaten."""
+    gevonden: dict[str, None] = {}
+    for basis in klasse.__mro__:
+        for naam in getattr(basis, "__slots__", ()):
+            gevonden[naam] = None
+    return tuple(gevonden)
+
+
+def test_literal_snelpad_zet_elk_intern_veld_dat_rdflib_zelf_zet() -> None:
+    """Een rdflib-upgrade die een vijfde intern veld toevoegt, hoort hier op te vallen.
+
+    De attribuutvergelijkingen hierboven kennen alleen de velden van vandaag. Een nieuw
+    veld dat de constructor wel zet en het snelpad niet, zou daar doorheen glippen en pas
+    veel later als een `AttributeError` bovenkomen -- een `Literal` draagt geen `__dict__`,
+    dus een ongezet slot is geen `None` maar een fout. Deze test loopt daarom over de
+    slots zelf en niet over een lijst die hier met de hand wordt bijgehouden.
+    """
+    velden = _slots(Literal)
+    assert velden, "een `Literal` hoort zijn interne velden in `__slots__` te dragen"
+
+    snel = _literal_string_snel("een waarde")
+    traag = Literal("een waarde")
+
+    for veld in velden:
+        assert getattr(snel, veld) == getattr(traag, veld), veld
 
 
 def test_vul_uit_deelt_gelijke_termen_als_een_object() -> None:

@@ -422,6 +422,13 @@ def test_lijstleden_laat_de_graaf_ongemoeid(lijsten: Graph | GraafIndex) -> None
 
 # --- Het protocol is precies zo breed als de lezers hem gebruiken (issue #21) ---------
 
+# De leden die `GraafLezer` belooft. Met de hand uit `vars()` en niet uit
+# `__protocol_attrs__`: dat attribuut is een implementatiedetail van `typing` (het
+# officiele `typing.get_protocol_members` bestaat pas vanaf 3.13, en deze package draait
+# vanaf 3.12). De twee tests hieronder lezen allebei deze verzameling, zodat er maar een
+# plek is die weet hoe je de leden van het protocol opvraagt.
+PROTOCOLLEDEN = frozenset(naam for naam in vars(GraafLezer) if not naam.startswith("_"))
+
 
 def test_het_protocol_is_precies_zo_breed_als_ontologie_het_gebruikt() -> None:
     """`GraafLezer` noemt exact de bewerkingen die `ontologie` op zijn graaf aanroept.
@@ -432,21 +439,34 @@ def test_het_protocol_is_precies_zo_breed_als_ontologie_het_gebruikt() -> None:
     hier het punt. Elk lid erbij is een eis aan wie het protocol wil vervullen: `Graph`
     haakt af op het eerste lid dat rdflib niet kent (`heeft_subject`), en dat is precies
     de scheur die issue #19 repareerde. Deze test leest daarom de boom van `ontologie.py`
-    af: elke `graph.<naam>` die daar wordt aangeroepen, en niets anders, staat in het
-    protocol.
+    af: elke naam die daar van een `GraafLezer`-parameter wordt opgevraagd, en niets
+    anders, staat in het protocol. Opgevraagd en niet aangeroepen -- de sweep filtert
+    bewust niet op `ast.Call`: ook een `graph.items` die alleen doorgegeven wordt, is een
+    lid dat de vervuller moet dragen, en juist zo'n gebruik brak issue #19.
+
+    De sweep zoekt die parameters op hun **annotatie** en niet op de naam `graph`: een
+    lezer die er straks `bron` van maakt, of een zesde lezer die een eigen naam kiest,
+    zou anders ongemerkt langs deze bewaker glippen en het protocol stil te smal of te
+    breed laten worden. `from __future__ import annotations` maakt de annotatie een
+    string bij het draaien, maar de boom draagt haar nog als `ast.Name`.
     """
     boom = ast.parse(inspect.getsource(ontologie))
+    parameters = {
+        arg.arg
+        for knoop in ast.walk(boom)
+        if isinstance(knoop, ast.FunctionDef)
+        for arg in knoop.args.args
+        if isinstance(arg.annotation, ast.Name) and arg.annotation.id == GraafLezer.__name__
+    }
     gebruikt = {
         knoop.attr
         for knoop in ast.walk(boom)
         if isinstance(knoop, ast.Attribute)
         and isinstance(knoop.value, ast.Name)
-        and knoop.value.id == "graph"
+        and knoop.value.id in parameters
     }
-    beloofd = {naam for naam in vars(GraafLezer) if not naam.startswith("_")}
-
-    assert gebruikt, "de sweep vond geen enkele graafbewerking; klopt de parameternaam nog?"
-    assert gebruikt == beloofd
+    assert parameters, "geen enkele parameter in `ontologie` is op `GraafLezer` geannoteerd"
+    assert gebruikt == PROTOCOLLEDEN
 
 
 @pytest.mark.parametrize("vorm", ["graph", "index"])
@@ -459,7 +479,7 @@ def test_allebei_de_graafvormen_dragen_de_leden_van_het_protocol(vorm: str) -> N
     iemand ooit met een `if TYPE_CHECKING` de mypy-kant zou omzeilen.
     """
     bron = _in_vorm(FIXTURE, vorm)
-    for naam in (naam for naam in vars(GraafLezer) if not naam.startswith("_")):
+    for naam in PROTOCOLLEDEN:
         assert callable(getattr(bron, naam)), naam
 
 

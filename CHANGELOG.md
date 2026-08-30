@@ -12,9 +12,12 @@
   het interne `_lijstleden` namen `graph: Graph | GraafIndex` en nemen nu
   `graph: GraafLezer` — verbreding, geen versmalling: elke `Graph` en elke `GraafIndex`
   die paste, past nog, en het gedrag is regel voor regel hetzelfde. **Gemeten**: zes
-  `Graph | GraafIndex`-unions in `src/` → nul; het aantal `cast(` in `src/` blijft twee
-  (de `LuieGraaf`-cast in `cache` en de `module.__file__`-cast raken een gepind contract
-  en blijven staan — zie hieronder). `uv run mypy`: 0 issues, 24 → 25 bronbestanden.
+  `Graph | GraafIndex`-annotaties in `src/` → nul (een kale
+  `grep -rc "Graph | GraafIndex" src/` telt 6 → 2, want de twee resterende treffers zijn
+  proza in een docstring — die van `graaf` en die van `ontologie`, allebei over wat er
+  vroeger stond). Het aantal `cast(` in `src/` blijft twee: de `LuieGraaf`-cast in
+  `cache` raakt een gepind contract en de `module.__file__`-cast staat er los van — zie
+  hieronder. `uv run mypy`: 0 issues, 24 → 25 bronbestanden.
   **Twee leden en niet zeven**, want het protocol is de smalste vorm die werkt en niet de
   getypte vorm van het hele leescontract: `heeft_subject` is een eigen aanvulling die
   `rdflib.Graph` niet kent, dus dat lid zou de `Graph`-kant per direct uitsluiten, en

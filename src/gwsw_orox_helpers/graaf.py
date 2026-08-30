@@ -53,14 +53,9 @@ inclusief volgorde:
 Niet gebruikt en dus niet aangeboden: `triples()`, patronen met andere ongebonden
 argumenten, iteratie over de hele graaf, en elke schrijfbewerking na het vullen.
 
-Van dat contract is één plak getypt: `GraafLezer` (hieronder) is het protocol dat
-`ontologie` van een graaf vraagt -- `objects` en `value`, de twee bewerkingen waarvan
-`rdflib.Graph` en `GraafIndex` allebei een structureel passende vorm hebben. De rest van
-de lijst hierboven blijft proza, en met opzet: `heeft_subject` is een eigen aanvulling
-die een `Graph` niet heeft, dus een protocol over het hele contract zou de `Graph`-kant
-uitsluiten (issue #21). Wie het contract leest, leest dus deze docstring; wie het aan een
-laaggrens wil binden, gebruikt `GraafLezer` en verbreedt hem additief zodra een lezer
-meer nodig heeft.
+Van dat contract is één plak getypt: `GraafLezer` (hieronder) draagt de twee bewerkingen
+die `ontologie` gebruikt. De rest van de lijst hierboven blijft proza, en met opzet --
+waarom, staat bij het protocol zelf.
 """
 
 from __future__ import annotations

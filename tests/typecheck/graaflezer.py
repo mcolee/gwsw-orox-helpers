@@ -20,6 +20,16 @@ Het bewijst twee kanten, en de tweede is de belangrijkste:
   `ignore` ongebruikt en valt mypy alsnog om. Zonder deze kant zou een protocol dat per
   ongeluk alles accepteert (bijvoorbeeld omdat rdflib zijn typen kwijtraakt en `Graph`
   `Any` wordt) er groen uitzien.
+
+**De twee negatieve gevallen bewaken niet hetzelfde**, en daarom staan ze er allebei.
+`HalveGraaf` mist een lid en wordt afgewezen op *naam*; die blijft rood, ook als de
+termtypen verwateren. `VerkeerdeGraaf` draagt allebei de namen en wijkt alleen in het
+*type* af, en is dus de enige van de twee die het "rdflib raakt zijn typen kwijt"-geval
+vangt: worden `Node` en de zijne ooit `Any`, dan wordt deze regel geldig, de `ignore`
+ongebruikt en de poort rood. Wie hem hier ooit weghaalt omdat hij op `HalveGraaf` lijkt,
+haalt precies die bewaker weg. Wat geen van beide dekt: mypy toetst de rdflib die
+*geinstalleerd* is en niet de hele cap `>=7.0,<8` uit `pyproject.toml`; een upgrade
+binnen die reeks die de aliassen versmalt, meldt zich pas als de poort hier draait.
 """
 
 from __future__ import annotations

@@ -118,6 +118,21 @@ CLIP_MAG_IMPORTEREN = frozenset({"clip", "errors", "geometry", "namen", "schrijv
 # *snit* en niet als contract -- ze zijn privé en nlriochecker importeert ze niet.
 NAAMHELPERS = ("_short", "_uri")
 
+# De faalfamilies die sinds issue #31 onder `DatasetError` hangen, één per soort oorzaak.
+# Ze staan hier omdat de *hiërarchie* het contract is en niet de namen: nlriochecker vangt
+# `DatasetError` en blijft dat doen, dus elke familie hoort eronder te hangen en nergens
+# anders. De lijst is bewust uitgeschreven en niet uit de module afgeleid -- zo valt een
+# achtste familie op als een keuze die iemand maakte, en niet als een regel in een diff.
+FAMILIES = (
+    errors.BestandError,
+    errors.CoderingError,
+    errors.GrenslaagError,
+    errors.InhoudError,
+    errors.KnipError,
+    errors.MotorError,
+    errors.TurtleError,
+)
+
 
 def _clipbronnen() -> dict[str, str]:
     """De broncode van het clip-package en van elke submodule, per naam."""
@@ -441,6 +456,33 @@ def test_uitzonderingen_houden_hun_plaats_in_de_hierarchie() -> None:
     assert issubclass(errors.DatasetError, errors.OroxError)
     assert issubclass(errors.OroxError, Exception)
     assert issubclass(geometry.GeometryError, ValueError)
+    # Additief sinds issue #31: de zeven faalfamilies staan *onder* `DatasetError` en
+    # nergens anders. Zou er een naast komen te hangen, dan glipte hij langs de brede
+    # `except DatasetError` van nlriochecker -- precies de breuk die deze regel uitsluit.
+    # De lijst is compleet: `FAMILIES` hieronder toetst dat er geen achtste ongemerkt bij
+    # komt te staan.
+    for familie in FAMILIES:
+        assert issubclass(familie, errors.DatasetError)
+    # En andersom: de basisklassen blijven wat ze waren en zijn geen familie geworden.
+    assert errors.DatasetError.__bases__ == (errors.OroxError,)
+    assert errors.OroxError.__bases__ == (Exception,)
+
+
+def test_de_faalfamilies_liggen_vast() -> None:
+    """De indeling van issue #31 is zelf een foto, net als de lijsten hierboven.
+
+    Niet omdat nlriochecker de families importeert -- dat doet hij niet, hij vangt
+    `DatasetError` -- maar omdat een familie erbij of eraf een keuze van de auteur is en
+    geen bijvangst van een refactor. Verdwijnt er een naam, dan breekt een afnemer die hem
+    inmiddels wél gebruikt; komt er een bij zonder dat iemand de raise-plekken opnieuw
+    indeelde, dan is de indeling niet meer wat de docstrings beloven.
+    """
+    gevonden = {
+        naam
+        for naam, waarde in vars(errors).items()
+        if isinstance(waarde, type) and issubclass(waarde, errors.DatasetError)
+    }
+    assert gevonden == {"DatasetError"} | {familie.__name__ for familie in FAMILIES}
 
 
 def test_nul_voortgang_is_een_niets_doende_voortgang() -> None:

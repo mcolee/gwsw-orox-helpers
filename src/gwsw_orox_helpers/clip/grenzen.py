@@ -15,7 +15,7 @@ from shapely.geometry import shape as _vorm
 from shapely.geometry.base import BaseGeometry
 from shapely.prepared import PreparedGeometry, prep
 
-from gwsw_orox_helpers.errors import DatasetError
+from gwsw_orox_helpers.errors import BestandError, GrenslaagError
 
 
 @dataclass(frozen=True)
@@ -32,7 +32,7 @@ def _lees_grenzen(grenzen: Path, sleutel: str) -> tuple[_Vlak, ...]:
     try:
         rauw = json.loads(Path(grenzen).read_text(encoding="utf-8"))
     except OSError as fout:
-        raise DatasetError(f"{grenzen}: grenslaag kan niet gelezen worden ({fout}).") from fout
+        raise BestandError(f"{grenzen}: grenslaag kan niet gelezen worden ({fout}).") from fout
     # `RecursionError` staat hier bij de onleesbare invoer en niet bij de fouten van ons:
     # diep genest GeoJSON (20000x `[`) laat de C-scanner van `json` hem gooien, en verderop
     # doet een even diepe `GeometryCollection` hetzelfde in shapely's `shape()`. Zonder deze
@@ -40,24 +40,24 @@ def _lees_grenzen(grenzen: Path, sleutel: str) -> tuple[_Vlak, ...]:
     # belooft. `MemoryError` blijft er bewust buiten: die gaat niet over dit bestand maar
     # over het proces, en is niets om een afnemer als "onleesbare grenslaag" af te laten doen.
     except (json.JSONDecodeError, UnicodeDecodeError, RecursionError) as fout:
-        raise DatasetError(f"{grenzen}: geen leesbare GeoJSON ({fout}).") from fout
+        raise GrenslaagError(f"{grenzen}: geen leesbare GeoJSON ({fout}).") from fout
 
     kenmerken = rauw.get("features") if isinstance(rauw, dict) else None
     if not kenmerken:
-        raise DatasetError(f"{grenzen}: geen features in de grenslaag; er valt niets te knippen.")
+        raise GrenslaagError(f"{grenzen}: geen features in de grenslaag; er valt niets te knippen.")
 
     vlakken: list[_Vlak] = []
     gezien: set[str] = set()
     for kenmerk in kenmerken:
         eigenschappen = kenmerk.get("properties") or {}
         if sleutel not in eigenschappen or eigenschappen[sleutel] is None:
-            raise DatasetError(
+            raise GrenslaagError(
                 f"{grenzen}: een feature draagt geen {sleutel!r}; die property bepaalt de "
                 f"uitvoernaam en moet op elk vlak staan."
             )
         naam = str(eigenschappen[sleutel])
         if naam in gezien:
-            raise DatasetError(
+            raise GrenslaagError(
                 f"{grenzen}: {sleutel!r} is {naam!r} op meer dan een vlak; twee vlakken zouden "
                 f"dan hetzelfde bestand schrijven."
             )
@@ -67,11 +67,11 @@ def _lees_grenzen(grenzen: Path, sleutel: str) -> tuple[_Vlak, ...]:
             meetkunde = _vorm(kenmerk["geometry"])
         # `RecursionError` staat hier om dezelfde reden als hierboven bij `json.loads`.
         except (KeyError, TypeError, ValueError, AttributeError, RecursionError) as fout:
-            raise DatasetError(
+            raise GrenslaagError(
                 f"{grenzen}: {naam!r} heeft geen leesbare geometrie ({fout})."
             ) from fout
         if meetkunde.geom_type not in ("Polygon", "MultiPolygon") or meetkunde.is_empty:
-            raise DatasetError(
+            raise GrenslaagError(
                 f"{grenzen}: {naam!r} is een {meetkunde.geom_type} en geen (multi)vlak; "
                 f"een clip verdeelt langs vlakken."
             )

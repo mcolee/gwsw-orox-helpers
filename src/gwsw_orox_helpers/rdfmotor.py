@@ -32,9 +32,13 @@ als "geen geldige Turtle" uitkomen -- precies de misleiding die deze module wegn
 `ONDERSTEUNDE_REEKS` en de cap worden aan elkaar geknoopt door
 `test_de_reeks_is_dezelfde_als_de_cap_in_pyproject`, zodat ze niet uit elkaar lopen.
 
-De fout is een `DatasetError` en geen eigen soort: dat is de uitzondering die deze
-package voor "de bron komt er niet doorheen" belooft en die haar afnemers vangen. Een
-nieuw uitzonderingstype zou langs elke bestaande `except DatasetError` glippen.
+De fout is sinds issue #31 een `MotorError`, en dat is een *subklasse* van `DatasetError`
+en geen soort ernaast. Dat onderscheid draagt de hele keuze: `DatasetError` is wat deze
+package voor "de bron komt er niet doorheen" belooft en wat haar afnemers vangen, dus een
+type dat daar niet onder hangt zou langs elke bestaande `except DatasetError` glippen.
+Eronder hangen mag wel, en hier is het de moeite: dit is de enige fout van de package die
+niet over invoer gaat maar over de installatie eronder, en wie hem apart wil herkennen
+repareert een omgeving en geen bestand.
 """
 
 from __future__ import annotations
@@ -46,7 +50,7 @@ from typing import IO, Final
 
 import pyoxigraph
 
-from gwsw_orox_helpers.errors import DatasetError
+from gwsw_orox_helpers.errors import MotorError
 
 # Deze package leest en schrijft Turtle en verder niets; de andere RDF-formaten die de
 # motor kan, komen in een OroX-uitwisseling niet voor.
@@ -76,7 +80,7 @@ def controleer_versie(versie: str) -> None:
     """
     kop = _VERSIEKOP.match(versie)
     if kop is None:
-        raise DatasetError(
+        raise MotorError(
             f"pyoxigraph meldt versie {versie!r}; daar is geen major.minor uit te lezen, dus "
             f"is niet te zeggen of hij binnen de getoetste reeks {ONDERSTEUNDE_REEKS} valt. "
             "De reeks staat in `gwsw_orox_helpers.rdfmotor` en als cap in pyproject.toml."
@@ -84,7 +88,7 @@ def controleer_versie(versie: str) -> None:
     gevonden = (int(kop.group(1)), int(kop.group(2)))
     if ONDERSTE_VERSIE <= gevonden < EERSTE_ONGETOETSTE_VERSIE:
         return
-    raise DatasetError(
+    raise MotorError(
         f"pyoxigraph {versie} valt buiten de reeks {ONDERSTEUNDE_REEKS} waarop "
         "gwsw-orox-helpers getoetst is. pyoxigraph is pre-1.0 en mag tussen twee minors "
         "de parse- en serialize-aanroep breken, dus deze package weigert erop te draaien. "
@@ -105,7 +109,7 @@ def ontleed_turtle(bron: bytes | str) -> pyoxigraph.QuadParser:
 
     Er wordt hier **niets afgevangen**: een syntaxfout onderweg komt er als de fout van de
     motor uit. `bestand._parse` en `schrijven._gecontroleerd` maken daar hun eigen
-    `DatasetError` van, elk met de formulering die hun afnemers kennen.
+    `TurtleError` van, elk met de formulering die hun afnemers kennen.
     """
     return pyoxigraph.parse(bron, format=_TURTLE)
 

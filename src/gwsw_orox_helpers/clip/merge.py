@@ -22,7 +22,7 @@ from gwsw_orox_helpers.clip.termen import (
     _gml_waarde,
     _term,
 )
-from gwsw_orox_helpers.errors import DatasetError
+from gwsw_orox_helpers.errors import KnipError
 from gwsw_orox_helpers.geometry import (
     GeometryError,
     coordinaattokens,
@@ -125,13 +125,13 @@ def _verwerk_merken(scan: _Scan, merken: dict[str, dict[str, str]]) -> None:
             volgnummer = int(merk[f"{KNIP}volgnummer"])
             aantal = int(merk[f"{KNIP}aantal"])
         except (KeyError, ValueError) as fout:
-            raise DatasetError(
+            raise KnipError(
                 f"knipmerk op {knoop!r} is onvolledig of onleesbaar ({fout}); zonder volgnummer "
                 f"en aantal is de geknipte geometrie niet terug te leggen."
             ) from fout
         tekst = scan.sjabloon.get(knoop)
         if tekst is None:
-            raise DatasetError(
+            raise KnipError(
                 f"knipstuk {knoop!r} draagt geen GML-geometrie; er valt niets aaneen te naaien."
             )
         scan.herkomst_van[knoop] = herkomst
@@ -148,14 +148,14 @@ def _verwerk_merken(scan: _Scan, merken: dict[str, dict[str, str]]) -> None:
     for herkomst, rij in scan.stukken.items():
         aantallen = scan.aantallen[herkomst]
         if len(aantallen) != 1:
-            raise DatasetError(
+            raise KnipError(
                 f"de stukken van {herkomst!r} noemen verschillende aantallen {sorted(aantallen)}; "
                 f"dat zijn stukken uit verschillende knipbeurten."
             )
         aantal = next(iter(aantallen))
         if sorted(rij) != list(range(aantal)):
             ontbreekt = sorted(set(range(aantal)) - set(rij))
-            raise DatasetError(
+            raise KnipError(
                 f"van {herkomst!r} ontbreken de stukken {ontbreekt}; de delen zijn niet compleet "
                 f"en de geometrie zou korter terugkomen dan ze was."
             )
@@ -275,7 +275,7 @@ def _stapgrootte(sjabloon: str) -> int:
     stap = tokens_per_punt(sjabloon, punten)
     if stap is not None:
         return stap
-    raise DatasetError(
+    raise KnipError(
         f"uit {sjabloon!r} is niet af te lezen hoeveel getallen er op een punt gaan "
         f"({len(coordinaattokens(sjabloon))} coordinaatwaarden op {punten} punten); het "
         f"aaneen naaien van de stukken zou dan op de verkeerde plaats snoeien."

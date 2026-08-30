@@ -37,7 +37,7 @@ from pathlib import Path
 
 from gwsw_orox_helpers import rdfmotor
 from gwsw_orox_helpers.codering import DecodeFallback, decodeer, terugvalverslag
-from gwsw_orox_helpers.errors import DatasetError
+from gwsw_orox_helpers.errors import BestandError, TurtleError
 from gwsw_orox_helpers.graaf import GraafIndex
 
 
@@ -112,7 +112,7 @@ def _parse(
     try:
         rauw = path.read_bytes()
     except OSError as error:
-        raise DatasetError(f"{path}: bestand kan niet gelezen worden ({error}).") from error
+        raise BestandError(f"{path}: bestand kan niet gelezen worden ({error}).") from error
 
     tekst, fallback = _decode(path, rauw, fallback_encoding)
 
@@ -125,7 +125,7 @@ def _parse(
         with _quiet_rdflib(), _gc_uit():
             index.vul_uit(quads)
     except Exception as error:  # pyoxigraph gooit uiteenlopende parsefouten
-        raise DatasetError(f"{path}: geen geldige Turtle ({error}).") from error
+        raise TurtleError(f"{path}: geen geldige Turtle ({error}).") from error
     return index, fallback
 
 

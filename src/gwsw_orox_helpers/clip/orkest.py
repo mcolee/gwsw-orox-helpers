@@ -16,7 +16,7 @@ from gwsw_orox_helpers.clip.merge import _samengevoegd, _scan_delen
 from gwsw_orox_helpers.clip.plan import _maak_plan
 from gwsw_orox_helpers.clip.stroom import _deelstroom
 from gwsw_orox_helpers.clip.termen import KNIP, KNIP_PREFIX
-from gwsw_orox_helpers.errors import DatasetError
+from gwsw_orox_helpers.errors import KnipError
 from gwsw_orox_helpers.schrijven import lees_orox, schrijf_orox_quads
 
 
@@ -93,7 +93,7 @@ def merge_orox(delen: list[Path], doel: Path) -> None:
     `DatasetError` in plaats van een stilzwijgend kortere geometrie.
     """
     if not delen:
-        raise DatasetError("merge_orox: geen delen opgegeven; er valt niets samen te voegen.")
+        raise KnipError("merge_orox: geen delen opgegeven; er valt niets samen te voegen.")
 
     scan = _scan_delen(delen)
     schrijf_orox_quads(_samengevoegd(delen, scan), doel, prefixen=scan.prefixen)

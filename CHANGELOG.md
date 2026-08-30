@@ -1,6 +1,30 @@
 # Changelog
 
 ## [Unreleased]
+- `DatasetError` krijgt zeven faalfamilies onder zich (issue #31, beheerbaarheid;
+  **additief** — `OroxError` en `DatasetError` zelf zijn ongewijzigd in naam, plaats en
+  gedrag, en er is geen enkele meldtekst aangeraakt). Eén klasse dekte 29 raise-plekken
+  met wezenlijk andere oorzaken, en een afnemer kon "de bron is kapot" niet van "de
+  clipdelen zijn incompleet" onderscheiden. De indeling gaat over de **oorzaak** en niet
+  over de invoer — een `OSError` op de grenslaag is daarom een `BestandError` en geen
+  `GrenslaagError`: `BestandError` (4: `bestand._parse`, `schrijven.lees_orox`,
+  `schrijven.schrijf_orox_quads`, `clip.grenzen._lees_grenzen`), `CoderingError` (3:
+  `codering.decodeer` ×2, `schrijven._gecontroleerd`), `TurtleError` (3: `bestand._parse`,
+  `schrijven._gecontroleerd`, de prefixcontrole in `schrijven.schrijf_orox_quads`),
+  `InhoudError` (2: `dataset.load_dataset`, `GwswDataset.of_class`), `GrenslaagError` (6:
+  alle inhoudsfouten in `clip.grenzen._lees_grenzen`), `KnipError` (9: `clip.plan`,
+  `clip.knip` ×2, `clip.orkest`, `clip.merge` ×5) en `MotorError` (2:
+  `rdfmotor.controleer_versie`). Elke familie erft van `DatasetError`, dus **nlriochecker's
+  brede `except DatasetError` en alle bestaande `pytest.raises(DatasetError)` blijven
+  vangen**; de bestaande tests bleven ongewijzigd en bewaken precies die kant. `MotorError`
+  is de enige familie die niet over invoer gaat maar over de installatie eronder — de
+  docstring van `rdfmotor`, die tot nu toe "geen eigen soort" beloofde, zegt nu waarom een
+  *subklasse* die belofte juist nakomt. Nieuw: `tests/test_uitzonderingen.py` pint per
+  familie één representatieve plek; de hiërarchie-pin in `tests/test_publieke_api.py`
+  groeide additief mee en een tweede test laat een achtste familie niet ongemerkt
+  ontstaan. **Cachesleutel**: `errors` staat met reden buiten `cache.LADERMODULES`, maar
+  vier van de geraakte modules staan erin (`bestand`, `codering`, `dataset`, `rdfmotor`),
+  dus **de cachesleutel roteert** en bestaande caches worden één keer opnieuw opgebouwd.
 - De stille CRS-mismatch van de clip is vastgelegd en krijgt een opt-in waarschuwing
   (issue #28, testbaarheid; **additief** — nieuwe keyword-only parameter met de veilige
   default, nieuwe submodule, geen bestaand gedrag geraakt). Een grenslaag in WGS84-graden

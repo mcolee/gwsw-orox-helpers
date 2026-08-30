@@ -137,7 +137,7 @@ Elke module beantwoordt één vraag; in deze volgorde heeft niets ooit iets van 
 
 | Module | Vraag die hij beantwoordt |
 |---|---|
-| `errors` | Welke uitzondering krijgt de afnemer? (`OroxError`, `DatasetError`) |
+| `errors` | Welke uitzondering krijgt de afnemer? (`OroxError`, `DatasetError`, en daaronder de zeven faalfamilies van issue #31: `BestandError`, `CoderingError`, `TurtleError`, `InhoudError`, `GrenslaagError`, `KnipError`, `MotorError` — ingedeeld naar de oorzaak, niet naar de invoer, dus een `OSError` op de grenslaag is een `BestandError`) |
 | `voortgang` | Hoe meldt een lange stap zich? (protocol; `NUL_VOORTGANG` doet niets) |
 | `bronnen` | Waar liggen de meegeleverde ontologie en vocabulaire-index? |
 | `namen` | Hoe spellen we een IRI? (de naamruimten en de properties als tekst, plus `_uri`/`_short` die een korte klassenaam uitschrijven en weer teruglezen; alleen tekst, geen imports) |
@@ -284,7 +284,9 @@ wordt in plaats van waar de aanroep staat. Dezelfde module draagt daarom de poor
 ondersteunde versiereeks: die staat **naast** de cap in `pyproject.toml`
 (`pyoxigraph>=0.5,<0.6`) en niet in plaats daarvan — de cap voorkomt de installatie, de
 poort vangt een omzeilde cap (`pip install --no-deps`, een conda-omgeving, een
-handmatige upgrade) met een leesbare `DatasetError`. De poort valt **bij het importeren
+handmatige upgrade) met een leesbare `MotorError` — sinds issue #31 een eigen familie
+onder `DatasetError`, want dit is de enige fout van de package die niet over invoer gaat
+maar over de installatie eronder. De poort valt **bij het importeren
 van `rdfmotor`, één keer**: dat kost niets in de hete lus, en aan de aanroepkant zou de
 fout in de `except Exception` van `bestand._parse` belanden en er als "geen geldige
 Turtle" uitkomen. Beide plekken worden aan elkaar geknoopt door

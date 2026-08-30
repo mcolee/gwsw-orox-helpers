@@ -72,7 +72,7 @@ import pyoxigraph
 
 from gwsw_orox_helpers import namen, rdfmotor
 from gwsw_orox_helpers.codering import decodeer
-from gwsw_orox_helpers.errors import DatasetError
+from gwsw_orox_helpers.errors import BestandError, CoderingError, TurtleError
 from gwsw_orox_helpers.namen import GWSW
 
 # De kop van een OroX-export. De IRI's komen uit `namen`, de ene plek waar ze staan: de
@@ -137,7 +137,7 @@ def lees_orox(bron: Path, fallback_encoding: str | None = None) -> OroxBron:
         else:
             parser = rdfmotor.ontleed_turtle(_gedecodeerd(bron, fallback_encoding))
     except OSError as fout:
-        raise DatasetError(f"{bron}: bestand kan niet gelezen worden ({fout}).") from fout
+        raise BestandError(f"{bron}: bestand kan niet gelezen worden ({fout}).") from fout
 
     stroom = _gecontroleerd(bron, parser, fallback_encoding)
     eerste = list(itertools.islice(stroom, 1))
@@ -193,7 +193,7 @@ def schrijf_orox_quads(
     kop = dict(prefixen) if prefixen is not None else dict(STANDAARD_PREFIXEN)
     for sleutel in kop:
         if not PREFIX_PATROON.match(sleutel):
-            raise DatasetError(
+            raise TurtleError(
                 f"{doel}: {sleutel!r} is geen geldige Turtle-prefix; een prefix begint met "
                 "een letter, bestaat verder uit letters, cijfers, '_', '-' en '.', en "
                 "eindigt niet op een punt (de lege sleutel is de dataset-basis ':')."
@@ -226,7 +226,7 @@ def schrijf_orox_quads(
         # zou zijn).
         tijdelijk = None
     except OSError as fout:
-        raise DatasetError(f"{doel}: bestand kan niet geschreven worden ({fout}).") from fout
+        raise BestandError(f"{doel}: bestand kan niet geschreven worden ({fout}).") from fout
     finally:
         # Na een geslaagde hernoeming is er niets meer op te ruimen; na een fout onderweg
         # (parsefout, OSError, Ctrl-C) wel. Het opruimen mag de oorspronkelijke fout niet
@@ -271,7 +271,7 @@ def _gecontroleerd(
         yield from parser
     except (SyntaxError, ValueError) as fout:
         if fallback_encoding is None and "Invalid UTF-8" in str(fout):
-            raise DatasetError(
+            raise CoderingError(
                 f"{bron}: geen geldige UTF-8 ({fout}) en er is geen terugvalcodering opgegeven."
             ) from fout
-        raise DatasetError(f"{bron}: geen geldige Turtle ({fout}).") from fout
+        raise TurtleError(f"{bron}: geen geldige Turtle ({fout}).") from fout

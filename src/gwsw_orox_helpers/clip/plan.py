@@ -19,7 +19,7 @@ import pyoxigraph
 from gwsw_orox_helpers.clip.grenzen import _Vlak
 from gwsw_orox_helpers.clip.knip import _plaats, _Stuk
 from gwsw_orox_helpers.clip.termen import _KNIPSTAART
-from gwsw_orox_helpers.errors import DatasetError
+from gwsw_orox_helpers.errors import KnipError
 from gwsw_orox_helpers.geometry import is_multipart_literal
 from gwsw_orox_helpers.namen import (
     GML_LITERAL,
@@ -157,7 +157,7 @@ def _maak_plan(bron: Path, vlakken: tuple[_Vlak, ...], fallback_encoding: str | 
 
     for naam in subjecten:
         if "__knip" in naam and _KNIPSTAART.search(naam):
-            raise DatasetError(
+            raise KnipError(
                 f"{bron}: {naam!r} eindigt op de staart die de clip zelf voor geknipte stukken "
                 f"gebruikt; zo'n bron is na de hereniging niet van een geknipte te onderscheiden."
             )

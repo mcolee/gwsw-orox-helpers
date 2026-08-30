@@ -48,7 +48,7 @@ from gwsw_orox_helpers.domein import (
     Node,
     Vulwaarde,
 )
-from gwsw_orox_helpers.errors import DatasetError
+from gwsw_orox_helpers.errors import InhoudError
 from gwsw_orox_helpers.geometry import (
     GeometryError,
     is_multipart_literal,
@@ -474,7 +474,7 @@ class GwswDataset:
         geconfigureerde rol is dat daarom een harde fout.
         """
         if self.is_connection_class(root):
-            raise DatasetError(
+            raise InhoudError(
                 f"{root} is een verbindingsklasse en kan als rol nooit een object opleveren: "
                 f"die klassen staan op de orientatie van een streng, en het domeinmodel "
                 f"draagt de orientatietypen van een streng niet. Configureer de klasse van "
@@ -754,7 +754,7 @@ def load_dataset(
         conduits, herstel = _read_conduits(graph, nodes, geometry_errors, verbinding, hulpstuk)
 
     if not nodes and not conduits:
-        raise DatasetError(
+        raise InhoudError(
             f"{dataset_path}: geen knooppunten of strengen aangetroffen. Is dit een "
             f"GWSW-OroX-dataset?"
         )

@@ -25,7 +25,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Final
 
-from gwsw_orox_helpers.errors import DatasetError
+from gwsw_orox_helpers.errors import CoderingError
 
 # Elke byte die geen ASCII is; het zoeken ernaar gebeurt zo in C en niet per byte in
 # Python. Zie `_fallback_samples`.
@@ -62,7 +62,7 @@ def decodeer(pad: Path, rauw: bytes, fallback_encoding: str | None) -> tuple[str
         eerste_byte, eerste_positie = rauw[error.start], error.start
 
     if fallback_encoding is None:
-        raise DatasetError(
+        raise CoderingError(
             f"{pad}: geen geldige UTF-8 (byte {eerste_byte:#04x} op positie "
             f"{eerste_positie}) en er is geen terugvalcodering opgegeven."
         )
@@ -70,7 +70,7 @@ def decodeer(pad: Path, rauw: bytes, fallback_encoding: str | None) -> tuple[str
     try:
         tekst = rauw.decode(fallback_encoding)
     except (UnicodeDecodeError, LookupError) as fout:
-        raise DatasetError(
+        raise CoderingError(
             f"{pad}: geen geldige UTF-8 (byte {eerste_byte:#04x} op positie "
             f"{eerste_positie}) en ook niet te lezen als {fallback_encoding} ({fout})."
         ) from fout

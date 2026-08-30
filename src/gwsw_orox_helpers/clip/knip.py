@@ -22,7 +22,7 @@ from shapely.geometry import LineString, Point
 from shapely.geometry.base import BaseGeometry
 
 from gwsw_orox_helpers.clip.grenzen import _Vlak
-from gwsw_orox_helpers.errors import DatasetError
+from gwsw_orox_helpers.errors import KnipError
 from gwsw_orox_helpers.geometry import (
     GeometryError,
     coordinaattokens,
@@ -303,14 +303,14 @@ def _hoogte(afstanden: list[float], z_waarden: list[float | None], afstand: floa
         if begin - _TOLERANTIE <= afstand <= eind + _TOLERANTIE and eind > begin:
             onder, boven = z_waarden[index], z_waarden[index + 1]
             if onder is None or boven is None:
-                raise DatasetError(
+                raise KnipError(
                     f"het knippunt op {afstand} m draagt drie getallen per punt maar de "
                     f"literaal geeft geen hoogte voor de vertices eromheen; er valt dan "
                     f"geen z voor het knippunt te bepalen."
                 )
             deel = (afstand - begin) / (eind - begin)
             return onder + deel * (boven - onder)
-    raise DatasetError(
+    raise KnipError(
         f"het knippunt op {afstand} m ligt niet op een segment met lengte; er valt dan "
         f"geen hoogte tussen twee vertices in te wegen."
     )

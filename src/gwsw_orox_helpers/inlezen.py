@@ -48,6 +48,9 @@ from gwsw_orox_helpers.klassen import _afsluiting, _short
 # stellen die vraag per aspect en per object -- op de De Wolden en Hoogeveen-export bijna
 # negenhonderdduizend keer, samen ruim acht tiende seconde. Een keer opvragen en daarna
 # de naam gebruiken kost er zestien nanoseconde van; het is dezelfde term.
+#
+# `dataset` leent `_RDF_TYPE` hiervandaan (issue #23) in plaats van er een tweede naast te
+# zetten: de `URIRef`-vorm van een GWSW-IRI woont in deze module (`docs/architectuur.md`).
 _RDF_TYPE = RDF.type
 _RDFS_LABEL = RDFS.label
 

@@ -23,7 +23,7 @@ from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 
-from rdflib import RDF, RDFS, BNode, URIRef
+from rdflib import RDFS, BNode, URIRef
 from rdflib.term import Node as RdfNode
 from shapely.geometry import LineString, Point
 
@@ -48,6 +48,12 @@ from gwsw_orox_helpers.geometry import (
 )
 from gwsw_orox_helpers.graaf import GraafIndex, _uriref_snel
 from gwsw_orox_helpers.inlezen import (
+    # `RDF.type` is geen attribuut maar een `__getattr__` op rdflib's `DefinedNamespace`
+    # en kost bijna een microseconde per keer; `inlezen` leest hem daarom een keer. Hier
+    # geleend en niet nog eens neergezet: de `URIRef`-vorm van een GWSW-IRI woont in
+    # `inlezen` (zie `docs/architectuur.md`), en twee exemplaren van dezelfde term zouden
+    # bij een wijziging uit elkaar kunnen lopen.
+    _RDF_TYPE,
     FANTOOM_STAART,
     HAS_ASPECT,
     HAS_CONNECTION,
@@ -97,12 +103,6 @@ from gwsw_orox_helpers.klassen import (
 )
 from gwsw_orox_helpers.namen import GWSW
 from gwsw_orox_helpers.voortgang import NUL_VOORTGANG, Voortgang
-
-# Dezelfde eenmalige lezing als `inlezen._RDF_TYPE`, en om dezelfde reden: `RDF.type` is
-# geen attribuut maar een `__getattr__` op rdflib's `DefinedNamespace` en kost bijna een
-# microseconde per keer. `graph_types_of` vraagt hem per aanroep, en dat is een van de
-# vragen die de checkfase in de honderdduizenden stelt (issue #23). Het is dezelfde term.
-_RDF_TYPE = RDF.type
 
 # De lijst is het oppervlak, niet een keuze van deze module: alles wat ooit uit
 # `gwsw_orox_helpers.dataset` te importeren was, staat erin -- ook de namen die na de
@@ -298,8 +298,12 @@ class GwswDataset:
         return self.types_of(uri) | uit_graaf
 
     def graph_is_a(self, uri: str, root: str) -> bool:
-        """Als `is_a`, maar ook voor onderdelen die alleen in de graaf staan."""
-        return bool(self.graph_types_of(uri) & self.closure(root))
+        """Als `is_a`, maar ook voor onderdelen die alleen in de graaf staan.
+
+        Dezelfde formulering als `is_a` en om dezelfde reden (issue #23): één predicaat
+        hoort er in deze klasse niet in twee gedaanten te staan.
+        """
+        return not self.graph_types_of(uri).isdisjoint(self.closure(root))
 
     def beheerobjecttype(self, uri: str) -> str:
         """De korte naam van het beheerobjecttype van een object.
@@ -508,10 +512,14 @@ class GwswDataset:
 
         Onderdelen als een overstortdrempel hebben geen punt- of lijngeometrie en
         komen daarom niet in `nodes` of `conduits` voor; die zijn hier wel te vinden.
+
+        De termen komen langs hetzelfde snelpad als bij `graph_types_of` (issue #23): de
+        klassen uit een afsluiting zijn al geldige graafsleutels, dus rdflib's
+        validatieregex kost hier alleen tijd. Dezelfde term, dus dezelfde treffers.
         """
         gevonden: list[RdfNode] = []
         for klasse in self.closure(root):
-            gevonden.extend(self.graph.subjects(RDF.type, URIRef(klasse)))
+            gevonden.extend(self.graph.subjects(_RDF_TYPE, _uriref_snel(klasse)))
         return gevonden
 
     def onderdelen(self, uri: str, wortel: str | None = None) -> list[str]:
@@ -525,9 +533,10 @@ class GwswDataset:
         leunen veranderen.
 
         Voorbehoud: het wortelfilter loopt via `graph_types_of`, dat zijn subject nog
-        met een vaste `URIRef(uri)` opzoekt -- een BNode-onderdeel valt daar dus uit
-        het gefilterde antwoord, terwijl de ongefilterde lijst (en `onderdeel_label`/
-        `onderdeel_aspecten`, via `_subject_term`) hem wel ziet.
+        altijd als URIRef opzoekt (sinds issue #23 met `graaf._uriref_snel`, dezelfde
+        term) -- een BNode-onderdeel valt daar dus uit het gefilterde antwoord, terwijl
+        de ongefilterde lijst (en `onderdeel_label`/`onderdeel_aspecten`, via
+        `_subject_term`) hem wel ziet.
         """
         delen = [str(deel) for deel in parts_of(self.graph, self._subject_term(uri))]
         if wortel is None:

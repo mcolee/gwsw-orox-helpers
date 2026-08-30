@@ -263,35 +263,78 @@ def _wegwerptermen(functie: object) -> list[str]:
     de hele IRI) en een attribuutlezing op een `DefinedNamespace` als `RDF.type` (dat is
     geen attribuut maar een `__getattr__`). Aan de boom en niet aan de tekst: een
     docstring die `URIRef(` noemt is geen aanroep, en een aanroep die over twee regels
-    staat mist een regelgerichte grep.
+    staat mist een regelgerichte grep. De aanroep telt in beide schrijfwijzen --
+    `URIRef(x)` en `rdflib.URIRef(x)` -- want een import die van vorm verandert hoort de
+    bewaker niet blind te maken.
     """
     boom = ast.parse(textwrap.dedent(inspect.getsource(functie)))  # type: ignore[arg-type]
+    naamruimten = {"RDF", "RDFS", "OWL", "XSD"}
     gevonden: list[str] = []
     for knoop in ast.walk(boom):
-        if isinstance(knoop, ast.Call) and isinstance(knoop.func, ast.Name):
-            if knoop.func.id == "URIRef":
+        if isinstance(knoop, ast.Call):
+            naam = knoop.func
+            if (isinstance(naam, ast.Name) and naam.id == "URIRef") or (
+                isinstance(naam, ast.Attribute) and naam.attr == "URIRef"
+            ):
                 gevonden.append("URIRef(...)")
         elif isinstance(knoop, ast.Attribute) and isinstance(knoop.value, ast.Name):
-            if knoop.value.id in {"RDF", "RDFS", "OWL", "XSD"}:
+            if knoop.value.id in naamruimten:
                 gevonden.append(f"{knoop.value.id}.{knoop.attr}")
     return sorted(gevonden)
 
 
 def test_de_hete_lezers_bouwen_hun_termen_niet_per_aanroep() -> None:
-    """`graph_types_of` en `_deksel_kenmerk` krijgen hun termen kant-en-klaar (issue #23).
+    """De opvraaglezers krijgen hun termen kant-en-klaar (issue #23).
 
-    Allebei bouwden ze per aanroep een term uit tekst die al een geldige graafsleutel is:
-    `graph_types_of` een `URIRef` mét rdflib's validatieregex plus een `RDF.type`-lezing
-    op de `DefinedNamespace`, en `_deksel_kenmerk` dezelfde handvol dekselklassen opnieuw
-    per put én per onderdeel. Het snelpad (`graaf._uriref_snel`) en de eenmalige omzetting
-    in `_read_nodes` leveren dezelfde termen -- `tests/test_graaf.py` telt die gelijkheid
-    over de hele gebundelde ontologie -- dus wat hier vastligt is dat ze niet stilletjes
-    terugkomen.
+    Alle drie bouwden ze per aanroep een term uit tekst die al een geldige graafsleutel
+    is: `graph_types_of` en `subjects_of_class` een `URIRef` mét rdflib's validatieregex
+    plus een `RDF.type`-lezing op de `DefinedNamespace`, en `_deksel_kenmerk` dezelfde
+    handvol dekselklassen opnieuw per put én per onderdeel. Het snelpad
+    (`graaf._uriref_snel`) en de eenmalige omzetting in `_read_nodes` leveren dezelfde
+    termen -- `tests/test_graaf.py` telt die gelijkheid over de hele gebundelde ontologie
+    -- dus wat hier vastligt is dat ze niet stilletjes terugkomen.
+
+    Dit is de vorm-helft van het bewijs. Dat de dekseltermen ook werkelijk **buiten** de
+    knopenlus gebouwd worden, is aan de vorm van `_deksel_kenmerk` niet te zien; dat telt
+    de test hieronder.
     """
     from gwsw_orox_helpers.inlezen import _deksel_kenmerk
 
     assert _wegwerptermen(GwswDataset.graph_types_of) == []
+    assert _wegwerptermen(GwswDataset.subjects_of_class) == []
     assert _wegwerptermen(_deksel_kenmerk) == []
+
+
+def test_de_dekseltermen_worden_een_keer_gebouwd_en_niet_per_put(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """De omzetting hoort buiten de knopenlus te staan, en dat is te tellen.
+
+    De winst van issue #23 aan deze kant zit niet in `_deksel_kenmerk` zelf maar in de
+    plek van de omzetting: `_read_nodes` bouwt de dekselklassen een keer als
+    `frozenset[URIRef]` en geeft ze door. Zet iemand die `frozenset(...)` terug ín de lus
+    over de knopen, dan blijft de vormbewaker hierboven groen terwijl de regressie
+    compleet is -- vandaar deze telling. Ze staat op `inlezen._uriref_snel`, precies de
+    naam die de lus zou herhalen.
+    """
+    from gwsw_orox_helpers import inlezen as inlezen_module
+
+    aanroepen: list[str] = []
+    echte = inlezen_module._uriref_snel
+
+    def geteld(waarde: str) -> URIRef:
+        aanroepen.append(waarde)
+        return echte(waarde)
+
+    monkeypatch.setattr(inlezen_module, "_uriref_snel", geteld)
+
+    dataset = load_dataset(TTL_DIR / "dataset_voorbeeld.ttl")
+
+    assert dataset.nodes, "voorwaarde: er zijn knopen, dus de lus draaide"
+    # Precies de dekselafsluiting, elk lid een keer -- niet een veelvoud van het aantal
+    # putten. `_read_nodes` is de enige plek in de leeslaag die deze naam aanroept.
+    dekselklassen = dataset.closure("Putdeksel")
+    assert sorted(aanroepen) == sorted(dekselklassen)
 
 
 def test_graph_types_of_geeft_dezelfde_typen_als_de_urirefweg(voorbeeld: GwswDataset) -> None:

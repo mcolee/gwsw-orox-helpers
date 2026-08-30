@@ -5,8 +5,11 @@
   **additief** — geen bevroren contract geraakt). `GwswDataset.graph_types_of` maakte per
   aanroep een `URIRef` mét rdflib's validatieregex uit tekst die al een geldige
   graafsleutel is, plus een `RDF.type`-lezing op rdflib's `DefinedNamespace` (geen
-  attribuut maar een `__getattr__`); hij gebruikt nu `graaf._uriref_snel` en een eenmalig
-  gelezen `_RDF_TYPE`, precies zoals `inlezen` dat al deed. `inlezen._deksel_kenmerk`
+  attribuut maar een `__getattr__`); hij gebruikt nu `graaf._uriref_snel` en het
+  `_RDF_TYPE` dat `inlezen` al eenmalig las — geleend en niet nog eens neergezet, want de
+  `URIRef`-vorm van een GWSW-IRI woont daar (`docs/architectuur.md`).
+  `GwswDataset.subjects_of_class` bouwde dezelfde twee termen per klasse van een
+  afsluiting en gaat mee langs hetzelfde snelpad. `inlezen._deksel_kenmerk`
   herbouwde dezelfde drie dekselklassen (`Putdeksel`, `Putdeksel_LichtVerkeer`,
   `Putdeksel_ZwaarVerkeer`) per put én per onderdeel van die put; `_read_nodes` zet ze nu
   één keer om, buiten de knopenlus, en geeft ze als `frozenset[URIRef]` door. **Signatuur
@@ -16,22 +19,38 @@
   aan zoals het was. **Gemeten** (gepaard, De Wolden en Hoogeveen: 1.877.729 triples,
   23.485 knopen, 23.440 strengen): de microbenchmark op `graph_types_of` — alle 46.925
   knoop- en streng-URI's, oud en nieuw afwisselend in één proces, 5 ronden — gaat van
-  0,195 s gemiddeld (mediaan 0,192; min 0,187) naar 0,107 s (mediaan 0,106; min 0,105),
-  dus **−45% en circa 1,9 µs per aanroep**. Op het laadpad (`scripts/benchmark.py --paden
-  load_dataset --herhalingen 3`) is het verschil **niet aantoonbaar**: 21,44 s gemiddeld
-  (mediaan 21,68; min 20,26) → 20,74 s (mediaan 20,59; min 20,41), dus −3,3% op het
-  gemiddelde en −5,0% op de mediaan, maar de spreiding binnen één kant (20,26–22,39 s) is
-  groter dan het verschil en de minima liggen 0,7% uit elkaar in de *andere* richting. De
-  piek blijft 1219 MiB. Beloofd wordt dus alleen de microwinst; op het laden is dit een
-  opruiming, geen versnelling. De gelijkheid waarop het rust staat vast in
+  0,195 s gemiddeld (mediaan 0,192) naar 0,107 s (mediaan 0,106), dus **−45% en circa
+  1,9 µs per aanroep**; een tweede, losse run gaf 0,196 → 0,115 s gemiddeld (mediaan 0,192
+  → 0,106), dezelfde mediaan-uitkomst met één uitschieter in het gemiddelde. Op het
+  laadpad (`scripts/benchmark.py --paden load_dataset --herhalingen 3`) is het verschil
+  **niet meetbaar**, en dat is met twéé rondes in omgekeerde volgorde vastgesteld in
+  plaats van met één: met de oude stand eerst 21,44 s gemiddeld (mediaan 21,68) tegen
+  20,74 s (mediaan 20,59) — schijnbaar −3,3% —, en met de nieuwe stand eerst 21,35 s
+  (mediaan 21,27) tegen 19,89 s (mediaan 19,91) voor de oude — schijnbaar +7,3%. Over alle
+  zes de metingen per kant: 20,67 s gemiddeld (mediaan 20,10) vóór tegen 21,04 s (mediaan
+  21,04) ná. Het teken hangt aan de volgorde en niet aan de wijziging; wie hier één ronde
+  had gedraaid, had een winst van 5% gemeld die er niet is. De piek blijft 1219 MiB.
+  **Op het laden wordt dus niets beloofd** — daar is dit een opruiming; de winst zit aan de
+  opvraagkant. De gelijkheid waarop het rust staat vast in
   `test_uriref_snel_geeft_dezelfde_term_voor_elke_iri_in_de_gebundelde_ontologie`
   (`tests/test_graaf.py`), dat het snelpad tegen `URIRef()` houdt op alle **3.367** unieke
   IRI's van de gebundelde GWSW 1.6-ontologie — een vijfde getal dat bij een
-  ontologie-upgrade meeschuift en zich vanzelf meldt. Daarnaast twee bewakers in
+  ontologie-upgrade meeschuift en zich vanzelf meldt. Daarnaast drie bewakers in
   `tests/test_dataset.py`: `test_de_hete_lezers_bouwen_hun_termen_niet_per_aanroep` (aan de
-  AST, zodat de wegwerptermen niet stilletjes terugkomen) en
+  AST, zodat de wegwerptermen niet stilletjes terugkomen),
+  `test_de_dekseltermen_worden_een_keer_gebouwd_en_niet_per_put` (een telling op
+  `inlezen._uriref_snel`, want dát de omzetting buiten de knopenlus staat is aan de vorm
+  van `_deksel_kenmerk` niet te zien — zet iemand haar terug in de lus, dan blijft de
+  AST-bewaker groen en wordt deze rood) en
   `test_graph_types_of_geeft_dezelfde_typen_als_de_urirefweg` (hetzelfde antwoord voor elke
-  knoop, streng en elk graafonderdeel, plus twee missers). **Cachesleutel**: `dataset`,
+  knoop, streng en elk graafonderdeel, plus twee missers). De meting is na te lopen met
+  het nieuwe `scripts/benchmark_graph_types_of.py`, dat beide wegen uitgeschreven draagt
+  en ze per ronde afwisselt. **Twee dingen die wél veranderen en geen antwoord zijn**:
+  `_uriref_snel` slaat `_is_valid_uri` over, dus een misvormde IRI levert op deze twee
+  opvraagplekken geen `logger.warning` meer op (bij het vullen was die er al niet — zie
+  `inlezen._quiet_rdflib`), en een aanroep met een niet-`str` liep vroeger op een
+  `TypeError` stuk waar hij nu een misser geeft. Allebei buiten de getypeerde afspraak,
+  allebei genoteerd in de docstring van `_uriref_snel`. **Cachesleutel**: `dataset`,
   `inlezen` en `graaf` staan alle drie in `cache.LADERMODULES`, dus deze wijziging
   verschuift de sleutel en bestaande caches worden één keer opnieuw opgebouwd — bedoelde
   werking, geen gedragswijziging.
@@ -42,7 +61,8 @@
   Gedragsgelijk voor elke combinatie — ook de lege typenverzameling (een URI die geen knoop
   en geen streng is) en een wortel die de hierarchie niet kent, waar `closure` op de wortel
   zelf blijft steken; `test_is_a_geeft_hetzelfde_antwoord_als_de_doorsnedevraag` houdt de
-  twee formuleringen naast elkaar. **Gemeten** met `scripts/benchmark_is_a.py` (gepaard,
+  twee formuleringen naast elkaar. `graph_is_a` ging mee: één predicaat hoort in deze
+  klasse niet in twee gedaanten te staan. **Gemeten** met `scripts/benchmark_is_a.py` (gepaard,
   1.126.200 `is_a`-aanroepen per herhaling, 3 herhalingen, aan beide kanten dezelfde
   266.650 treffers): 1,54 s gemiddeld (mediaan 1,51; min 1,41) → **1,29 s** (mediaan 1,27;
   min 1,27), dus **−16% op het gemiddelde en −16% op de mediaan** (−10% op het minimum).

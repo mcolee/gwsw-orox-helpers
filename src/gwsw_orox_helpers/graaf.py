@@ -85,9 +85,18 @@ def _uriref_snel(value: str) -> URIRef:
     de bewaker voor een rdflib-upgrade die `URIRef.__new__` meer laat doen dan valideren.
 
     Wat wél wegvalt is de `logger.warning` die `_is_valid_uri` bij een vreemd ogende IRI
-    zou loggen. Op de leesweg was die er toch al niet -- `inlezen._parse` dempt
+    zou loggen. Bij het *vullen* was die er toch al niet -- `inlezen._parse` dempt
     `rdflib.term` met `_quiet_rdflib` -- maar wie `GraafIndex.vul_uit` rechtstreeks
-    aanroept, ziet hem voortaan ook niet. De term zelf blijft dezelfde.
+    aanroept, ziet hem voortaan ook niet. Sinds issue #23 geldt dat ook voor twee
+    *opvraag*plekken buiten die demping: `dataset.GwswDataset.graph_types_of` en
+    `subjects_of_class` bouwen hun term hiermee, dus een afnemer die daar een misvormde
+    IRI in stopt krijgt geen waarschuwing meer te zien. De term zelf blijft dezelfde en
+    het antwoord dus ook -- dit gaat alleen over de logregel.
+
+    Eén randgeval erbij, en het ligt buiten de getypeerde afspraak: `URIRef(123)` liep op
+    een `TypeError` stuk (`_is_valid_uri` itereert over zijn argument), terwijl dit pad er
+    `URIRef("123")` van maakt. Beide parameters heten `str` en mypy bewaakt dat; wie er
+    iets anders in stopt kreeg een fout en krijgt nu een misser.
     """
     return str.__new__(URIRef, value)
 

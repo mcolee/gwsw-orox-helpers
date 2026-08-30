@@ -6,11 +6,11 @@
   `open('wb')`. Dat volgt een symlink (CWE-59/377): een vooraf geplante `uit.ttl.tmp` in
   een gedeelde uitmap werd doorgeschreven naar waar hij heen wees — gemeten vóór de
   wijziging kreeg het slachtofferbestand de volledige export, ná de wijziging blijft het
-  byte-voor-byte ongemoeid (`test_geplante_tmp_symlink_wordt_niet_doorheen_geschreven`,
+  byte-voor-byte ongemoeid (`test_geplante_tijdelijke_symlink_wordt_niet_doorheen_geschreven`,
   rood vóór en groen ná de fix). Twee gelijktijdige runs naar hetzelfde doel botsten
   bovendien op diezelfde ene naam. Het tijdelijke bestand krijgt nu een unieke naam in de
   doelmap — doelnaam, proces-ID en een willekeurig deel — en wordt aangemaakt met
-  `os.open(..., O_WRONLY | O_CREAT | O_EXCL, 0o666)`: `O_EXCL` weigert een bestaande naam
+  `open(..., "xb")` (`O_CREAT | O_EXCL`, mode `0o666`): `O_EXCL` weigert een bestaande naam
   en volgt dus geen symlink, en de kernel past `0o666 & ~umask` toe. De rechten van de
   geschreven export blijven daarmee precies wat een `open('wb')` gaf (gemeten op deze
   machine `0664`, gelijk aan een referentiebestand in dezelfde map); een nieuwe test pint

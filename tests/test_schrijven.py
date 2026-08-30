@@ -1,5 +1,6 @@
 """De schrijver geeft een OroX-TTL terug die naar dezelfde RDF-graaf parseert."""
 
+import os
 from collections import Counter
 from collections.abc import Iterator
 from pathlib import Path
@@ -16,6 +17,7 @@ import rdflib
 from rdflib.compare import isomorphic
 from rdflib.namespace import OWL, RDF
 
+from gwsw_orox_helpers import schrijven
 from gwsw_orox_helpers.errors import DatasetError
 from gwsw_orox_helpers.schrijven import (
     STANDAARD_PREFIXEN,
@@ -298,25 +300,38 @@ def test_fout_in_de_stroom_laat_een_bestaand_doel_ongemoeid(tmp_path: Path) -> N
     assert [pad.name for pad in doel.parent.iterdir()] == ["bestaat_al.ttl"]
 
 
-def test_geplante_tmp_symlink_wordt_niet_doorheen_geschreven(tmp_path: Path) -> None:
-    """Een vooraf geplante `<doel>.tmp` mag geen schrijfrecht elders opleveren (CWE-59/377).
+def test_geplante_tijdelijke_symlink_wordt_niet_doorheen_geschreven(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Een geplante symlink op het tijdelijke pad geeft geen schrijfrecht elders (CWE-59/377).
 
-    Schrijft de serializer naar een voorspelbare naam met een gewone `open('wb')`, dan
-    volgt hij een symlink die daar al ligt: wie in een gedeelde uitmap `uit.ttl.tmp` naar
-    andermans bestand laat wijzen, laat de export dat bestand overschrijven. Het tijdelijke
-    bestand krijgt daarom een unieke naam en wordt met `O_CREAT | O_EXCL` aangemaakt -- dat
-    weigert een bestaande naam en volgt dus niets.
+    Schrijft de serializer met een gewone `open('wb')`, dan volgt hij een symlink die op
+    die naam al ligt: wie in een gedeelde uitmap het tijdelijke pad naar andermans bestand
+    laat wijzen, laat de export dat bestand overschrijven. Het tijdelijke bestand wordt
+    daarom met `open(..., 'xb')` aangemaakt (`O_CREAT | O_EXCL`): dat weigert een bestaande
+    naam -- symlink incluis -- en volgt dus niets.
+
+    Het willekeurige deel van de naam wordt hier vastgezet, want anders bewaakt de test
+    niets: planten op de oude vaste naam `<doel>.tmp` is vacuüm sinds de code die naam niet
+    meer opent, en met `O_EXCL` weggehaald bleef de suite groen. Nu is de kandidaat
+    voorspelbaar (`<doel>.<pid>.<hex>.tijdelijk`) en botst de schrijver er echt op.
     """
+    monkeypatch.setattr(schrijven.secrets, "token_hex", lambda _bytes: "deadbeef")
     slachtoffer = tmp_path / "slachtoffer.txt"
     slachtoffer.write_text("niet aanraken", encoding="utf-8")
     doel = tmp_path / "uit.ttl"
-    (tmp_path / "uit.ttl.tmp").symlink_to(slachtoffer)
+    kandidaat = tmp_path / f"uit.ttl.{os.getpid()}.deadbeef.tijdelijk"
+    kandidaat.symlink_to(slachtoffer)
 
-    schrijf_orox(MINI, doel)
+    with pytest.raises(DatasetError, match="kan niet geschreven worden") as fout:
+        schrijf_orox(MINI, doel)
 
+    assert isinstance(fout.value.__cause__, FileExistsError)
     assert slachtoffer.read_text(encoding="utf-8") == "niet aanraken"
-    assert not doel.is_symlink()
-    assert isomorphic(_graaf(doel), _graaf(MINI))
+    assert not doel.exists()
+    # De opruiming mag alleen weghalen wat de code zelf aanmaakte; deze symlink is van
+    # iemand anders en hoort er na de mislukte schrijf nog te liggen.
+    assert kandidaat.is_symlink()
 
 
 def test_doel_krijgt_dezelfde_rechten_als_een_gewone_open(tmp_path: Path) -> None:
@@ -330,6 +345,8 @@ def test_doel_krijgt_dezelfde_rechten_als_een_gewone_open(tmp_path: Path) -> Non
     referentie = tmp_path / "referentie.bin"
     with open(referentie, "wb") as bestand:
         bestand.write(b"")
+    if referentie.stat().st_mode & 0o077 == 0:
+        pytest.skip("umask maskeert groep en anderen; de test kan het verschil niet zien")
     doel = tmp_path / "rechten.ttl"
 
     schrijf_orox(MINI, doel)

@@ -184,12 +184,12 @@ def schrijf_orox_quads(
     voordoet. Wie na een `DatasetError` naar `doel` kijkt, ziet het oude bestand of niets.
 
     Dat tmp-bestand krijgt een naam met het proces-ID en een willekeurig deel erin, en
-    wordt aangemaakt met `os.open(..., O_CREAT | O_EXCL)`. Om twee redenen. `O_EXCL`
-    weigert een naam die er al is en volgt dus geen symlink: een vooraf geplante
-    `<doel>.tmp` in een gedeelde uitmap zou anders doorgeschreven worden naar waar hij
-    heen wijst (CWE-59/377). En het willekeurige deel houdt twee gelijktijdige runs naar
-    hetzelfde doel uit elkaars tijdelijke bestand. De rechten zijn `0o666 & ~umask`,
-    precies wat een gewone `open('wb')` op het doel gegeven zou hebben.
+    wordt aangemaakt met `open(..., 'xb')` (`O_CREAT | O_EXCL`). Om twee redenen. `O_EXCL`
+    weigert een naam die er al is en volgt dus geen symlink: een vooraf geplant tijdelijk
+    pad in een gedeelde uitmap zou anders doorgeschreven worden naar waar het heen wijst
+    (CWE-59/377). En het willekeurige deel houdt twee gelijktijdige runs naar hetzelfde
+    doel uit elkaars tijdelijke bestand. De rechten zijn de rechten van een nieuw
+    aangemaakt bestand (`0o666 & ~umask`).
     """
     kop = dict(prefixen) if prefixen is not None else dict(STANDAARD_PREFIXEN)
     for sleutel in kop:
@@ -206,19 +206,20 @@ def schrijf_orox_quads(
     tijdelijk: Path | None = None
     try:
         doel.parent.mkdir(parents=True, exist_ok=True)
-        # Eigen naam plus `O_CREAT | O_EXCL` in plaats van `tempfile.mkstemp`, anders dan
-        # in `cache._schrijf_atomair`: die schrijft privé pickles in `~/.cache`, waar de
-        # 0600 van `mkstemp` gewenst is, maar de schrijflaag levert een bestand af in
-        # andermans uitmap en mag de rechten van de gebruiker niet verstrengen. `O_EXCL`
-        # geeft dezelfde symlink-afsluiting; de kernel past `0o666 & ~umask` toe, zoals
-        # `open('wb')` deed. Een naambotsing (kans ~0 bij 8 hex) is een `FileExistsError`
-        # en gaat als `DatasetError` naar boven, net als elke andere OSError hier.
+        # Eigen naam plus de `x`-modus (`O_CREAT | O_EXCL`, mode 0o666) in plaats van
+        # `tempfile.mkstemp`, anders dan in `cache._schrijf_atomair`: die schrijft privé
+        # pickles in `~/.cache`, waar de 0600 van `mkstemp` gewenst is, maar de schrijflaag
+        # levert een bestand af in andermans uitmap en mag de rechten van de gebruiker niet
+        # verstrengen. `O_EXCL` geeft dezelfde symlink-afsluiting; de kernel past
+        # `0o666 & ~umask` toe, zoals `open('wb')` deed. Een naambotsing (kans ~0 bij 8 hex)
+        # is een `FileExistsError` en gaat als `DatasetError` naar boven, net als elke
+        # andere OSError hier.
         kandidaat = doel.parent / f"{doel.name}.{os.getpid()}.{secrets.token_hex(4)}.tijdelijk"
-        beschrijving = os.open(kandidaat, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o666)
-        # Pas ná het aanmaken, want de `finally` mag alleen opruimen wat hij zelf maakte:
-        # botst de naam toch, dan is dat bestand van iemand anders.
-        tijdelijk = kandidaat
-        with os.fdopen(beschrijving, "wb") as bestand:
+        with open(kandidaat, "xb") as bestand:
+            # De `open` staat bewust buiten het opruimbereik: pas hier, ná een geslaagd
+            # aanmaken, wordt het pad opruimbaar. De `finally` mag alleen weghalen wat hij
+            # zelf maakte -- weigert de `x` de naam, dan is dat bestand van iemand anders.
+            tijdelijk = kandidaat
             pyoxigraph.serialize(quads, bestand, pyoxigraph.RdfFormat.TURTLE, prefixes=kop)
         tijdelijk.replace(doel)
         # Na de hernoeming bestaat het tijdelijke pad niet meer; de `finally` mag er dan

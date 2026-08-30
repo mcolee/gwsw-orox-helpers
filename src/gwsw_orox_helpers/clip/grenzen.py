@@ -65,6 +65,7 @@ def _lees_grenzen(grenzen: Path, sleutel: str) -> tuple[_Vlak, ...]:
 
         try:
             meetkunde = _vorm(kenmerk["geometry"])
+        # `RecursionError` staat hier om dezelfde reden als hierboven bij `json.loads`.
         except (KeyError, TypeError, ValueError, AttributeError, RecursionError) as fout:
             raise DatasetError(
                 f"{grenzen}: {naam!r} heeft geen leesbare geometrie ({fout})."

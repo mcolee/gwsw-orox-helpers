@@ -1077,6 +1077,10 @@ def test_diep_geneste_geometrie_is_een_dataseterror(tmp_path: Path) -> None:
     geometrie: dict[str, object] = {"type": "Point", "coordinates": [0, 0]}
     for _ in range(2000):
         geometrie = {"type": "GeometryCollection", "geometries": [geometrie]}
+    # De andere helft van de vangrail, en ze is de C-stack en niet `getrecursionlimit()`:
+    # deze regel valt om zodra 2000 niveaus voor `json` te diep worden, zodat een falen niet
+    # als "geen leesbare GeoJSON" op de verkeerde tak zou wijzen.
+    json.loads(json.dumps(geometrie))
     pad = _grenslaag(
         tmp_path,
         {

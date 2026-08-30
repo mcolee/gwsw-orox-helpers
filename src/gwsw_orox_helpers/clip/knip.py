@@ -98,11 +98,13 @@ def _knip_lijn(
 
     tokens = coordinaattokens(literal)
     punten = list(lijn.coords)
-    dimensie = tokens_per_punt(literal, len(punten))
-    if dimensie is None or dimensie not in (2, 3):
-        # Zonder een sluitende tokenverdeling valt er geen tekstplakje te knippen, en op
-        # een andere srsDimension dan 2 of 3 zou het snijden op de verkeerde plaats
-        # gebeuren; dan gaat de hele lijn naar elk vlak dat hij raakt.
+    # `stap` is het aantal getallen per punt: geteld, en met opzet niet uit de srsDimension
+    # gelezen (zie `tokens_per_punt`). `merge._stapgrootte` telt straks hetzelfde.
+    stap = tokens_per_punt(literal, len(punten))
+    if stap is None or stap not in (2, 3):
+        # Zonder een sluitende tokenverdeling valt er geen tekstplakje te knippen, en bij
+        # een andere verhouding dan 2 of 3 getallen per punt zou het snijden op de
+        # verkeerde plaats gebeuren; dan gaat de hele lijn naar elk vlak dat hij raakt.
         return _heel(lijn, vlakken), None
     if vervang_coordinaten(literal, " ".join(tokens)) != literal:
         # De hereniging zet de tokens met een enkele spatie aaneen en legt ze met
@@ -142,12 +144,12 @@ def _knip_lijn(
 
         rij: list[str] = []
         if volgnummer > 0 and op_begin is None:
-            rij.extend(_knippunt(lijn, afstanden, z_waarden, dimensie, begin))
+            rij.extend(_knippunt(lijn, afstanden, z_waarden, stap, begin))
         for index in range(eerste, laatste + 1):
-            rij.extend(tokens[index * dimensie : (index + 1) * dimensie])
+            rij.extend(tokens[index * stap : (index + 1) * stap])
         ingevoegd = volgnummer < len(segmenten) - 1 and op_eind is None
         if ingevoegd:
-            rij.extend(_knippunt(lijn, afstanden, z_waarden, dimensie, eind))
+            rij.extend(_knippunt(lijn, afstanden, z_waarden, stap, eind))
 
         stukken.append(
             _Stuk(
@@ -266,13 +268,17 @@ def _knippunt(
     lijn: LineString,
     afstanden: list[float],
     z_waarden: list[float | None],
-    dimensie: int,
+    stap: int,
     afstand: float,
 ) -> list[str]:
-    """Het ingevoegde knippunt als coordinaattokens, met een lineair gewogen z."""
+    """Het ingevoegde knippunt als coordinaattokens, met een lineair gewogen z.
+
+    `stap` is het aantal getallen per punt van de lijn waarin dit punt komt te staan; het
+    knippunt krijgt er evenveel, anders zou het de tokenreeks uit de pas laten lopen.
+    """
     punt = lijn.interpolate(afstand)
     rij = [f"{punt.x:.{_KNIPPUNT_DECIMALEN}f}", f"{punt.y:.{_KNIPPUNT_DECIMALEN}f}"]
-    if dimensie == 3:
+    if stap == 3:
         rij.append(f"{_hoogte(afstanden, z_waarden, afstand):.{_KNIPPUNT_DECIMALEN}f}")
     return rij
 

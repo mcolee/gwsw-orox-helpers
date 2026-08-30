@@ -1,4 +1,17 @@
-"""Parseren van de GML-literalen uit een GWSW-OroX-dataset."""
+"""Lezen en terugleggen van de GML-literalen uit een GWSW-OroX-dataset.
+
+Twee kanten van dezelfde literaal, en met opzet in een module. De **lezerskant**
+(`parse_gml`, `parse_gml_z`, `is_multipart_literal`) maakt er shapely-geometrie van; dat
+is wat de leeslaag nodig heeft. De **tekstkant** (`coordinaattokens`,
+`vervang_coordinaten`, `tokens_per_punt`) laat de coordinatenlijst juist tekst blijven en
+legt haar letterlijk terug; dat is wat de knip nodig heeft, want `233000.00` hoort na een
+knip en een hereniging weer als `233000.00` op zijn plaats te staan.
+
+Ze delen `COORDINATEN_PATROON`, en dat is de reden dat ze naast elkaar staan: wie de
+lijst knipt moet dezelfde lijst zien als wie hem leest. Een tweede exemplaar van dat
+patroon (de cliplaag droeg er een) valt pas op als de twee kanten dezelfde bron
+verschillend lezen, en dan is het te laat.
+"""
 
 from __future__ import annotations
 

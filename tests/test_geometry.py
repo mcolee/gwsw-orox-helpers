@@ -218,6 +218,24 @@ def test_coordinaattokens_van_een_lege_of_ontbrekende_lijst_is_leeg() -> None:
     assert coordinaattokens("dit is geen GML") == []
 
 
+def test_de_tekstkant_leest_dezelfde_lijst_als_de_lezerskant() -> None:
+    """Tokens en `parse_gml` volgen hetzelfde `COORDINATEN_PATROON`, ook op een vormvariant.
+
+    Dit is de winst van het ontdubbelen en meteen de enige plek waar de clip zich nu
+    anders gedraagt dan vroeger. De knip droeg een eigen, striktere regex (met een `\\b`
+    achter `pos`/`posList`) en zag deze misvormde openingstag niet, terwijl de lezer hem
+    wel las: de knip verdeelde dan nul tokens over twee punten en `merge._stapgrootte`
+    kwam op stap 0 uit -- de hereniging snoeide niets. Nu lezen beide kanten dezelfde
+    lijst en klopt de verhouding weer. Zulke literalen komen niet uit een GWSW-export en
+    niet uit de clip zelf, maar wel eventueel uit een deel van elders.
+    """
+    variant = '<gml:LineString xmlns:gml="g"><gml:posz>1 2 4 5</gml:pos></gml:LineString>'
+
+    assert coordinaattokens(variant) == ["1", "2", "4", "5"]
+    assert parse_gml(variant) == LineString([(1, 2), (4, 5)])
+    assert tokens_per_punt(variant, 2) == 2
+
+
 def test_vervang_coordinaten_laat_alles_buiten_de_lijst_staan() -> None:
     """Alleen de inhoud gaat eruit; srsName, srsDimension en de soort blijven letterlijk."""
     literal = (

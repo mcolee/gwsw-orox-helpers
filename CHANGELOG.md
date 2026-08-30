@@ -2,7 +2,8 @@
 
 ## [Unreleased]
 - De coordinaat-tekstchirurgie woont nu één keer, in `geometry` (issue #17, modulariteit;
-  geen gedragswijziging). `clip` droeg een eigen coordinaat-regex (`clip.knip._COORDINATEN`)
+  geen gedragswijziging op een leesbare GML-literaal -- zie de uitzondering onderaan deze
+  regel). `clip` droeg een eigen coordinaat-regex (`clip.knip._COORDINATEN`)
   naast `geometry.COORDINATEN_PATROON` en leidde de verhouding tussen tokens en punten twee
   keer af -- in `knip._knip_lijn` en in `merge._stapgrootte`. Dat is precies het
   tweede-exemplaar-patroon dat `docs/architectuur.md` verbiedt: geen live bug, maar wel de
@@ -25,7 +26,22 @@
   dezelfde run): clip + merge op de Juinen-fixture en op `mini_orox.ttl` leveren
   **byte-identieke** bestanden op, gelijke SHA-256 voor beide delen en voor de hereniging
   (Juinen-West `3e49228d…`, Juinen-Oost `ee3e55a6…`, terug `b2b682c0…`). De zware De
-  Wolden/Hoogeveen-round-trip (112 MB) staat er ook onder. **Let op:** `geometry` staat in
+  Wolden/Hoogeveen-round-trip (112 MB) staat er ook onder: 1.877.729 triples in en uit,
+  vingerafdruk gelijk, 650.470 objecten en 74 GWSW-klassen aan beide kanten, 13
+  grenskruisende leidingen, 102.704.657 bytes tegen 102.704.657 (1,000x). **De ene
+  uitzondering**, en de prijs van het ontdubbelen: de oude clip-regex eiste een `\b` achter
+  `pos`/`posList` en de gedeelde `COORDINATEN_PATROON` doet dat niet, dus een literaal met
+  een misvormde openingstag (`<gml:posz>…</gml:pos>`) las de knip vroeger *niet* terwijl
+  `parse_gml` hem wel las. Die literaal ging toen heel door de knip en gaf in
+  `_stapgrootte` stap 0 (de hereniging snoeide dan niets); nu lezen beide kanten dezelfde
+  lijst en komt de verhouding wel rond. Zulke literalen komen niet uit een GWSW-export en
+  niet uit de clip zelf -- alleen eventueel uit een deel van elders -- en de nieuwe uitkomst
+  is de veiligere, maar het is gedrag en het staat hier daarom opgeschreven
+  (`test_de_tekstkant_leest_dezelfde_lijst_als_de_lezerskant`). In dezelfde categorie
+  onbereikbaar-maar-anders: `_stapgrootte` werpt bij nul tokens op één of meer punten nu
+  een `DatasetError` in plaats van stil stap 0 terug te geven -- een leesbare literaal kan
+  die stand niet bereiken, want zonder tokens faalt `parse_gml` en zijn er geen punten.
+  **Let op:** `geometry` staat in
   `cache.LADERMODULES`, dus deze wijziging verzet de cachesleutel -- bestaande caches worden
   één keer opnieuw opgebouwd. Dat is de bedoelde werking van die sleutel en geen
   gedragswijziging.

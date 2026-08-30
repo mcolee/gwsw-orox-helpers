@@ -137,7 +137,12 @@ def _verwerk_merken(scan: _Scan, merken: dict[str, dict[str, str]]) -> None:
         scan.herkomst_van[knoop] = herkomst
         scan.aantallen.setdefault(herkomst, set()).add(aantal)
         rij = scan.stukken.setdefault(herkomst, {})
-        rij[volgnummer] = (_tokens_tekst(tekst), merk.get(f"{KNIP}ingevoegdEinde") == "true")
+        # De getallen van het stuk blijven de brontekst; alleen de scheiders gaan hier al
+        # op een enkele spatie, want `_hersteld` splitst deze tekst toch weer op witruimte.
+        rij[volgnummer] = (
+            " ".join(coordinaattokens(tekst)),
+            merk.get(f"{KNIP}ingevoegdEinde") == "true",
+        )
         scan.sjabloon.setdefault(herkomst, tekst)
 
     for herkomst, rij in scan.stukken.items():
@@ -154,16 +159,6 @@ def _verwerk_merken(scan: _Scan, merken: dict[str, dict[str, str]]) -> None:
                 f"van {herkomst!r} ontbreken de stukken {ontbreekt}; de delen zijn niet compleet "
                 f"en de geometrie zou korter terugkomen dan ze was."
             )
-
-
-def _tokens_tekst(literal: str) -> str:
-    """De coordinatentekst uit een GML-literaal: de getallen, met een enkele spatie ertussen.
-
-    De getallen zijn de brontekst van het stuk en blijven dat; alleen de scheiders worden
-    hier al genormaliseerd, want `_hersteld` splitst deze tekst toch weer op witruimte en
-    naait de tokens met een enkele spatie aaneen.
-    """
-    return " ".join(coordinaattokens(literal))
 
 
 def _samengevoegd(delen: Sequence[Path], scan: _Scan) -> Iterator[pyoxigraph.Triple]:

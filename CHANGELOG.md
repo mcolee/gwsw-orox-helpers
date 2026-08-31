@@ -22,7 +22,14 @@
   objecten, dan telt de fout voortaan twee keer — de telling gaat daarmee betekenen wat de
   veldnaam en de afnemersrapporten altijd al beweerden ("objecten met een onleesbare
   geometrie") in plaats van orientaties; en een orientatie zónder houder valt terug op haar
-  eigen URI, zodat een melding nooit stil verdwijnt. Voor nlriochecker is dit additief:
+  eigen URI, zodat zo'n wees niet stil wegvalt. **Eén geval wordt nu bewust niet meer
+  gemeld**, en dat is de prijs van de invariant: draagt een object twee orientaties waarvan
+  de eerste een leesbare en de tweede een kapotte literaal heeft, dan verdwijnt die tweede
+  melding — het object heeft geometrie, dus het hoort niet in `geometry_errors`, en de
+  orientatie is geen wees. De afweging is dat een vals-positief bij de afnemer (nlriochecker
+  meldt een object met een prima punt als "onleesbare geometrie") zwaarder weegt dan een
+  niet-gemelde dubbele literaal; die keuze staat ter toetsing bij de auteur in #36. Voor
+  nlriochecker is dit additief:
   élke lezer daar (`toetsrun`, `checks/topologie`, `uitvoer/bevindingen` en twee tests)
   gebruikt uitsluitend `len()` en waarheidswaarde, nooit de sleutels — AST-sweep 31-08,
   in de review onafhankelijk herhaald. `subset()` zelf is niet gewijzigd; het bestaande

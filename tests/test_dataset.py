@@ -1436,27 +1436,42 @@ def test_een_orientatie_zonder_houder_houdt_haar_eigen_uri_als_sleutel(tmp_path:
     assert f"{TOETS}WeesL_ori" not in gelezen.conduits
 
 
-def _twee_orientaties(tmp_path: Path) -> Path:
-    """Een put met twee orientaties: een met een leesbare literaal, een met een kapotte."""
-    bron = (TTL_DIR / "top001_losliggende_put.ttl").read_text(encoding="utf-8")
-    bron += (
-        "\n:PutG gwsw:hasAspect :PutG_ori , :PutG_ori2 .\n"
-        ":PutG_ori rdf:type gwsw:Putorientatie ;\n"
-        "    gwsw:hasAspect [ rdf:type gwsw:Punt ;\n"
-        '        gwsw:hasValue "<gml:Point xmlns:gml=\\"http://www.opengis.net/gml\\">'
-        '<gml:pos>1300.0 2600.0</gml:pos></gml:Point>"^^geo:gmlLiteral ] .\n'
-        ":PutG_ori2 rdf:type gwsw:Putorientatie ;\n"
-        "    gwsw:hasAspect [ rdf:type gwsw:Punt ;\n"
-        '        gwsw:hasValue "<gml:Point xmlns:gml=\\"http://www.opengis.net/gml\\">'
-        '<gml:pos>een twee</gml:pos></gml:Point>"^^geo:gmlLiteral ] .\n'
+_GOEDE_ORIENTATIE = (
+    ":PutG_ori rdf:type gwsw:Putorientatie ;\n"
+    "    gwsw:hasAspect [ rdf:type gwsw:Punt ;\n"
+    '        gwsw:hasValue "<gml:Point xmlns:gml=\\"http://www.opengis.net/gml\\">'
+    '<gml:pos>1300.0 2600.0</gml:pos></gml:Point>"^^geo:gmlLiteral ] .\n'
+)
+_KAPOTTE_ORIENTATIE = (
+    ":PutG_ori2 rdf:type gwsw:Putorientatie ;\n"
+    "    gwsw:hasAspect [ rdf:type gwsw:Punt ;\n"
+    '        gwsw:hasValue "<gml:Point xmlns:gml=\\"http://www.opengis.net/gml\\">'
+    '<gml:pos>een twee</gml:pos></gml:Point>"^^geo:gmlLiteral ] .\n'
+)
+
+
+def _twee_orientaties(tmp_path: Path, *, kapotte_eerst: bool) -> Path:
+    """Een put met twee orientaties: een met een leesbare literaal, een met een kapotte.
+
+    De volgorde is een parameter en geen detail. De lezer bouwt de knoop uit de eerste
+    orientatie die langskomt, dus de twee schrijfvolgorden zijn twee verschillende
+    gevallen: in de ene wint de leesbare literaal, in de andere de kapotte.
+    """
+    orientaties = (
+        (_KAPOTTE_ORIENTATIE, _GOEDE_ORIENTATIE)
+        if kapotte_eerst
+        else (_GOEDE_ORIENTATIE, _KAPOTTE_ORIENTATIE)
     )
-    pad = tmp_path / "twee_orientaties.ttl"
+    bron = (TTL_DIR / "top001_losliggende_put.ttl").read_text(encoding="utf-8")
+    bron += "\n:PutG gwsw:hasAspect :PutG_ori , :PutG_ori2 .\n" + "".join(orientaties)
+    pad = tmp_path / f"twee_orientaties_{'kapot' if kapotte_eerst else 'goed'}_eerst.ttl"
     pad.write_text(bron, encoding="utf-8")
     return pad
 
 
+@pytest.mark.parametrize("kapotte_eerst", [False, True])
 def test_een_object_met_bruikbare_geometrie_staat_nooit_in_geometry_errors(
-    tmp_path: Path,
+    tmp_path: Path, kapotte_eerst: bool
 ) -> None:
     """De invariant waar elke afnemer op rekent, als test in plaats van als aanname.
 
@@ -1468,11 +1483,23 @@ def test_een_object_met_bruikbare_geometrie_staat_nooit_in_geometry_errors(
     nlriochecker dat als bevinding. Een vals-positief bij de afnemer is erger dan een
     niet-gemelde dubbele literaal (manifest, principe 1).
 
-    De assert is bewust de invariant over de hele dataset en niet een uitspraak over
-    `PutG`: welke van de twee orientaties het eerst langskomt hangt af van de
-    schrijfvolgorde van de export, en daar hoort geen test op te leunen.
+    **Beide schrijfvolgorden**, want met alleen de ene zou deze test vacuu slagen: staat
+    de kapotte orientatie voorop, dan heeft de put geen geometrie en zegt de invariant
+    niets over hem. De koppeling die in beide richtingen moet gelden is dan ook geen
+    uitspraak over `PutG` maar deze: een object staat in `geometry_errors` **precies
+    dan** als het geen bruikbare geometrie heeft.
     """
-    gelezen = load_dataset(_twee_orientaties(tmp_path), ontology_paths=[])
+    gelezen = load_dataset(
+        _twee_orientaties(tmp_path, kapotte_eerst=kapotte_eerst), ontology_paths=[]
+    )
+
+    put = gelezen.nodes[f"{TOETS}PutG"]
+    assert (put.point is None) == (f"{TOETS}PutG" in gelezen.geometry_errors), (
+        "geometriefout en ontbrekende geometrie horen precies samen te vallen"
+    )
+    assert (put.point is None) is kapotte_eerst, (
+        "voorwaarde: de eerst geschreven orientatie levert de geometrie"
+    )
 
     assert f"{TOETS}PutG" in gelezen.nodes
     for uri, knoop in gelezen.nodes.items():

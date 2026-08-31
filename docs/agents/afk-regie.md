@@ -1,8 +1,11 @@
-# AFK-regie: een reeks issues fixen met Opus-agents (sjabloon)
+# AFK-regie: een reeks issues fixen met subagents (sjabloon)
 
 Geef dit, met de issuelijst ingevuld, aan een **verse (gecleared) Fable-sessie** in
-`/home/martin/gwsw-orox-helpers`. Fable is de regisseur; het echte werk doen
-**Opus-subagents** (`model: opus`; in deze harness levert dat Opus 5). De auteur is er niet
+`/home/martin/gwsw-orox-helpers`. Fable is de regisseur; het echte werk doen **subagents**.
+Kies per issue het model naar zwaarte volgens de globale `CLAUDE.md` (sectie **Modelkeuze
+subagents**): substantieel/kritiek-pad → **Opus 4.8** via de `opus48`-agent (de kale alias
+`model: opus` levert in deze harness Opus 5), klein/docs/config/test-only → **Sonnet**.
+**Rapporteer bij elke dispatch expliciet welk model je inzet.** De auteur is er niet
 bij — **unattended**. Dit sjabloon is overgenomen uit `nlriochecker`, waar het over meerdere
 onbewaakte runs is aangescherpt; de punten hieronder komen uit die metingen.
 
@@ -49,8 +52,10 @@ Eén issue = één sessie-eenheid: commit + push + CI groen + comment + close v�
 1. **Lees** het issue volledig: `gh api repos/mcolee/gwsw-orox-helpers/issues/N --jq .body` en
    `.../issues/N/comments`. Dat is de spec.
 2. **Claim**: `gh issue edit N --add-assignee @me`.
-3. **Dispatch een Opus-implementer** (Agent-tool, `model: opus`, verse agent,
-   `subagent_type: general-purpose`). Brief, zelfstandig en met een taaklabel:
+3. **Dispatch de implementer** — kies het model naar de zwaarte van #N (globale `CLAUDE.md`,
+   **Modelkeuze subagents**): substantieel/kritiek-pad → Opus 4.8 via `subagent_type: opus48`;
+   klein/test-/config-only → `model: sonnet`, `subagent_type: general-purpose`. **Meld
+   expliciet welk model deze dispatch inzet.** Brief, zelfstandig en met een taaklabel:
 
    > **Task 1 — implementeer issue #N.** Repo `/home/martin/gwsw-orox-helpers`, tak `dev`. Volg
    > de body van #N verbatim en `CLAUDE.md` strikt (Harde regels + Werkwijze). Draai
@@ -73,13 +78,13 @@ Eén issue = één sessie-eenheid: commit + push + CI groen + comment + close v�
    dispatch een fix-agent (Task 2). Is hij groen, dan **draai je hem niet nog eens**: in de
    nlriochecker-run van 26-08 waren alle 12 herhalingen groen en kostten ze ~36 calls en ~1 uur
    pytest.
-5. **Review naar risico** (Opus-reviewer, verse agent) — de indeling staat in `CLAUDE.md`:
+5. **Review naar risico** (reviewer, verse agent — model naar risico) — de indeling staat in `CLAUDE.md`:
    - **Docs/config** (geen `src/**.py`): geen poort en geen review, alleen de drifttests die de
      wijziging raakt (bv. `test_indexversie_staat_in_claude_md`, die `CLAUDE.md` aan de
      gebundelde index bindt).
    - **Klein** → `/code-review` (`low` bij een triviale one-liner, anders `medium`).
    - **Substantieel** (nieuwe module/feature, publieke API, cache- of geometriepad, of een
-     Harde regel) → `mattpocock-skills:code-review` met een verse Opus-reviewer: *"Task 3 —
+     Harde regel) → `mattpocock-skills:code-review` met een verse **Opus 4.8**-reviewer (`opus48`-agent): *"Task 3 —
      review de diff op `dev` sinds de laatste commit tegen de spec van #N en de Harde regels.
      Adversarieel: correctheid, dekt het de spec, kloppen de drifttests, breekt het een publiek
      contract dat nlriochecker importeert?"* Important-bevindingen gaan naar een fix-agent,

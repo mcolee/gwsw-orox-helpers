@@ -34,7 +34,7 @@ gwsw:Zinker rdfs:subClassOf gwsw:VrijvervalRioolleiding .
 gwsw:Drain rdfs:subClassOf gwsw:VrijvervalRioolleiding .
 gwsw:Sloot rdfs:subClassOf gwsw:Oppervlaktewater .
 
-# DEFECT: geen; zeven conforme maar ongebruikelijke vormen die de lezers moeten overslaan of langs een tweede weg moeten vinden (issue #16)
+# DEFECT: geen; zeven tolerantievormen die exports schrijven en die de lezers moeten overslaan of langs een tweede weg moeten vinden (issue #16)
 
 :PutA rdf:type gwsw:Inspectieput ; rdfs:label "A" ;
     gwsw:hasAspect :PutA_ori .
@@ -44,7 +44,7 @@ gwsw:Sloot rdfs:subClassOf gwsw:Oppervlaktewater .
 
 :PutA gwsw:hasAspect :PutA_bd .
 :PutA_bd rdf:type gwsw:Begindatum ; gwsw:hasValue "1980-01-01"^^xsd:date ;
-    gwsw:hasAspect [ rdf:type gwsw:Toelichting ; gwsw:hasValue "geschat" ] .
+    gwsw:hasAspect [ rdf:type gwsw:Opmerking ; gwsw:hasValue "geschat" ] .
 :PutB rdf:type gwsw:Inspectieput ; rdfs:label "B" ;
     gwsw:hasAspect :PutB_ori .
 :PutB_ori rdf:type gwsw:Putorientatie ;

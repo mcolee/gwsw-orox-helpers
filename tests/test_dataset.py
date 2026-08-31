@@ -179,22 +179,32 @@ def test_dataset_zonder_objecten_geeft_dataseterror(tmp_path: Path) -> None:
         load_dataset(leeg, ontology_paths=[])
 
 
-def test_een_onleesbare_gml_literaal_belandt_in_geometry_errors(tmp_path: Path) -> None:
-    """Een kapotte geometrie breekt de lezing niet af; ze wordt per orientatie gemeld.
+def _kapotte_geometrie(tmp_path: Path) -> Path:
+    """Een kopie van `top001_losliggende_put.ttl` met twee onleesbare GML-literalen.
 
     Twee soorten kapot tegelijk, want `inlezen._geometry` vangt ze op een plek af: een
-    niet-numerieke coordinaat (een `GeometryError` uit de lezer zelf) op een put, en een
+    niet-numerieke coordinaat (een `GeometryError` uit de lezer zelf) op put C, en een
     lijn met een enkel punt (waar GEOS struikelt en de lezer de `ShapelyError` omzet) op
-    een streng. Allebei de objecten blijven bestaan, zonder geometrie en zonder z --
-    dat is het bedoelde gedrag en het is de reden dat `geometry_errors` bestaat.
+    streng 1. Gedeeld door de twee tests hieronder die zo'n dataset nodig hebben; hij
+    staat niet in de generator omdat een gecommitte fixture met kapotte geometrie ook
+    elke andere test zou bereiken die over de fixturemap loopt.
     """
     bron = (TTL_DIR / "top001_losliggende_put.ttl").read_text(encoding="utf-8")
     bron = bron.replace("1000.0 2000.0 1050.0 2000.0", "1000.0 2000.0")
     bron = bron.replace("1200.0 2500.0", "een twee")
     pad = tmp_path / "kapotte_geometrie.ttl"
     pad.write_text(bron, encoding="utf-8")
+    return pad
 
-    gelezen = load_dataset(pad, ontology_paths=[])
+
+def test_een_onleesbare_gml_literaal_belandt_in_geometry_errors(tmp_path: Path) -> None:
+    """Een kapotte geometrie breekt de lezing niet af; ze wordt per orientatie gemeld.
+
+    Twee soorten kapot tegelijk (zie `_kapotte_geometrie`). Allebei de objecten blijven
+    bestaan, zonder geometrie en zonder z -- dat is het bedoelde gedrag en het is de
+    reden dat `geometry_errors` bestaat.
+    """
+    gelezen = load_dataset(_kapotte_geometrie(tmp_path), ontology_paths=[])
 
     assert set(gelezen.geometry_errors) == {f"{TOETS}PutC_ori", f"{TOETS}L1_ori"}
     assert "niet-numerieke coordinaat" in gelezen.geometry_errors[f"{TOETS}PutC_ori"]
@@ -1214,7 +1224,9 @@ def test_putdekselniveau_aan_het_putdeksel_zonder_dekselorientatie(
 
     assert put.dekselniveau == 9.70
     assert rommelig.onderdelen(f"{TOETS}PutD", "Putdeksel") == [f"{TOETS}PutD_dek"]
-    assert rommelig.subjects_of_class("Dekselorientatie") == []
+    assert rommelig.subjects_of_class("Dekselorientatie") == [], (
+        "voorwaarde: geen enkel putdeksel in deze fixture draagt een Dekselorientatie"
+    )
 
 
 def test_een_geometrie_aspect_zonder_literaal_laat_de_knoop_staan(
@@ -1232,7 +1244,7 @@ def test_een_geometrie_aspect_zonder_literaal_laat_de_knoop_staan(
 
     assert put.point is None
     assert put.z is None
-    assert rommelig.geometry_errors == {}
+    assert f"{TOETS}PutE_ori" not in rommelig.geometry_errors
     # Voorwaarde: de orientatie draagt wel degelijk een Punt-aspect, alleen zonder waarde.
     punten = [
         aspect
@@ -1264,9 +1276,19 @@ def test_twee_orientaties_leveren_een_knoop_en_een_streng(rommelig: GwswDataset)
     assert leidingorientaties == {f"{TOETS}L1_ori", f"{TOETS}L1_ori2"}
     assert [uri for uri in rommelig.nodes if uri.startswith(f"{TOETS}PutF")] == [f"{TOETS}PutF"]
     assert list(rommelig.conduits) == [f"{TOETS}L1"]
-    assert rommelig.nodes[f"{TOETS}PutF"].orientation in putorientaties
-    # Zes putten, en niet zeven of acht: A tot en met F, elk een keer.
-    assert len(rommelig.nodes) == 6
+    # Elke put en elke streng een keer, en geen "PutF (2)" ertussen.
+    assert sorted(node.label for node in rommelig.nodes.values()) == list("ABCDEF")
+
+    # Welke van de twee het wordt is geen willekeur: het is de eerst geschreven
+    # orientatie, want de lezers lopen de graaf in schrijfvolgorde af en slaan het
+    # object over zodra het er staat. Dat is ook aan de geometrie te zien -- de tweede
+    # orientatie ligt vijf meter noordelijker en die y komt er niet uit.
+    put = rommelig.nodes[f"{TOETS}PutF"]
+    assert put.orientation == f"{TOETS}PutF_ori"
+    assert put.point is not None and put.point.y == 2000.0
+    streng = rommelig.conduits[f"{TOETS}L1"]
+    assert streng.line is not None
+    assert streng.line.coords[0][1] == 2000.0
 
 
 # --- `subset()`: wat er meegesneden wordt en wat niet (issue #16) ----------------------
@@ -1347,15 +1369,12 @@ def test_subset_laat_de_geometriefouten_vallen(tmp_path: Path) -> None:
     Wat zij doet is het gedrag zichtbaar maken, zodat de dag dat het verandert hier
     blijkt in plaats van bij een afnemer die zijn foutenlijst kwijt is.
     """
-    bron = (TTL_DIR / "top001_losliggende_put.ttl").read_text(encoding="utf-8")
-    bron = bron.replace("1200.0 2500.0", "een twee")
-    pad = tmp_path / "kapotte_geometrie.ttl"
-    pad.write_text(bron, encoding="utf-8")
-    gelezen = load_dataset(pad, ontology_paths=[])
+    gelezen = load_dataset(_kapotte_geometrie(tmp_path), ontology_paths=[])
 
-    assert set(gelezen.geometry_errors) == {f"{TOETS}PutC_ori"}
-    # De sleutel is de orientatie en niet de put; de put zelf blijft gewoon bestaan.
+    assert set(gelezen.geometry_errors) == {f"{TOETS}PutC_ori", f"{TOETS}L1_ori"}
+    # De sleutels zijn de orientaties en niet de objecten; die blijven gewoon bestaan.
     assert f"{TOETS}PutC" in gelezen.nodes
+    assert f"{TOETS}L1" in gelezen.conduits
 
     alles = gelezen.subset([*gelezen.nodes, *gelezen.conduits])
 

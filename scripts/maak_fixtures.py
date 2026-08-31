@@ -729,19 +729,26 @@ FIXTURES["dataset_meervoudig_objecttype.ttl"] = (
 # hieronder komt in geen enkele andere fixture voor, en `inlezen.py` heeft er een
 # tak voor: een kenmerk met een sub-aspect dat geen Inwinning is, een kenmerk van
 # de juiste klasse zonder waarde, een geometrie-aspect zonder literaal, een
-# putdekselniveau langs de twee omwegen, en een object met twee orientaties. Ze
-# zijn geen van alle een defect in de GWSW-zin -- ze zijn conform en horen gelezen
-# te worden zoals hier vastligt -- maar zonder deze fixture blijft een refactor die
-# er een stilzet groen.
+# putdekselniveau langs de twee omwegen, en een object met twee orientaties.
+#
+# **Geen van de zeven is een defect, en ze zijn ook niet allemaal ontologisch
+# conform.** Ze zijn *tolerantievormen*: vormen die exports in de praktijk schrijven
+# en die de lezer moet verdragen. De twee dekselomwegen zijn daar het duidelijkste
+# voorbeeld van -- GWSW 1.6 hangt de `hasAspect`-restrictie van `Putdekselniveau`
+# aan de `Dekselorientatie` en niet aan de put of aan het `Putdeksel`-onderdeel --
+# en `inlezen._deksel_kenmerk` volgt ze desondanks met opzet. De klassenamen zelf
+# zijn wel alle uit GWSW 1.6. Zonder deze fixture blijft een refactor die een van
+# die zeven takken stilzet groen.
 # ---------------------------------------------------------------------------
 
 # Put A: het kenmerk Begindatum draagt een sub-aspect dat geen Inwinning is.
 # `_read_inwinning` loopt de sub-aspecten van elk kenmerk af en moet deze overslaan
-# in plaats van hem als herkomst te lezen.
+# in plaats van hem als herkomst te lezen. `gwsw:Opmerking` is een echte 1.6-klasse
+# (een `Kenmerk`, met `rdfs:comment "[is aspect]"`).
 KENMERK_MET_VREEMD_SUBASPECT = """
 :PutA gwsw:hasAspect :PutA_bd .
 :PutA_bd rdf:type gwsw:Begindatum ; gwsw:hasValue "1980-01-01"^^xsd:date ;
-    gwsw:hasAspect [ rdf:type gwsw:Toelichting ; gwsw:hasValue "geschat" ] .
+    gwsw:hasAspect [ rdf:type gwsw:Opmerking ; gwsw:hasValue "geschat" ] .
 """
 
 # Put B: een maaiveldorientatie met een Maaiveldhoogte zonder `hasValue`. Een
@@ -794,8 +801,8 @@ TWEEDE_LEIDINGORIENTATIE = """
 """
 
 FIXTURES["dataset_rommelige_export.ttl"] = (
-    "geen; zeven conforme maar ongebruikelijke vormen die de lezers moeten overslaan "
-    "of langs een tweede weg moeten vinden (issue #16)",
+    "geen; zeven tolerantievormen die exports schrijven en die de lezers moeten "
+    "overslaan of langs een tweede weg moeten vinden (issue #16)",
     put("PutA", "A", 1000.0, 2000.0)
     + KENMERK_MET_VREEMD_SUBASPECT
     + put("PutB", "B", 1050.0, 2000.0)

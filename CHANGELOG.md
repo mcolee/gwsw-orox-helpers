@@ -6,11 +6,14 @@
   regel productiecode aangeraakt). Dekking van `src/gwsw_orox_helpers/inlezen.py`:
   **95% → 100%** (232 statements, 12 → 0 ongedekt; projectbreed 25 → 13 ongedekte
   statements). Twee nieuwe gegenereerde fixtures uit `scripts/maak_fixtures.py`:
-  `dataset_rommelige_export.ttl` (zeven conforme maar ongebruikelijke vormen — een
+  `dataset_rommelige_export.ttl` (zeven *tolerantievormen* — vormen die exports
+  schrijven en die de lezer moet verdragen, niet alle zeven ontologisch conform: een
   kenmerk met een sub-aspect dat geen `Inwinning` is, een `Maaiveldhoogte` zonder
   `hasValue`, een `Punt` zonder literaal, het putdekselniveau langs beide omwegen
-  (rechtstreeks aan de put en aan het `Putdeksel`-onderdeel zonder `Dekselorientatie`),
-  en een put én een streng met elk twee orientaties) en `dataset_inwinningsdatum.ttl`
+  (rechtstreeks aan de put en aan het `Putdeksel`-onderdeel zonder `Dekselorientatie` —
+  GWSW 1.6 hangt die restrictie aan de `Dekselorientatie`, en `_deksel_kenmerk` volgt de
+  omwegen met opzet), en een put én een streng met elk twee orientaties; de klassenamen
+  zijn wel alle uit 1.6) en `dataset_inwinningsdatum.ttl`
   (`KLASSE_DATUM_INWINNING`, het enige veld van `Inwinning` dat geen enkele fixture
   droeg). Daarnaast twee tests op `GwswDataset.subset()`, dat tot nu toe alleen als
   hulpmiddel in memo-tests voorkwam: dat de graafindex **niet** meegesneden wordt (`is`

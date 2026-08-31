@@ -1,0 +1,116 @@
+@prefix rdf:  <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix xsd:  <http://www.w3.org/2001/XMLSchema#> .
+@prefix geo:  <http://www.opengis.net/ont/geosparql#> .
+@prefix gwsw: <http://data.gwsw.nl/1.7/totaal/> .
+@prefix :     <http://example.org/toets#> .
+
+# Minimale klassenhierarchie, zodat de fixture zonder de volle ontologie werkt.
+gwsw:Inspectieput rdfs:subClassOf gwsw:Rioolput .
+gwsw:LozePut rdfs:subClassOf gwsw:Rioolput .
+gwsw:Lozingsput rdfs:subClassOf gwsw:Rioolput .
+gwsw:Overstortput rdfs:subClassOf gwsw:Rioolput .
+gwsw:Rioolput rdfs:subClassOf gwsw:Put .
+gwsw:Putorientatie rdfs:subClassOf gwsw:Knooppunt .
+gwsw:Compartimentorientatie rdfs:subClassOf gwsw:Knooppunt .
+gwsw:Bouwwerkorientatie rdfs:subClassOf gwsw:Knooppunt .
+gwsw:Leidingorientatie rdfs:subClassOf gwsw:Verbinding .
+gwsw:GemengdRiool rdfs:subClassOf gwsw:VrijvervalRioolleiding .
+gwsw:Hemelwaterriool rdfs:subClassOf gwsw:VrijvervalRioolleiding .
+gwsw:Vuilwaterriool rdfs:subClassOf gwsw:VrijvervalRioolleiding .
+gwsw:Infiltratieriool rdfs:subClassOf gwsw:VrijvervalRioolleiding .
+gwsw:Overstortleiding rdfs:subClassOf gwsw:VrijvervalRioolleiding .
+gwsw:VrijvervalRioolleiding rdfs:subClassOf gwsw:Rioolleiding .
+gwsw:Rioolleiding rdfs:subClassOf gwsw:Leiding .
+gwsw:Persleiding rdfs:subClassOf gwsw:MechanischeTransportleiding .
+gwsw:MechanischeTransportleiding rdfs:subClassOf gwsw:Transportleiding .
+gwsw:Transportleiding rdfs:subClassOf gwsw:Leiding .
+gwsw:Rioolgemaal rdfs:subClassOf gwsw:Gemaal .
+gwsw:Uitlaatconstructie rdfs:subClassOf gwsw:Bouwwerk .
+gwsw:Bergbezinkbassin rdfs:subClassOf gwsw:Bouwwerk .
+gwsw:Valput rdfs:subClassOf gwsw:Rioolput .
+gwsw:Duiker rdfs:subClassOf gwsw:Leiding .
+gwsw:Zinker rdfs:subClassOf gwsw:VrijvervalRioolleiding .
+gwsw:Drain rdfs:subClassOf gwsw:VrijvervalRioolleiding .
+gwsw:Sloot rdfs:subClassOf gwsw:Oppervlaktewater .
+
+# DEFECT: streng 1 koppelt haar eindpunt aan :T1_put, een URI die niet bestaat; de orientatie van T-stuk T1 heet :T1_ori (issue #60)
+
+@prefix owl: <http://www.w3.org/2002/07/owl#> .
+# Hulpstukken, met de functierestrictie uit de GWSW-ontologie (issue #60).
+gwsw:Hulpstukorientatie rdfs:subClassOf gwsw:Knooppunt .
+gwsw:Verbindingsstuk rdfs:subClassOf gwsw:Hulpstuk ,
+    [ a owl:Restriction ; owl:onProperty gwsw:functie ; owl:hasValue gwsw:VerbindenVanLeidingen ] .
+gwsw:Afsluitstuk rdfs:subClassOf gwsw:Hulpstuk ,
+    [ a owl:Restriction ; owl:onProperty gwsw:functie ; owl:hasValue gwsw:AfsluitenVanLeidingen ] .
+gwsw:T_stuk rdfs:subClassOf gwsw:Verbindingsstuk ,
+    [ a owl:Restriction ; owl:onProperty gwsw:functie ; owl:hasValue gwsw:VerbindenVanDrieLeidingen ] .
+gwsw:T_stuk_Speciaal rdfs:subClassOf gwsw:T_stuk .
+gwsw:Kruisstuk rdfs:subClassOf gwsw:Verbindingsstuk ,
+    [ a owl:Restriction ; owl:onProperty gwsw:functie ; owl:hasValue gwsw:VerbindenVanVierLeidingen ] .
+
+:PutA rdf:type gwsw:Inspectieput ; rdfs:label "A" ;
+    gwsw:hasAspect :PutA_ori .
+:PutA_ori rdf:type gwsw:Putorientatie ;
+    gwsw:hasAspect [ rdf:type gwsw:Punt ;
+        gwsw:hasValue "<gml:Point xmlns:gml=\"http://www.opengis.net/gml\"><gml:pos>1000.0 2000.0</gml:pos></gml:Point>"^^geo:gmlLiteral ] .
+:T1 rdf:type gwsw:T_stuk ; rdfs:label "T1" ;
+    gwsw:hasAspect :T1_ori .
+:T1_ori rdf:type gwsw:Hulpstukorientatie ;
+    gwsw:hasAspect [ rdf:type gwsw:Punt ;
+        gwsw:hasValue "<gml:Point xmlns:gml=\"http://www.opengis.net/gml\"><gml:pos>1050.0 2000.0</gml:pos></gml:Point>"^^geo:gmlLiteral ] .
+:L1 rdf:type gwsw:GemengdRiool ; rdfs:label "1" ;
+    gwsw:hasAspect :L1_ori .
+:L1_ori rdf:type gwsw:Leidingorientatie ;
+    gwsw:hasPart :L1_b , :L1_e ;
+    gwsw:hasAspect [ rdf:type gwsw:Lijn ;
+        gwsw:hasValue "<gml:LineString xmlns:gml=\"http://www.opengis.net/gml\"><gml:posList srsDimension=\"2\">1000.0 2000.0 1050.0 2000.0</gml:posList></gml:LineString>"^^geo:gmlLiteral ] .
+:L1_b rdf:type gwsw:BeginpuntLeiding .
+:L1_e rdf:type gwsw:EindpuntLeiding .
+:L1_b gwsw:hasConnection :PutA_ori .
+:L1_e gwsw:hasConnection :T1_put .
+:PutB rdf:type gwsw:Inspectieput ; rdfs:label "B" ;
+    gwsw:hasAspect :PutB_ori .
+:PutB_ori rdf:type gwsw:Putorientatie ;
+    gwsw:hasAspect [ rdf:type gwsw:Punt ;
+        gwsw:hasValue "<gml:Point xmlns:gml=\"http://www.opengis.net/gml\"><gml:pos>1100.0 2000.0</gml:pos></gml:Point>"^^geo:gmlLiteral ] .
+:L2 rdf:type gwsw:GemengdRiool ; rdfs:label "2" ;
+    gwsw:hasAspect :L2_ori .
+:L2_ori rdf:type gwsw:Leidingorientatie ;
+    gwsw:hasPart :L2_b , :L2_e ;
+    gwsw:hasAspect [ rdf:type gwsw:Lijn ;
+        gwsw:hasValue "<gml:LineString xmlns:gml=\"http://www.opengis.net/gml\"><gml:posList srsDimension=\"2\">1050.0 2000.0 1100.0 2000.0</gml:posList></gml:LineString>"^^geo:gmlLiteral ] .
+:L2_b rdf:type gwsw:BeginpuntLeiding .
+:L2_e rdf:type gwsw:EindpuntLeiding .
+:L2_b gwsw:hasConnection :T1_ori .
+:L2_e gwsw:hasConnection :PutB_ori .
+:PutC rdf:type gwsw:Inspectieput ; rdfs:label "C" ;
+    gwsw:hasAspect :PutC_ori .
+:PutC_ori rdf:type gwsw:Putorientatie ;
+    gwsw:hasAspect [ rdf:type gwsw:Punt ;
+        gwsw:hasValue "<gml:Point xmlns:gml=\"http://www.opengis.net/gml\"><gml:pos>1050.0 2050.0</gml:pos></gml:Point>"^^geo:gmlLiteral ] .
+:L3 rdf:type gwsw:GemengdRiool ; rdfs:label "3" ;
+    gwsw:hasAspect :L3_ori .
+:L3_ori rdf:type gwsw:Leidingorientatie ;
+    gwsw:hasPart :L3_b , :L3_e ;
+    gwsw:hasAspect [ rdf:type gwsw:Lijn ;
+        gwsw:hasValue "<gml:LineString xmlns:gml=\"http://www.opengis.net/gml\"><gml:posList srsDimension=\"2\">1050.0 2050.0 1050.0 2000.0</gml:posList></gml:LineString>"^^geo:gmlLiteral ] .
+:L3_b rdf:type gwsw:BeginpuntLeiding .
+:L3_e rdf:type gwsw:EindpuntLeiding .
+:L3_b gwsw:hasConnection :PutC_ori .
+:L3_e gwsw:hasConnection :Onbekend_put .
+:PutD rdf:type gwsw:Inspectieput ; rdfs:label "D" ;
+    gwsw:hasAspect :PutD_ori .
+:PutD_ori rdf:type gwsw:Putorientatie ;
+    gwsw:hasAspect [ rdf:type gwsw:Punt ;
+        gwsw:hasValue "<gml:Point xmlns:gml=\"http://www.opengis.net/gml\"><gml:pos>1100.0 2050.0</gml:pos></gml:Point>"^^geo:gmlLiteral ] .
+:L4 rdf:type gwsw:GemengdRiool ; rdfs:label "4" ;
+    gwsw:hasAspect :L4_ori .
+:L4_ori rdf:type gwsw:Leidingorientatie ;
+    gwsw:hasPart :L4_b , :L4_e ;
+    gwsw:hasAspect [ rdf:type gwsw:Lijn ;
+        gwsw:hasValue "<gml:LineString xmlns:gml=\"http://www.opengis.net/gml\"><gml:posList srsDimension=\"2\">1100.0 2050.0 1100.0 2000.0</gml:posList></gml:LineString>"^^geo:gmlLiteral ] .
+:L4_b rdf:type gwsw:BeginpuntLeiding .
+:L4_e rdf:type gwsw:EindpuntLeiding .
+:L4_b gwsw:hasConnection :PutD_ori .
+:L4_e gwsw:hasConnection :PutB_put .

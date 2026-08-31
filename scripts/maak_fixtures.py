@@ -1,30 +1,62 @@
 #!/usr/bin/env python
-"""Schrijft de TTL-fixtures onder tests/fixtures/ttl.
+"""Schrijft de TTL-fixtures onder tests/fixtures/ttl (1.6) en tests/fixtures/ttl17 (1.7).
 
 Elke fixture bevat precies een ingebouwd defect, met bovenaan in een DEFECT-regel
 wat dat defect is. De prelude met de klassenhierarchie is voor alle fixtures gelijk;
 die staat hier een keer in plaats van dertien keer in de bestanden.
+
+De enige plek waar een GWSW-versie in de gegenereerde tekst staat is de `gwsw:`-prefix
+in de prelude (`http://data.gwsw.nl/<versie>/totaal/`); de fixtures zelf spellen alles
+met die prefix. De generator schrijft per versie een eigen set met dezelfde bestandsnamen:
+1.6 in tests/fixtures/ttl, 1.7 in tests/fixtures/ttl17. `--versie 1.6|1.7` beperkt de run;
+zonder vlag draait hij beide. De 1.6-set is de regressie-baseline en blijft byte-voor-byte
+gelijk.
+
+Geen van de gegenereerde fixtures gebruikt een concept dat in 1.7 hernoemd is
+(`Infiltratiereservoir` -> `Infiltratiekoffer`/`Infiltratiekrat`, `Leidingomhulling` ->
+`Omhulling`): de prelude en de fixtures noemen alleen ongewijzigde klassen (o.a.
+`Infiltratieriool`). Een versie-afhankelijke naamtabel is daarom niet nodig -- en zou de
+splitsing `Infiltratiereservoir` -> twee klassen sowieso niet mechanisch kunnen doen. Komt
+er ooit een fixture bij die zo'n concept wel noemt, dan hoort de 1.7-uitvoer via zo'n tabel
+te worden aangepast.
 
 Zes van de twintig fixtures in tests/fixtures/ttl zijn handwerk en staan hier niet:
 `codering_cp850.ttl` (niet-UTF-8), `net001_bouwwerk_eindknoop.ttl`, `schoon.ttl`,
 `top001_losliggende_put.ttl`, `mini_orox.ttl` en `juinen_voorbeeld_v1_6.ttl`. Die laatste
 is het publieke GWSW-Voorbeeld van Stichting RIONED, byte-exact overgenomen: de
 round-trip-tests plakken er tekst uit, dus er mag niets aan veranderen -- ook niet door
-deze generator.
+deze generator. Die handgeschreven fixtures krijgen dus geen 1.7-tegenhanger.
 
-Gebruik:  uv run python scripts/maak_fixtures.py
+Gebruik:  uv run python scripts/maak_fixtures.py [--versie 1.6|1.7]
 """
 
+from collections.abc import Iterable
 from pathlib import Path
 from typing import Any
 
-DOEL = Path(__file__).resolve().parents[1] / "tests" / "fixtures" / "ttl"
+VERSIES: tuple[str, ...] = ("1.6", "1.7")
 
-PRELUDE = """@prefix rdf:  <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
+_FIXTUREWORTEL = Path(__file__).resolve().parents[1] / "tests" / "fixtures"
+DOELEN: dict[str, Path] = {
+    "1.6": _FIXTUREWORTEL / "ttl",
+    "1.7": _FIXTUREWORTEL / "ttl17",
+}
+
+
+def doel_voor(versie: str) -> Path:
+    """De map waarin de fixtures van deze GWSW-versie op schijf staan."""
+    return DOELEN[versie]
+
+
+def _gwsw_basis(versie: str) -> str:
+    return f"http://data.gwsw.nl/{versie}/totaal/"
+
+
+PRELUDE_SJABLOON = """@prefix rdf:  <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
 @prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
 @prefix xsd:  <http://www.w3.org/2001/XMLSchema#> .
 @prefix geo:  <http://www.opengis.net/ont/geosparql#> .
-@prefix gwsw: <http://data.gwsw.nl/1.6/totaal/> .
+@prefix gwsw: <{basis}> .
 @prefix :     <http://example.org/toets#> .
 
 # Minimale klassenhierarchie, zodat de fixture zonder de volle ontologie werkt.
@@ -56,6 +88,11 @@ gwsw:Zinker rdfs:subClassOf gwsw:VrijvervalRioolleiding .
 gwsw:Drain rdfs:subClassOf gwsw:VrijvervalRioolleiding .
 gwsw:Sloot rdfs:subClassOf gwsw:Oppervlaktewater .
 """
+
+
+def _prelude(versie: str) -> str:
+    """De prelude met de `gwsw:`-prefix van de gevraagde GWSW-versie."""
+    return PRELUDE_SJABLOON.format(basis=_gwsw_basis(versie))
 
 
 def put(
@@ -832,22 +869,36 @@ FIXTURES["dataset_inwinningsdatum.ttl"] = (
 )
 
 
-def render(defect: str, inhoud: str) -> str:
+def render(defect: str, inhoud: str, versie: str = "1.6") -> str:
     """De volledige tekst van een fixture: de prelude, de DEFECT-regel en de inhoud.
 
     Staat apart van `main` zodat `tests/test_fixtures.py` dezelfde regel gebruikt om te
     bewaken dat de bestanden op schijf nog bij dit script passen. Zou de test de opmaak
-    overschrijven, dan bewaakte hij zijn eigen kopie.
+    overschrijven, dan bewaakte hij zijn eigen kopie. `versie` kiest de `gwsw:`-basis;
+    1.6 is de default zodat de bestaande (1.6-)aanroep ongewijzigd blijft werken.
     """
-    return f"{PRELUDE}\n# DEFECT: {defect}\n\n{inhoud}"
+    return f"{_prelude(versie)}\n# DEFECT: {defect}\n\n{inhoud}"
 
 
-def main() -> None:
-    DOEL.mkdir(parents=True, exist_ok=True)
-    for naam, (defect, inhoud) in FIXTURES.items():
-        (DOEL / naam).write_text(render(defect, inhoud), encoding="utf-8")
-        print(naam)
+def main(versies: Iterable[str] = VERSIES) -> None:
+    for versie in versies:
+        doel = doel_voor(versie)
+        doel.mkdir(parents=True, exist_ok=True)
+        for naam, (defect, inhoud) in FIXTURES.items():
+            (doel / naam).write_text(render(defect, inhoud, versie), encoding="utf-8")
+            print(f"{versie}: {naam}")
 
 
 if __name__ == "__main__":
-    main()
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Schrijf de TTL-fixtures per GWSW-versie.")
+    parser.add_argument(
+        "--versie",
+        choices=VERSIES,
+        action="append",
+        dest="versies",
+        help="beperk tot deze versie (herhaalbaar); zonder vlag draaien alle versies",
+    )
+    args = parser.parse_args()
+    main(args.versies or VERSIES)

@@ -12,15 +12,21 @@
   `dataset.subset(kern | schil)` en telt in `checks/topologie.py` `len(geometry_errors)`
   voor zijn notitie — die notitie bleef bij **elke gebiedsrun** stil. `_geometry` geeft de
   melding nu terug in plaats van haar weg te schrijven (de houders zijn op dat punt nog
-  niet bekend) en `_meld_geometriefout` sleutelt haar op elk object dat de orientatie
-  draagt. Twee gevolgen om te weten: draagt één orientatie twee objecten, dan telt de fout
-  voortaan twee keer — de telling gaat daarmee betekenen wat de veldnaam en de
-  afnemersrapporten altijd al beweerden ("objecten met een onleesbare geometrie") in
-  plaats van orientaties; en een orientatie zónder houder valt terug op haar eigen URI,
-  zodat een melding nooit stil verdwijnt. Voor nlriochecker is dit additief: alle vier de
-  lezers daar gebruiken uitsluitend `len()` en waarheidswaarde, nooit de sleutels
-  (AST-sweep 31-08). `subset()` zelf is niet gewijzigd — het bestaande filter doet nu wat
-  het altijd al beloofde.
+  niet bekend) en de twee lezers schrijven haar weg op het object, op het moment dat ze
+  dat object aanmaken. Dat laatste is precies waar het op aankomt: een object mag meer dan
+  een orientatie dragen, en de lezer bouwt het uit de eerste die langskomt. Zou de melding
+  van een overgeslagen orientatie er alsnog op landen, dan kreeg een object met een prima
+  geometrie het etiket "onleesbaar" en meldde nlriochecker dat als bevinding. De invariant
+  die daaruit volgt staat nu als test vast: **een object met een bruikbare geometrie komt
+  nooit in `geometry_errors` voor**. Twee gevolgen om te weten: draagt één orientatie twee
+  objecten, dan telt de fout voortaan twee keer — de telling gaat daarmee betekenen wat de
+  veldnaam en de afnemersrapporten altijd al beweerden ("objecten met een onleesbare
+  geometrie") in plaats van orientaties; en een orientatie zónder houder valt terug op haar
+  eigen URI, zodat een melding nooit stil verdwijnt. Voor nlriochecker is dit additief:
+  élke lezer daar (`toetsrun`, `checks/topologie`, `uitvoer/bevindingen` en twee tests)
+  gebruikt uitsluitend `len()` en waarheidswaarde, nooit de sleutels — AST-sweep 31-08,
+  in de review onafhankelijk herhaald. `subset()` zelf is niet gewijzigd; het bestaande
+  filter doet nu wat het altijd al beloofde.
 - CI-triggerdiscipline in `.github/workflows/toets.yml` (issue #24, ci-hygiene;
   **additief** — uitsluitend CI-configuratie, geen regel code aangeraakt). Drie
   wijzigingen: (a) `push` heeft een `branches: [main, dev]`-filter, zodat een commit op

@@ -11,3 +11,4 @@ dist/
 # hookify lokale regels (niet delen)
 .claude/*.local.md
 .claude/agents/opus48.md
+/progress.md

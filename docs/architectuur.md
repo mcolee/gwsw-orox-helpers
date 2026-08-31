@@ -390,9 +390,11 @@ die `load_dataset` intern als `restrictiebron` opbouwt en daarna weggooit. Zonde
 moest een afnemer die `facetbereik` of `kenmerkbereik` op een geladen dataset wilde
 gebruiken de ontologie zelf parsen, en de enige weg daarheen (`bestand._parse`) is privé.
 De padkeuze is die van `ontologiepaden` en dus letterlijk dezelfde als bij de lader: `None`
-is de gebundelde GWSW 1.6 (63.614 triples, circa 0,4 s), een lege lijst is de expliciete
-keuze om zonder ontologie te lezen, en meerdere bestanden stapelen in volgorde in één
-index.
+is de gebundelde GWSW-default 1.6 (63.614 triples, circa 0,4 s) — er reizen sinds issue #32
+twee versie-benoemde bundels mee (1.6 en 1.7, zie `bronnen`), en `None` blijft
+onvoorwaardelijk 1.6 tot de versiedetectie in een later deel landt. Een lege lijst is de
+expliciete keuze om zonder ontologie te lezen, en meerdere bestanden stapelen in volgorde
+in één index.
 
 **De snit zit onder de fase, niet erop.** Beide functies lopen langs één privé-hulp,
 `_stapel_ontologie(paden, fallback_encoding, voortgang)`: de lus die per bestand

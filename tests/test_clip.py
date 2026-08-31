@@ -1658,3 +1658,75 @@ def test_de_17_clip_zaait_geometrie_versie_bewust(tmp_path: Path) -> None:
     assert not any(
         list(helft.objects(None, rdflib.URIRef(f"{GWSW}hasValue"))) for helft in (west, oost)
     )
+
+
+def _zonder_gwsw_prefix(bron: Path, doel: Path, basis: str) -> Path:
+    """Een kopie van `bron` zonder `@prefix gwsw:` maar met de `gwsw:`-tokens uitgeschreven.
+
+    Zo ontstaat geldige Turtle met de volle GWSW-IRI's en zonder prefixdeclaratie -- de bron
+    die Important 1 uit de review blootlegt: `schrijven.lees_orox` injecteert dan
+    `STANDAARD_PREFIXEN` (gwsw:1.6) en de detectie mag daar niet op afgaan.
+    """
+    import re
+
+    tekst = bron.read_text(encoding="utf-8")
+    tekst = "\n".join(r for r in tekst.splitlines() if not r.strip().startswith("@prefix gwsw:"))
+    tekst = re.sub(r"\bgwsw:([A-Za-z0-9_]+)", rf"<{basis}\1>", tekst)
+    doel.write_text(tekst, encoding="utf-8")
+    return doel
+
+
+def test_17_bron_zonder_gwsw_prefix_clipt_en_hereenigt_correct(tmp_path: Path) -> None:
+    """Een 1.7-bron zonder `gwsw:`-prefixdeclaratie wordt op 1.7 geknipt en heel herenigd.
+
+    Zonder IRI-gebaseerde detectie zou `clip_orox` de door `lees_orox` geïnjecteerde
+    1.6-prefix zien, degenererend knippen (alles naar elk vlak), en `merge_orox` zou de
+    geometrie op het verkeerde `hasValue` proberen te herenigen. Nu leidt de clip de basis uit
+    de predicaat-IRI's af: de leiding valt echt uiteen (één stuk per helft), de delen dragen
+    de 1.7-`gwsw:` in hun kop, en `merge(clip(bron))` is graaf-gelijk aan de bron.
+    """
+    bron = _zonder_gwsw_prefix(MINI17, tmp_path / "mini17_geen_prefix.ttl", GWSW17)
+    delen = clip_orox(bron, MINI_GRENS, tmp_path / "delen", sleutel="gemeentenaam")
+
+    def _lijnstukken(pad: Path) -> list[str]:
+        graaf = _graaf(pad)
+        return [
+            str(waarde)
+            for waarde in graaf.objects(None, rdflib.URIRef(f"{GWSW17}hasValue"))
+            if "LineString" in str(waarde)
+        ]
+
+    west, oost = _lijnstukken(delen[0]), _lijnstukken(delen[1])
+    # Echt geknipt: elk deel draagt precies één (verschillend) stuk, niet de hele lijn.
+    assert len(west) == 1 and len(oost) == 1 and west != oost
+    # De delen zijn zelfbeschrijvend op 1.7 en dragen nergens het 1.6-hasValue.
+    for pad in delen:
+        assert f"<{GWSW17}>" in pad.read_text(encoding="utf-8")
+        assert not _graaf(pad).value(None, rdflib.URIRef(f"{GWSW}hasValue"))
+
+    doel = tmp_path / "terug.ttl"
+    merge_orox(delen, doel)
+    assert isomorphic(_graaf(doel), _graaf(bron))
+    assert isomorphic(_graaf(doel), _graaf(MINI17))
+
+
+def test_bronbasis_leest_de_versie_uit_de_predicaat_iris(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """`_bronbasis` leidt de basis uit de IRI's af, en meldt de 1.6-terugval nooit stil."""
+    from gwsw_orox_helpers.clip.termen import _bronbasis
+
+    named = pyoxigraph.NamedNode
+
+    def _quad(predicaat: str) -> pyoxigraph.Quad:
+        return pyoxigraph.Quad(named("http://s"), named(predicaat), named("http://o"))
+
+    # Tak 1: een GWSW-predicaat levert zijn versie; niet-GWSW-predicaten ervoor worden overgeslagen.
+    quads = [_quad("http://www.w3.org/1999/02/22-rdf-syntax-ns#type"), _quad(f"{GWSW17}hasAspect")]
+    assert _bronbasis(iter(quads), "bron") == GWSW17
+
+    # Tak 2: geen enkel GWSW-predicaat -> 1.6 met een waarschuwing.
+    with caplog.at_level(logging.WARNING, logger="gwsw_orox_helpers.clip.termen"):
+        basis = _bronbasis(iter([_quad("http://x/p")]), "bron")
+    assert basis == GWSW
+    assert "geen herkenbaar GWSW-predicaat" in caplog.text

@@ -31,7 +31,7 @@ from gwsw_orox_helpers.geometry import (
     tokens_per_punt,
     vervang_coordinaten,
 )
-from gwsw_orox_helpers.namen import GWSW, basis_uit_prefixen
+from gwsw_orox_helpers.namen import GWSW
 from gwsw_orox_helpers.schrijven import lees_orox
 
 
@@ -55,7 +55,7 @@ class _Scan:
     ontdubbelen: set[str] = field(default_factory=set)
 
 
-def _scan_delen(delen: Sequence[Path]) -> _Scan:
+def _scan_delen(delen: Sequence[Path], termen: _Kniptermen) -> _Scan:
     """Eerste ronde over de delen: knipstukken verzamelen en dubbele subjecten aanwijzen.
 
     De sleutel van een term is hier zijn IRI, of `_:<naam>` voor een blanke knoop. Anders
@@ -64,8 +64,12 @@ def _scan_delen(delen: Sequence[Path]) -> _Scan:
     takken staan uitgeschreven en niet in een hulpfunctie per term: deze lus en die van
     `_samengevoegd` stellen de vraag samen vier keer per quad, op de delen van De Wolden
     en Hoogeveen zeven en een half miljoen keer.
+
+    `termen` is de bron-termenset die `merge_orox` uit de delen detecteert (`_bronbasis`:
+    prefix, IRI-scan, 1.6 met melding); daaruit volgt tegen welk `hasValue` de knipgeometrie
+    vergeleken en teruggeschreven wordt (issue #32).
     """
-    scan = _Scan()
+    scan = _Scan(termen=termen)
     gezien: set[str] = set()
     merken: dict[str, dict[str, str]] = {}
     verwijzers: dict[str, set[str]] = {}
@@ -79,9 +83,6 @@ def _scan_delen(delen: Sequence[Path]) -> _Scan:
             scan.prefixen = {
                 naam: iri for naam, iri in geopend.prefixen.items() if naam != KNIP_PREFIX
             }
-            # De delen dragen de `gwsw:`-prefix van de bron; daaruit volgt tegen welk
-            # `hasValue` de knipgeometrie vergeleken en teruggeschreven wordt.
-            scan.termen = _kniptermen(basis_uit_prefixen(geopend.prefixen) or GWSW)
         hier: set[str] = set()
         for quad in geopend.quads:
             subject_in = quad.subject

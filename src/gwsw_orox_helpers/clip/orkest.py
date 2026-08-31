@@ -8,47 +8,17 @@ woont in zijn eigen submodule; het verhaal eromheen in de docstring van
 
 from __future__ import annotations
 
-import logging
+import itertools
 from pathlib import Path
 
-from gwsw_orox_helpers import namen
 from gwsw_orox_helpers.clip.bereik import _meld_bereikverschil
 from gwsw_orox_helpers.clip.grenzen import _bestandsnaam, _lees_grenzen
 from gwsw_orox_helpers.clip.merge import _samengevoegd, _scan_delen
 from gwsw_orox_helpers.clip.plan import _maak_plan
 from gwsw_orox_helpers.clip.stroom import _deelstroom
-from gwsw_orox_helpers.clip.termen import KNIP, KNIP_PREFIX, _kniptermen
+from gwsw_orox_helpers.clip.termen import KNIP, KNIP_PREFIX, _bronbasis, _kniptermen
 from gwsw_orox_helpers.errors import KnipError
 from gwsw_orox_helpers.schrijven import lees_orox, schrijf_orox_quads
-
-_logger = logging.getLogger(__name__)
-
-
-def _bronbasis(bron: Path, fallback_encoding: str | None) -> str:
-    """De GWSW-basis van de bron (issue #32): prefix, IRI-scan, of 1.6 met melding.
-
-    Dezelfde volgorde als de leeslaag (`bestand._parse`): de `gwsw:`-prefix van de bron is
-    de goedkope eerste weg, de predicaat-IRI's zijn de terugval voor een export zonder die
-    declaratie, en zonder herkenbare versie valt de clip terug op 1.6 -- met een melding,
-    zodat een 1.7-bron niet stil op de 1.6-predicaten geknipt wordt (dan zou de geometrie
-    niet gezaaid worden en zou alles naar elk vlak gaan).
-    """
-    geopend = lees_orox(bron, fallback_encoding)
-    basis = namen.basis_uit_prefixen(geopend.prefixen)
-    if basis is None:
-        basis = next(
-            (b for quad in geopend.quads if (b := namen.basis_uit_iri(quad.predicate.value))),
-            None,
-        )
-    if basis is None:
-        _logger.warning(
-            "%s: geen herkenbare GWSW-versie in de prefixen of de IRI's; de clip valt terug "
-            "op de 1.6-predicaten. Een bron op een andere versie wordt daarmee mogelijk niet "
-            "correct geknipt.",
-            bron,
-        )
-        return namen.GWSW
-    return basis
 
 
 def clip_orox(
@@ -97,7 +67,8 @@ def clip_orox(
     vlakken = _lees_grenzen(grenzen, sleutel)
     # De basis van de bron één keer detecteren en als termenset doorgeven, zodat de
     # analyseronde en de schrijfronde tegen dezelfde (versie-juiste) predicaten vergelijken.
-    termen = _kniptermen(_bronbasis(bron, fallback_encoding))
+    geopend = lees_orox(bron, fallback_encoding)
+    termen = _kniptermen(_bronbasis(geopend.quads, bron))
     if bereikcontrole:
         _meld_bereikverschil(bron, grenzen, vlakken, fallback_encoding, termen.has_value)
     plan = _maak_plan(bron, vlakken, fallback_encoding, termen)
@@ -107,7 +78,13 @@ def clip_orox(
     for index, naam in enumerate(plan.namen):
         doel = uitmap / f"{bron.stem}__{_bestandsnaam(naam)}.ttl"
         geopend = lees_orox(bron, fallback_encoding)
-        prefixen = {**geopend.prefixen, KNIP_PREFIX: KNIP}
+        # De gedetecteerde `gwsw:`-basis expliciet in de deel-kop, zodat een deel
+        # zelfbeschrijvend is: draagt de bron geen eigen `gwsw:`-prefix, dan zou de kop
+        # anders de 1.6 uit `STANDAARD_PREFIXEN` erven terwijl de triples de bronversie
+        # dragen, en `merge_orox` het deel op de verkeerde versie herenigen (issue #32,
+        # reviewronde). Voor een bron mét `gwsw:`-prefix is dit dezelfde waarde en dus geen
+        # bytewijziging.
+        prefixen = {**geopend.prefixen, "gwsw": termen.basis, KNIP_PREFIX: KNIP}
         schrijf_orox_quads(_deelstroom(geopend.quads, plan, index, termen), doel, prefixen=prefixen)
         paden.append(doel)
     return paden
@@ -129,5 +106,13 @@ def merge_orox(delen: list[Path], doel: Path) -> None:
     if not delen:
         raise KnipError("merge_orox: geen delen opgegeven; er valt niets samen te voegen.")
 
-    scan = _scan_delen(delen)
+    # Dezelfde IRI-detectie als bij het knippen, zodat de hereniging het geknipte `hasValue`
+    # op de bronversie herkent en terugschrijft (issue #32, reviewronde). Over álle delen
+    # geketend en niet alleen het eerste: een degeneratief deel kan enkel de ontologiekop
+    # dragen (geen enkel GWSW-predicaat), en dan zou detectie op dat ene deel ten onrechte op
+    # 1.6 terugvallen en waarschuwen. De keten stopt bij het eerste GWSW-predicaat, dus in de
+    # praktijk komt hij niet verder dan het eerste niet-lege deel.
+    quads = itertools.chain.from_iterable(lees_orox(pad).quads for pad in delen)
+    termen = _kniptermen(_bronbasis(quads, delen[0]))
+    scan = _scan_delen(delen, termen)
     schrijf_orox_quads(_samengevoegd(delen, scan), doel, prefixen=scan.prefixen)

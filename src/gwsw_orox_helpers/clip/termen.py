@@ -9,7 +9,9 @@ van `gwsw_orox_helpers.clip`.
 
 from __future__ import annotations
 
+import logging
 import re
+from collections.abc import Iterable
 from dataclasses import dataclass
 from typing import Final
 
@@ -17,6 +19,8 @@ import pyoxigraph
 
 from gwsw_orox_helpers import namen
 from gwsw_orox_helpers.namen import GML_LITERAL, XSD
+
+_logger = logging.getLogger(__name__)
 
 # De eigen naamruimte voor de knipmerken. Ze staan alleen in de geknipte delen; `merge_orox`
 # gooit elke triple met een predicaat uit deze naamruimte weg.
@@ -74,6 +78,35 @@ def _kniptermen(basis: str) -> _Kniptermen:
         onderdeel_naar_houder=onderdeel_naar_houder,
         randpredicaten=houder_naar_onderdeel | onderdeel_naar_houder,
     )
+
+
+def _bronbasis(quads: Iterable[pyoxigraph.Quad], bron: object) -> str:
+    """De GWSW-basis van een OroX-stroom: de versie van de eerste `gwsw:`-predicaat, of 1.6.
+
+    **Uit de predicaat-IRI's en niet uit de prefixen**, anders dan de leeslaag
+    (`bestand._parse`, die de rauwe `parser.prefixes` heeft). `schrijven.lees_orox` voegt
+    `STANDAARD_PREFIXEN` -- met `gwsw:` op 1.6 -- toe aan wat de bron declareert, dus de
+    prefixmap die de clip ziet kan de bronversie niet onderscheiden van die injectie: een
+    1.7-bron zonder eigen `gwsw:`-prefix zou zo stil op 1.6 geknipt worden. De predicaat-IRI's
+    in de triples dragen wél onvermijdelijk de bronversie -- daar knipt de clip op, en dat is
+    dus het juiste signaal. `merge_orox` gebruikt dezelfde detectie op de delen, waar het merk
+    en de geometrie op de bronversie van `hasValue` staan. Geen enkel GWSW-predicaat gevonden
+    → 1.6 met een `logging.warning` (nooit stil). `quads` wordt zover afgelopen als nodig; de
+    aanroeper geeft er een stroom voor die hij zelf niet meer verwerkt.
+    """
+    basis = next(
+        (b for quad in quads if (b := namen.basis_uit_iri(quad.predicate.value)) is not None),
+        None,
+    )
+    if basis is None:
+        _logger.warning(
+            "%s: geen herkenbaar GWSW-predicaat in de IRI's; de clip valt terug op de "
+            "1.6-predicaten. Een bron op een andere versie wordt daarmee mogelijk niet "
+            "correct verwerkt.",
+            bron,
+        )
+        return namen.GWSW
+    return basis
 
 
 def _term(sleutel: str) -> pyoxigraph.NamedNode | pyoxigraph.BlankNode:

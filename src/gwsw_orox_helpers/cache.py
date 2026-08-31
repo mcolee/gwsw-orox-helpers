@@ -43,6 +43,7 @@ from gwsw_orox_helpers import namen as namen_module
 from gwsw_orox_helpers import netwerk as netwerk_module
 from gwsw_orox_helpers import ontologie as ontologie_module
 from gwsw_orox_helpers import rdfmotor as rdfmotor_module
+from gwsw_orox_helpers.bronnen import GEBUNDELDE_VERSIES, gebundelde_ontologie_voor
 from gwsw_orox_helpers.dataset import GwswDataset, load_dataset, ontologiepaden
 from gwsw_orox_helpers.graaf import GraafIndex
 from gwsw_orox_helpers.voortgang import NUL_VOORTGANG, Voortgang
@@ -240,6 +241,14 @@ def cachesleutel(
     ontologieopgave een sleutel krijgen waar de gebundelde ontologie niet in zit, en
     dan geeft de cache na het vervangen van die ontologie de oude lezing terug.
 
+    **Bij `None` worden alle gebundelde versies gehasht** (issue #32, reviewronde), niet
+    alleen de 1.6-default: sinds `load_dataset` bij `None` de gebundelde ontologie op de
+    gedetecteerde dataset-versie kiest, kan de lezing de 1.7-bundel gebruiken. Zou de sleutel
+    alleen de 1.6-bundel hashen, dan invalideert een data-only upgrade van uitsluitend de
+    1.7-bundel (de flow uit `CLAUDE.md`) de 1.7-cache niet. Alle bundels meehashen kost geen
+    dataset-parse en is de veilige kant om op te vergissen -- te vaak herbouwen kost één
+    lezing, te weinig herbouwen geeft stil een verouderd antwoord.
+
     De terugvalcodering telt mee: ze bepaalt hoe niet-UTF-8-bytes gelezen worden
     (zie `codering.py`), en een dataset die met een andere codering ingelezen is,
     is een andere dataset. Zonder haar in de sleutel zou de cache bij een andere
@@ -258,10 +267,22 @@ def cachesleutel(
     for module in LADERMODULES:
         # `__file__` is alleen None bij een namespace-pakket; dit zijn gewone modules.
         haas.update(Path(cast(str, module.__file__)).read_bytes())
-    for pad in [Path(dataset_path), *sorted(ontologiepaden(ontology_paths))]:
+    for pad in [Path(dataset_path), *sorted(_te_hashen_ontologiepaden(ontology_paths))]:
         haas.update(pad.name.encode("utf-8"))
         haas.update(_bestandshash(pad).encode("utf-8"))
     return haas.hexdigest()[:32]
+
+
+def _te_hashen_ontologiepaden(ontology_paths: list[Path] | None) -> list[Path]:
+    """De ontologiebestanden die in de sleutel gehasht worden.
+
+    Bij een opgegeven lijst: precies die (via `ontologiepaden`). Bij `None`: alle gebundelde
+    versies, want `load_dataset` kiest er bij `None` één op de gedetecteerde dataset-versie
+    en de sleutel moet op elk van die bundels reageren (issue #32).
+    """
+    if ontology_paths is None:
+        return [gebundelde_ontologie_voor(versie) for versie in GEBUNDELDE_VERSIES]
+    return ontologiepaden(ontology_paths)
 
 
 def _bestandshash(pad: Path) -> str:

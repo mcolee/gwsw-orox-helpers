@@ -310,3 +310,32 @@ def test_zonder_cache_wordt_er_niets_weggeschreven(tmp_path: Path) -> None:
     laad_met_cache(VOORBEELD, [], cache_dir=tmp_path, gebruik_cache=False)
 
     assert list(tmp_path.rglob("*.pickle")) == []
+
+
+def test_de_sleutel_bij_none_hasht_alle_gebundelde_versies(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Bij `ontology_paths=None` reageert de sleutel op elke gebundelde ontologie (issue #32).
+
+    `load_dataset` kiest bij `None` de gebundelde ontologie op de gedetecteerde
+    dataset-versie, dus ook de 1.7-bundel. Zou de sleutel alleen de 1.6-bundel hashen, dan
+    invalideert een data-only upgrade van uitsluitend de 1.7-bundel de 1.7-cache niet. Hier
+    verzetten we (via een tmp-kopie) de inhoud van de 1.7-bundel en eisen een andere sleutel.
+    """
+    origineel = cache_module.gebundelde_ontologie_voor
+    kopie17 = tmp_path / "bundel17.ttl"
+    kopie17.write_text("A", encoding="utf-8")
+    monkeypatch.setattr(
+        cache_module,
+        "gebundelde_ontologie_voor",
+        lambda versie: kopie17 if versie == "1.7" else origineel(versie),
+    )
+
+    eerste = cachesleutel(VOORBEELD)
+    kopie17.write_text("B", encoding="utf-8")
+    assert cachesleutel(VOORBEELD) != eerste
+
+    # Een expliciete 1.6-lijst hangt niet van de 1.7-bundel af.
+    zonder_17 = cachesleutel(VOORBEELD, [origineel("1.6")])
+    kopie17.write_text("C", encoding="utf-8")
+    assert cachesleutel(VOORBEELD, [origineel("1.6")]) == zonder_17

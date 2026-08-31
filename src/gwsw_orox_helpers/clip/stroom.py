@@ -13,27 +13,26 @@ from collections.abc import Iterable, Iterator
 import pyoxigraph
 
 from gwsw_orox_helpers.clip.knip import _Stuk
-from gwsw_orox_helpers.clip.plan import _RANDPREDICATEN, _genummerd, _Plan
+from gwsw_orox_helpers.clip.plan import _genummerd, _Plan
 from gwsw_orox_helpers.clip.termen import (
     _AANTAL,
     _GEKNIPT,
     _GML_TYPE,
-    _HAS_VALUE_KNOOP,
     _HERKOMST,
     _INGEVOEGD_EINDE,
     _INTEGER,
     _VOLGNUMMER,
     _WAAR,
     _gml_waarde,
+    _Kniptermen,
     _stukterm,
     _term,
 )
 from gwsw_orox_helpers.geometry import vervang_coordinaten
-from gwsw_orox_helpers.namen import HAS_VALUE
 
 
 def _deelstroom(
-    quads: Iterable[pyoxigraph.Quad], plan: _Plan, deel: int
+    quads: Iterable[pyoxigraph.Quad], plan: _Plan, deel: int, termen: _Kniptermen
 ) -> Iterator[pyoxigraph.Triple]:
     """De triples die naar dit deel gaan, uit de quadstroom van de bron."""
     bit = 1 << deel
@@ -45,6 +44,9 @@ def _deelstroom(
     # van de bron, en dat zijn er op de export van De Wolden en Hoogeveen 1,9 miljoen.
     maskers = plan.maskers
     stukken_van = plan.stukken
+    randpredicaten = termen.randpredicaten
+    has_value = termen.has_value
+    has_value_knoop = termen.has_value_knoop
     named_node = pyoxigraph.NamedNode
     blank_node = pyoxigraph.BlankNode
     triple = pyoxigraph.Triple
@@ -53,7 +55,7 @@ def _deelstroom(
         if not maskers.get(onderwerp, 0) & bit:
             continue
         predicaat = quad.predicate.value
-        if voorwerp is not None and predicaat in _RANDPREDICATEN:
+        if voorwerp is not None and predicaat in randpredicaten:
             # De rand tussen houder en onderdeel gaat naar de vlakken van het onderdeel; de
             # houder staat daar altijd ook, dus geen van beide einden komt los te hangen.
             ander = maskers.get(voorwerp, 0)
@@ -92,7 +94,7 @@ def _deelstroom(
             # ongeknipte geometrie te staan.
             continue
         if voorwerpen == []:
-            if predicaat in _RANDPREDICATEN:
+            if predicaat in randpredicaten:
                 # Een houder/onderdeel-rand naar een geknipte geometrie zonder stuk hier:
                 # niet schrijven, anders zou er een naam in dit deel hangen waar niets bij
                 # staat. Kwijt raakt de triple er niet van, want de rand wordt naar de
@@ -104,12 +106,12 @@ def _deelstroom(
             # `hasConnection` die na de knip naar de put aan de overkant blijft wijzen.
             voorwerpen = None
         for subject, stuk in onderwerpen if onderwerpen is not None else ((subject_uit, None),):
-            if stuk is not None and predicaat == HAS_VALUE:
+            if stuk is not None and predicaat == has_value:
                 # Pas hier naar de GML-tekst vragen: alleen een stuk van een geknipte
                 # geometrie doet er iets mee, en dat is een handvol van de miljoenen quads.
                 gml = _gml_waarde(quad.object)
                 if gml is not None:
-                    yield from _knipmerken(subject, onderwerp, gml, stuk, plan)
+                    yield from _knipmerken(subject, onderwerp, gml, stuk, plan, has_value_knoop)
                     continue
             for object_, _ in voorwerpen if voorwerpen is not None else ((object_uit, None),):
                 yield triple(subject, quad.predicate, object_)
@@ -131,10 +133,11 @@ def _knipmerken(
     literal: str,
     stuk: _Stuk,
     plan: _Plan,
+    has_value_knoop: pyoxigraph.NamedNode,
 ) -> Iterator[pyoxigraph.Triple]:
     """De geometrie van een stuk plus de merken waarmee `merge_orox` hem terugvindt."""
     geknipt = pyoxigraph.Literal(vervang_coordinaten(literal, stuk.coordinaten), datatype=_GML_TYPE)
-    yield pyoxigraph.Triple(subject, _HAS_VALUE_KNOOP, geknipt)
+    yield pyoxigraph.Triple(subject, has_value_knoop, geknipt)
     yield pyoxigraph.Triple(subject, _HERKOMST, pyoxigraph.Literal(herkomst))
     yield pyoxigraph.Triple(
         subject, _VOLGNUMMER, pyoxigraph.Literal(str(stuk.volgnummer), datatype=_INTEGER)

@@ -12,33 +12,21 @@ import itertools
 from collections.abc import Iterable, Iterator
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Final
 
 import pyoxigraph
 
 from gwsw_orox_helpers.clip.grenzen import _Vlak
 from gwsw_orox_helpers.clip.knip import _plaats, _Stuk
-from gwsw_orox_helpers.clip.termen import _KNIPSTAART
+from gwsw_orox_helpers.clip.termen import _KNIPSTAART, _Kniptermen
 from gwsw_orox_helpers.errors import KnipError
 from gwsw_orox_helpers.geometry import is_multipart_literal
-from gwsw_orox_helpers.namen import (
-    GML_LITERAL,
-    HAS_ASPECT,
-    HAS_CONNECTION,
-    HAS_PART,
-    HAS_VALUE,
-    IS_ASPECT_OF,
-    IS_PART_OF,
-)
+from gwsw_orox_helpers.namen import GML_LITERAL
 from gwsw_orox_helpers.schrijven import lees_orox
 
-# De predicaten die een houder aan een onderdeel binden, in de twee schrijfrichtingen die
-# het GWSW toestaat. Als verzameling en niet als tuple in de lus: `_maak_plan` en
-# `_deelstroom` stellen deze vraag per quad van de bron -- op de export van De Wolden en
-# Hoogeveen ruim zeven miljoen keer -- en zouden de tuple anders elke keer opnieuw bouwen.
-_HOUDER_NAAR_ONDERDEEL: Final = frozenset({HAS_ASPECT, HAS_PART})
-_ONDERDEEL_NAAR_HOUDER: Final = frozenset({IS_ASPECT_OF, IS_PART_OF})
-_RANDPREDICATEN: Final = _HOUDER_NAAR_ONDERDEEL | _ONDERDEEL_NAAR_HOUDER
+# De predicaten die een houder aan een onderdeel binden staan sinds issue #32 niet meer als
+# vaste 1.6-constanten hier maar in `_Kniptermen`, dat `clip_orox` uit de bron afleidt: op
+# een 1.7-export vergelijkt de knip tegen de 1.7-predicaten. De verzamelingen worden per
+# clip één keer gebouwd (in `_kniptermen`) en niet per quad, net als voorheen.
 
 
 @dataclass
@@ -127,7 +115,9 @@ def _genummerd(
         yield quad, onderwerp, voorwerp
 
 
-def _maak_plan(bron: Path, vlakken: tuple[_Vlak, ...], fallback_encoding: str | None) -> _Plan:
+def _maak_plan(
+    bron: Path, vlakken: tuple[_Vlak, ...], fallback_encoding: str | None, termen: _Kniptermen
+) -> _Plan:
     """Leest de bron een keer en bepaalt per blok naar welke vlakken het gaat."""
     plan = _Plan(namen=tuple(vlak.naam for vlak in vlakken))
     ouder_van: dict[str, str] = {}
@@ -135,6 +125,8 @@ def _maak_plan(bron: Path, vlakken: tuple[_Vlak, ...], fallback_encoding: str | 
     verbindingen: list[tuple[str, str]] = []
     literalen: dict[str, list[str]] = {}
     subjecten: set[str] = set()
+    houder_naar_onderdeel = termen.houder_naar_onderdeel
+    onderdeel_naar_houder = termen.onderdeel_naar_houder
 
     for quad, onderwerp, voorwerp in _genummerd(lees_orox(bron, fallback_encoding).quads):
         subjecten.add(onderwerp)
@@ -142,14 +134,14 @@ def _maak_plan(bron: Path, vlakken: tuple[_Vlak, ...], fallback_encoding: str | 
             ouder_van.setdefault(voorwerp, onderwerp)
         predicaat = quad.predicate.value
         if voorwerp is not None:
-            if predicaat in _HOUDER_NAAR_ONDERDEEL:
+            if predicaat in houder_naar_onderdeel:
                 randen.append((onderwerp, voorwerp))
-            elif predicaat in _ONDERDEEL_NAAR_HOUDER:
+            elif predicaat in onderdeel_naar_houder:
                 randen.append((voorwerp, onderwerp))
-            elif predicaat == HAS_CONNECTION:
+            elif predicaat == termen.has_connection:
                 verbindingen.append((onderwerp, voorwerp))
         elif (
-            predicaat == HAS_VALUE
+            predicaat == termen.has_value
             and isinstance(quad.object, pyoxigraph.Literal)
             and quad.object.datatype.value == GML_LITERAL
         ):

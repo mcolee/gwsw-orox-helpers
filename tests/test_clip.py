@@ -1417,13 +1417,18 @@ def test_bereikcontrole_kijkt_niet_verder_dan_zijn_monster(tmp_path: Path) -> No
         '</gml:Point>"^^geo:gmlLiteral .\n',
     )
 
-    assert _bereik_van_bron(bron, None, monstergrootte=1) == (
+    assert _bereik_van_bron(bron, None, f"{GWSW}hasValue", monstergrootte=1) == (
         233000.0,
         581000.0,
         233000.0,
         581000.0,
     )
-    assert _bereik_van_bron(bron, None) == (233000.0, 581000.0, 299000.0, 599000.0)
+    assert _bereik_van_bron(bron, None, f"{GWSW}hasValue") == (
+        233000.0,
+        581000.0,
+        299000.0,
+        599000.0,
+    )
 
 
 # De vier bereiken waarmee de controle geoordeeld wordt, elk als (minx, miny, maxx, maxy).
@@ -1606,3 +1611,50 @@ def test_dewoldenhoogeveen_knipt_in_twee_en_komt_heel_terug(tmp_path: Path) -> N
     assert ijk_blanken == 0, "zonder die aanname zegt de vingerafdruk niets"
     assert samen_som == ijk_som
     assert abs(verhouding - 1.0) <= 0.05
+
+
+# --------------------------------------------------------------------------------------
+# 1.7: de clip leidt zijn predicaten uit de bron af (issue #32)
+# --------------------------------------------------------------------------------------
+
+MINI17 = Path(__file__).parent / "fixtures" / "ttl17" / "mini_orox.ttl"
+GWSW17 = "http://data.gwsw.nl/1.7/totaal/"
+
+
+def test_mini_17_round_trip_is_isomorf(tmp_path: Path) -> None:
+    """`merge(clip(mini17))` levert de 1.7-bron terug, knip door `:Leiding_1` incluis."""
+    delen = clip_orox(MINI17, MINI_GRENS, tmp_path / "delen17", sleutel="gemeentenaam")
+    doel = tmp_path / "terug17.ttl"
+    merge_orox(delen, doel)
+
+    assert len(delen) == 2
+    assert isomorphic(_graaf(doel), _graaf(MINI17))
+
+
+def test_de_17_clip_zaait_geometrie_versie_bewust(tmp_path: Path) -> None:
+    """Een 1.7-bron wordt op de 1.7-predicaten geknipt: de leiding valt echt uiteen.
+
+    Zonder de versie-afgeleide termenset zou `_zaai` op het 1.6-`hasValue` geen geometrie
+    vinden; dan gaat elk blok heel naar elk vlak en ontstaat er geen `knip:geknipt` en geen
+    stuk per helft. Dat de geknipte geometrie met het 1.7-`hasValue` wordt weggeschreven,
+    borgt bovendien dat de round-trip 1.7 blijft.
+    """
+    delen = clip_orox(MINI17, MINI_GRENS, tmp_path / "delen17", sleutel="gemeentenaam")
+    west, oost = (_graaf(pad) for pad in delen)
+
+    for helft in (west, oost):
+        assert (_mini("Leiding_1_ori"), rdflib.URIRef(f"{KNIP}geknipt"), None) in helft
+
+    stukken = {
+        naam: [
+            str(waarde)
+            for waarde in helft.objects(None, rdflib.URIRef(f"{GWSW17}hasValue"))
+            if "LineString" in str(waarde)
+        ]
+        for naam, helft in (("west", west), ("oost", oost))
+    }
+    assert len(stukken["west"]) == 1 and len(stukken["oost"]) == 1
+    # De geknipte geometrie hangt aan het 1.7-hasValue en niet stil aan het 1.6-predicaat.
+    assert not any(
+        list(helft.objects(None, rdflib.URIRef(f"{GWSW}hasValue"))) for helft in (west, oost)
+    )

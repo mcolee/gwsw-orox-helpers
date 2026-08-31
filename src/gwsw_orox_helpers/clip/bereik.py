@@ -37,7 +37,6 @@ from typing import Final
 from gwsw_orox_helpers.clip.grenzen import _Vlak
 from gwsw_orox_helpers.clip.termen import _gml_waarde
 from gwsw_orox_helpers.geometry import GeometryError, parse_gml
-from gwsw_orox_helpers.namen import HAS_VALUE
 from gwsw_orox_helpers.schrijven import lees_orox
 
 logger = logging.getLogger(__name__)
@@ -61,14 +60,21 @@ _ORDEGRENS: Final = 1000.0
 
 
 def _meld_bereikverschil(
-    bron: Path, grenzen: Path, vlakken: tuple[_Vlak, ...], fallback_encoding: str | None
+    bron: Path,
+    grenzen: Path,
+    vlakken: tuple[_Vlak, ...],
+    fallback_encoding: str | None,
+    has_value: str,
 ) -> None:
     """Waarschuwt als de grenslaag en de geometrie van de bron niet bij elkaar kunnen horen.
 
     Zwijgt als de bron geen enkele leesbare geometrie draagt: dan valt er niets naast te
     leggen en zou elke uitspraak erover verzonnen zijn.
+
+    `has_value` is het `hasValue`-predicaat van de gedetecteerde bronversie (issue #32);
+    daarmee vindt de bereikcontrole de geometrie ook op een 1.7-export.
     """
-    bronbereik = _bereik_van_bron(bron, fallback_encoding)
+    bronbereik = _bereik_van_bron(bron, fallback_encoding, has_value)
     if bronbereik is None:
         return
     grensbereik = _bereik_van_vlakken(vlakken)
@@ -104,7 +110,10 @@ def _bereik_van_vlakken(vlakken: tuple[_Vlak, ...]) -> _Bereik:
 
 
 def _bereik_van_bron(
-    bron: Path, fallback_encoding: str | None, monstergrootte: int = _MONSTERGROOTTE
+    bron: Path,
+    fallback_encoding: str | None,
+    has_value: str,
+    monstergrootte: int = _MONSTERGROOTTE,
 ) -> _Bereik | None:
     """De omhullende van de eerste `monstergrootte` GML-literalen; `None` als die er niet zijn.
 
@@ -117,7 +126,7 @@ def _bereik_van_bron(
     gevonden: _Bereik | None = None
     gezien = 0
     for quad in lees_orox(bron, fallback_encoding).quads:
-        if quad.predicate.value != HAS_VALUE:
+        if quad.predicate.value != has_value:
             continue
         gml = _gml_waarde(quad.object)
         if gml is None:

@@ -16,10 +16,11 @@ import pyoxigraph
 
 from gwsw_orox_helpers.clip.termen import (
     _GML_TYPE,
-    _HAS_VALUE_KNOOP,
     KNIP,
     KNIP_PREFIX,
     _gml_waarde,
+    _Kniptermen,
+    _kniptermen,
     _term,
 )
 from gwsw_orox_helpers.errors import KnipError
@@ -30,7 +31,7 @@ from gwsw_orox_helpers.geometry import (
     tokens_per_punt,
     vervang_coordinaten,
 )
-from gwsw_orox_helpers.namen import HAS_VALUE
+from gwsw_orox_helpers.namen import GWSW, basis_uit_prefixen
 from gwsw_orox_helpers.schrijven import lees_orox
 
 
@@ -39,6 +40,10 @@ class _Scan:
     """Wat de eerste ronde over de delen oplevert: de stukken en wat ontdubbeld moet worden."""
 
     prefixen: dict[str, str] = field(default_factory=dict)
+    # De GWSW-predicaten van de bron (issue #32), afgeleid uit de prefixen van het eerste
+    # deel. Default 1.6; `_scan_delen` zet hem naar de basis die de delen dragen, zodat het
+    # herstelde geometrie-triple met hetzelfde `hasValue` wordt weggeschreven als de bron.
+    termen: _Kniptermen = field(default_factory=lambda: _kniptermen(GWSW))
     # Sleutel van een stukknoop -> de herkomst waar hij bij hoort.
     herkomst_van: dict[str, str] = field(default_factory=dict)
     # Herkomst -> volgnummer -> (coordinatentekst, ingevoegd_einde).
@@ -74,6 +79,9 @@ def _scan_delen(delen: Sequence[Path]) -> _Scan:
             scan.prefixen = {
                 naam: iri for naam, iri in geopend.prefixen.items() if naam != KNIP_PREFIX
             }
+            # De delen dragen de `gwsw:`-prefix van de bron; daaruit volgt tegen welk
+            # `hasValue` de knipgeometrie vergeleken en teruggeschreven wordt.
+            scan.termen = _kniptermen(basis_uit_prefixen(geopend.prefixen) or GWSW)
         hier: set[str] = set()
         for quad in geopend.quads:
             subject_in = quad.subject
@@ -87,7 +95,7 @@ def _scan_delen(delen: Sequence[Path]) -> _Scan:
             object_in = quad.object
             if predicaat.startswith(KNIP) and isinstance(object_in, literal):
                 merken.setdefault(onderwerp, {})[predicaat] = object_in.value
-            elif predicaat == HAS_VALUE:
+            elif predicaat == scan.termen.has_value:
                 gml = _gml_waarde(object_in)
                 if gml is not None:
                     scan.sjabloon.setdefault(onderwerp, gml)
@@ -172,6 +180,7 @@ def _samengevoegd(delen: Sequence[Path], scan: _Scan) -> Iterator[pyoxigraph.Tri
     # Vaste tabellen en typen als lokale naam; alles hieronder draait per quad van elk deel.
     herkomst_van = scan.herkomst_van
     ontdubbelen = scan.ontdubbelen
+    has_value = scan.termen.has_value
     named_node = pyoxigraph.NamedNode
     blank_node = pyoxigraph.BlankNode
     triple = pyoxigraph.Triple
@@ -189,7 +198,7 @@ def _samengevoegd(delen: Sequence[Path], scan: _Scan) -> Iterator[pyoxigraph.Tri
             herkomst = herkomst_van.get(onderwerp)
             subject: pyoxigraph.NamedNode | pyoxigraph.BlankNode
             if herkomst is not None:
-                if predicaat == HAS_VALUE and _gml_waarde(quad.object) is not None:
+                if predicaat == has_value and _gml_waarde(quad.object) is not None:
                     if herkomst not in geschreven:
                         geschreven.add(herkomst)
                         yield _hersteld(herkomst, scan)
@@ -246,7 +255,9 @@ def _hersteld(herkomst: str, scan: _Scan) -> pyoxigraph.Triple:
         tokens.extend(punten)
     literal = vervang_coordinaten(sjabloon, " ".join(tokens))
     return pyoxigraph.Triple(
-        _term(herkomst), _HAS_VALUE_KNOOP, pyoxigraph.Literal(literal, datatype=_GML_TYPE)
+        _term(herkomst),
+        scan.termen.has_value_knoop,
+        pyoxigraph.Literal(literal, datatype=_GML_TYPE),
     )
 
 

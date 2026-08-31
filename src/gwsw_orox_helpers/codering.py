@@ -3,7 +3,7 @@
 Turtle hoort volgens de spec UTF-8 te zijn, maar niet elke exporttool houdt zich daaraan:
 de BrutIS-export van De Wolden en Hoogeveen draagt een handvol cp850-bytes in een
 straatnaam (`"cavaljeweg"`). Twee lagen lopen daar tegenaan -- de leeslaag die er een
-domeinmodel van maakt (`inlezen._parse`) en de schrijflaag die hem terugschrijft
+domeinmodel van maakt (`bestand._parse`) en de schrijflaag die hem terugschrijft
 (`schrijven.lees_orox`) -- en ze moeten hem allebei op precies dezelfde manier lezen.
 Stond de regel op twee plaatsen, dan zou een verschil erin niet als fout opvallen maar
 als een dataset die aan de ene kant anders leest dan aan de andere.
@@ -25,7 +25,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Final
 
-from gwsw_orox_helpers.errors import DatasetError
+from gwsw_orox_helpers.errors import CoderingError
 
 # Elke byte die geen ASCII is; het zoeken ernaar gebeurt zo in C en niet per byte in
 # Python. Zie `_fallback_samples`.
@@ -62,7 +62,7 @@ def decodeer(pad: Path, rauw: bytes, fallback_encoding: str | None) -> tuple[str
         eerste_byte, eerste_positie = rauw[error.start], error.start
 
     if fallback_encoding is None:
-        raise DatasetError(
+        raise CoderingError(
             f"{pad}: geen geldige UTF-8 (byte {eerste_byte:#04x} op positie "
             f"{eerste_positie}) en er is geen terugvalcodering opgegeven."
         )
@@ -70,7 +70,7 @@ def decodeer(pad: Path, rauw: bytes, fallback_encoding: str | None) -> tuple[str
     try:
         tekst = rauw.decode(fallback_encoding)
     except (UnicodeDecodeError, LookupError) as fout:
-        raise DatasetError(
+        raise CoderingError(
             f"{pad}: geen geldige UTF-8 (byte {eerste_byte:#04x} op positie "
             f"{eerste_positie}) en ook niet te lezen als {fallback_encoding} ({fout})."
         ) from fout

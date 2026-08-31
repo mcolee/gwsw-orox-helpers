@@ -1,17 +1,18 @@
-"""Van TTL-bestand naar knopen en strengen: de leeskant van deze package.
+"""Van een gevulde graaf naar knopen en strengen: de domeinlezers van deze package.
 
-Alles wat de graaf *aanraakt* om het domeinmodel te vullen staat hier: het parsen zelf,
-de twee schrijfrichtingen van hasPart en hasAspect, de kenmerklezers en de twee grote
-lezers `_read_nodes` en `_read_conduits`. `dataset` zet er de dataset omheen en biedt de
+Alles wat de graaf *bevraagt* om het domeinmodel te vullen staat hier: de twee
+schrijfrichtingen van hasPart en hasAspect, de kenmerklezers en de twee grote lezers
+`_read_nodes` en `_read_conduits`. `dataset` zet er de dataset omheen en biedt de
 uitkomst aan; `domein` draagt de objecten die hier gevuld worden.
 
-**De leeskant van pyoxigraph.** `_parse` leest een TTL-bestand als quadstroom en vult
-daarmee een `GraafIndex` met rdflib-termen. Dat is bewust een ander pad dan dat van
-`schrijven`, dat dezelfde parser gebruikt maar de stroom rechtstreeks doorgeeft aan de
-serializer: wie leest heeft een index nodig en betaalt daarvoor de termconversie, wie
-terugschrijft heeft die index juist niet nodig en zou hem op een export van honderden
-megabytes niet eens in het geheugen krijgen. De twee delen wat ze wel kunnen delen: de
-naamruimten (`namen`) en de coderingsregel (`codering`).
+**Het bestand zelf staat er niet meer in.** Het parsen, de codering en het procesbrede
+GC-neveneffect wonen sinds issue #26 in `bestand` (`_parse`, `_decode`, `_quiet_rdflib`,
+`_gc_uit`). De twee clusters deelden alleen de `GraafIndex`: wat hier staat krijgt die
+index gevuld aangeleverd en kent geen paden, geen bytes en geen coderingen. In de
+lagentabel staat `bestand` ónder deze module -- hij leunt alleen op de bladeren -- maar
+er loopt geen rand tússen de twee: deze module importeert hem niet en her-exporteert hem
+niet, `dataset` haalt `_parse` en `_gc_uit` er rechtstreeks op.
+`test_de_bestandssnit_ligt_vast` houdt dat zo.
 
 De IRI's staan hier als `URIRef`, gemaakt uit de tekst in `namen`. Ze komen via `dataset`
 naar buiten -- dat is het oppervlak dat nlriochecker kent -- en horen daarom bij de laag
@@ -20,35 +21,38 @@ die ze leest, niet bij de tekstmodule die ze spelt.
 
 from __future__ import annotations
 
-import gc
-import logging
+import functools
 from collections.abc import Iterable, Iterator
-from contextlib import contextmanager
+from dataclasses import dataclass
 from datetime import date
-from pathlib import Path
 
-import pyoxigraph
 from rdflib import RDF, RDFS, URIRef
 from rdflib.term import Node as RdfNode
+from shapely.geometry import LineString, Point, Polygon
 
 from gwsw_orox_helpers import namen
-from gwsw_orox_helpers.codering import DecodeFallback, decodeer, terugvalverslag
 from gwsw_orox_helpers.domein import Aspect, Conduit, Inwinning, Koppelingsherstel, Node, _as_date
-from gwsw_orox_helpers.errors import DatasetError
 from gwsw_orox_helpers.geometry import (
     GeometryError,
     is_multipart_literal,
-    parse_gml,
-    parse_gml_z,
+    parse_gml_met_z,
 )
-from gwsw_orox_helpers.graaf import GraafIndex
-from gwsw_orox_helpers.klassen import _afsluiting, _short
+from gwsw_orox_helpers.graaf import GraafIndex, _uriref_snel
+from gwsw_orox_helpers.klassen import _afsluiting
+
+# Als naam en niet als `namen._short`, ook al staat `namen` hierboven al als module: zo
+# blijven de aanroepen hieronder letterlijk wat ze waren toen `_short` nog uit `klassen`
+# kwam. Het is dezelfde functie -- `test_de_namensnit_ligt_vast` toetst dat met `is`.
+from gwsw_orox_helpers.namen import _short
 
 # `RDF.type` en `RDFS.label` zijn geen attributen maar een `__getattr__` op rdflib's
 # `DefinedNamespace`, en die kost bijna een microseconde per keer. De lezers hieronder
 # stellen die vraag per aspect en per object -- op de De Wolden en Hoogeveen-export bijna
 # negenhonderdduizend keer, samen ruim acht tiende seconde. Een keer opvragen en daarna
 # de naam gebruiken kost er zestien nanoseconde van; het is dezelfde term.
+#
+# `dataset` leent `_RDF_TYPE` hiervandaan (issue #23) in plaats van er een tweede naast te
+# zetten: de `URIRef`-vorm van een GWSW-IRI woont in deze module (`docs/architectuur.md`).
 _RDF_TYPE = RDF.type
 _RDFS_LABEL = RDFS.label
 
@@ -94,112 +98,113 @@ FANTOOM_STAART = "_put"
 
 
 # --------------------------------------------------------------------------------------
-# Het bestand: parsen en decoderen
+# De versie-afgeleide termen (issue #32)
+# --------------------------------------------------------------------------------------
+#
+# De module-constanten hierboven blijven letterlijk 1.6: `dataset` her-exporteert ze en
+# `tests/test_publieke_api.py` pint hun waarde. Wat hier bij komt is dezelfde verzameling
+# `URIRef`-en *per gedetecteerde basis*, zodat de lezers hun predicaten en klasse-IRI's uit
+# `graph.gwsw_basis` afleiden in plaats van uit de vaste 1.6-string. De 1.6-termenset is per
+# constructie gelijk aan de constanten hierboven.
+
+
+@dataclass(frozen=True)
+class _Leestermen:
+    """De predicaat- en klasse-`URIRef`-en van één GWSW-basis, voor de lezers hieronder."""
+
+    has_aspect: URIRef
+    has_part: URIRef
+    is_aspect_of: URIRef
+    is_part_of: URIRef
+    has_connection: URIRef
+    has_value: URIRef
+    has_reference: URIRef
+    klasse_inwinning: URIRef
+    klasse_wijze_van_inwinning: URIRef
+    klasse_datum_inwinning: URIRef
+    klasse_maaiveldorientatie: URIRef
+    klasse_maaiveldhoogte: URIRef
+    klasse_putdekselniveau: URIRef
+    klasse_punt: URIRef
+    klasse_lijn: URIRef
+    klassen_beginpunt: tuple[URIRef, ...]
+    klassen_eindpunt: tuple[URIRef, ...]
+    klasse_bob_begin: URIRef
+    klasse_bob_eind: URIRef
+
+
+@functools.cache
+def _leestermen(basis: str) -> _Leestermen:
+    """De termen van een basis, gebouwd en gedeeld: er zijn er in de praktijk maar twee.
+
+    `@functools.cache` op de basis-string: de lezers vragen deze verzameling per aanroep op
+    (`_leestermen(graph.gwsw_basis)`), en zonder de cache zou elke aanroep de handvol
+    `URIRef`-en opnieuw bouwen. De sleutel is een van twee gebundelde bases; de cache blijft
+    dus klein. De 1.6-uitkomst is per veld gelijk aan de module-constanten hierboven.
+    """
+    return _Leestermen(
+        has_aspect=URIRef(f"{basis}hasAspect"),
+        has_part=URIRef(f"{basis}hasPart"),
+        is_aspect_of=URIRef(f"{basis}isAspectOf"),
+        is_part_of=URIRef(f"{basis}isPartOf"),
+        has_connection=URIRef(f"{basis}hasConnection"),
+        has_value=URIRef(f"{basis}hasValue"),
+        has_reference=URIRef(f"{basis}hasReference"),
+        klasse_inwinning=URIRef(f"{basis}Inwinning"),
+        klasse_wijze_van_inwinning=URIRef(f"{basis}WijzeVanInwinning"),
+        klasse_datum_inwinning=URIRef(f"{basis}DatumInwinning"),
+        klasse_maaiveldorientatie=URIRef(f"{basis}Maaiveldorientatie"),
+        klasse_maaiveldhoogte=URIRef(f"{basis}Maaiveldhoogte"),
+        klasse_putdekselniveau=URIRef(f"{basis}Putdekselniveau"),
+        klasse_punt=URIRef(f"{basis}Punt"),
+        klasse_lijn=URIRef(f"{basis}Lijn"),
+        klassen_beginpunt=tuple(
+            URIRef(f"{basis}{naam}")
+            for naam in ("BeginpuntLeiding", "BeginpuntOnderdeel", "BeginpuntAfvoerrelatie")
+        ),
+        klassen_eindpunt=tuple(
+            URIRef(f"{basis}{naam}")
+            for naam in ("EindpuntLeiding", "EindpuntOnderdeel", "EindpuntAfvoerrelatie")
+        ),
+        klasse_bob_begin=URIRef(f"{basis}BobBeginpuntLeiding"),
+        klasse_bob_eind=URIRef(f"{basis}BobEindpuntLeiding"),
+    )
+
+
+# --------------------------------------------------------------------------------------
+# De gedeelde ontdubbelaar
 # --------------------------------------------------------------------------------------
 
 
-@contextmanager
-def _quiet_rdflib():
-    """Dempt rdflib-waarschuwingen over onjuiste literalen tijdens het parsen.
+def _uniek[T](items: Iterable[T]) -> Iterator[T]:
+    """De items, elk hoogstens een keer, in de volgorde van hun eerste voorkomen.
 
-    De meegeleverde GWSW-ontologie bevat een xsd:date "20210830" zonder streepjes;
-    rdflib logt daar een volledige traceback bij. Dat is geen fout in onze invoer en
-    hoort niet in de CLI-uitvoer thuis.
+    De drie orientatiebronnen verderop (`_orientations_of_class`, `_orientations_with`
+    en `_leiding_orientations`) lopen elk een genest paar lussen af waarin dezelfde
+    orientatie meer dan eens langskomt, en hielden daarvoor tot issue #30 elk een eigen
+    gezien-set aan. Dit is die set, een keer: dezelfde elementen in dezelfde volgorde.
+
+    Hij blijft een generator, zodat de bron niet verder afgelopen wordt dan de afnemer
+    vraagt; een `dict.fromkeys`-variant zou dezelfde reeks geven maar de hele bron
+    eerst inlezen. Eén verschil met de lussen die hij vervangt, en het is er precies
+    een: de drie bronnen zijn geen generatorfuncties meer maar gewone functies die een
+    generatorexpressie doorgeven, en van zo'n expressie wordt de *buitenste* iterabele
+    al bij de aanroep geëvalueerd -- bij `_orientations_with` dus meteen
+    `graph.subjects(...)`, wat op een `GraafIndex` een `iter()` op een bestaande lijst
+    is. Aan de opgeleverde elementen en aan hun volgorde verandert dat niets.
+
+    `_beide_richtingen` hieronder gaat nadrukkelijk *niet* door deze helper: die toetst
+    alleen de inverse richting tegen de voorwaartse en slaat de membershiptest op de
+    voorwaartse helft over. Op een duplicaatvrije bron -- en dat zijn
+    `GraafIndex.objects` en `.subjects` allebei -- levert hij daarmee hetzelfde op als
+    `_uniek` over beide richtingen achter elkaar; wat hij bespaart is die test zelf, op
+    een pad dat per object en per aspect langskomt.
     """
-    logger = logging.getLogger("rdflib.term")
-    oud = logger.level
-    logger.setLevel(logging.ERROR)
-    try:
-        yield
-    finally:
-        logger.setLevel(oud)
-
-
-@contextmanager
-def _gc_uit():
-    """Legt de cyclische GC stil rond een leesfase.
-
-    Hij zou anders bij elke paar duizend nieuwe dicts opnieuw door alles lopen wat er al
-    staat, en dat groeit tot miljoenen containers -- op de De Wolden en Hoogeveen-export
-    kostte dat 2,2 van de 14 seconden van de vullus alleen al. Er ontstaat per constructie
-    geen kringetje: de dicts, de lijsten, de rdflib-termen en de waardeobjecten wijzen
-    alleen naar beneden. Wat dit *niet* uitzet is de referentietelling, dus wat vrijkomt
-    gaat nog altijd meteen weg.
-
-    **Twee aanroepers, genest.** De buitenste is `dataset.load_dataset`, om het hele
-    leesblok: beide parses, de klassenafleiding en de objectopbouw van `_read_nodes` en
-    `_read_conduits`, die zelf miljoenen tuples en dataclasses maakt. De binnenste staat
-    hieronder in `_parse`, om `GraafIndex.vul_uit` heen. Nesten is neveneffectvrij: de
-    binnenste kijkt naar `gc.isenabled()`, ziet dat de buitenste de GC al uit heeft en
-    laat die stand met rust.
-
-    **Waarom hier en niet in `GraafIndex.vul_uit`.** De GC uitzetten is een procesbreed
-    neveneffect en dat hoort niet in een publieke, gepinde methode: wie `vul_uit` van
-    buiten aanroept, hoort niet ongevraagd de GC van zijn hele proces te zien wisselen.
-    `_parse` is de enige productieweg ernaartoe -- voor de dataset zowel als voor elk
-    ontologiebestand -- dus de winst is dezelfde. `load_dataset` is wél een eigen,
-    buitenste productieaanroep, en zegt het neveneffect in haar eigen docstring toe.
-
-    De oude stand komt in `finally` terug, ook als de stroom halverwege afbreekt, en een
-    aanroeper die de GC zelf al uit had houdt hem uit.
-    """
-    stond_aan = gc.isenabled()
-    if stond_aan:
-        gc.disable()
-    try:
-        yield
-    finally:
-        if stond_aan:
-            gc.enable()
-
-
-def _parse(
-    path: Path, fallback_encoding: str | None, index: GraafIndex | None = None
-) -> tuple[GraafIndex, DecodeFallback | None]:
-    """Leest een enkel TTL-bestand in, desnoods via een terugvalcodering.
-
-    Het parsen zelf gaat via pyoxigraph's Rust-parser (ordegrootten sneller dan rdflib's
-    pure-Python `notation3`); de triples vullen in stream-volgorde een `GraafIndex` met
-    rdflib-termen, zodat de checks en de rest van de lader hun vergelijkingen houden.
-    pyoxigraph verlangt UTF-8-bytes, dus de al gedecodeerde tekst wordt opnieuw als
-    UTF-8 gecodeerd -- niet de ruwe bytes, die immers cp850 kunnen zijn. Een meegegeven
-    `index` wordt aangevuld; zo stapelen meerdere ontologiebestanden in een index.
-    """
-    try:
-        rauw = path.read_bytes()
-    except OSError as error:
-        raise DatasetError(f"{path}: bestand kan niet gelezen worden ({error}).") from error
-
-    tekst, fallback = _decode(path, rauw, fallback_encoding)
-
-    index = index if index is not None else GraafIndex()
-    try:
-        quads = pyoxigraph.parse(tekst.encode("utf-8"), format=pyoxigraph.RdfFormat.TURTLE)
-        # rdflib waarschuwt bij het bouwen van een literaal met een ongeldige lexicale
-        # vorm (de meegeleverde ontologie draagt een xsd:date "20210830" zonder streepjes);
-        # net als bij de oude parse hoort die traceback niet in de CLI-uitvoer thuis.
-        with _quiet_rdflib(), _gc_uit():
-            index.vul_uit(quads)
-    except Exception as error:  # pyoxigraph gooit uiteenlopende parsefouten
-        raise DatasetError(f"{path}: geen geldige Turtle ({error}).") from error
-    return index, fallback
-
-
-def _decode(
-    path: Path, rauw: bytes, fallback_encoding: str | None
-) -> tuple[str, DecodeFallback | None]:
-    """Decodeert de inhoud, en legt vast als dat niet als UTF-8 lukte.
-
-    De regel zelf -- UTF-8 heeft voorrang, de terugval geldt alleen voor een bestand dat
-    daar niet aan voldoet, en zonder terugvalcodering is de afwijking een fout -- staat in
-    `codering.decodeer`, want de schrijflaag leest hem daar ook. Wat hier bij komt is het
-    verslag, en dat is het verschil tussen lezen en terugschrijven: een lezing wordt
-    gerapporteerd (`GwswDataset.decode_fallback`), een terugschrijving niet.
-    """
-    tekst, gebruikt = decodeer(path, rauw, fallback_encoding)
-    if gebruikt is None:
-        return tekst, None
-    return tekst, terugvalverslag(path, rauw, gebruikt)
+    gezien: set[T] = set()
+    for item in items:
+        if item not in gezien:
+            gezien.add(item)
+            yield item
 
 
 # --------------------------------------------------------------------------------------
@@ -228,32 +233,41 @@ def _beide_richtingen(
 
 def parts_of(graph: GraafIndex, subject: RdfNode) -> Iterator[RdfNode]:
     """De onderdelen van een object, in beide schrijfrichtingen van hasPart."""
-    return _beide_richtingen(graph.objects(subject, HAS_PART), graph.subjects(IS_PART_OF, subject))
+    t = _leestermen(graph.gwsw_basis)
+    return _beide_richtingen(
+        graph.objects(subject, t.has_part), graph.subjects(t.is_part_of, subject)
+    )
 
 
 def part_holders_of(graph: GraafIndex, subject: RdfNode) -> Iterator[RdfNode]:
     """De objecten die dit object als onderdeel bevatten, in beide schrijfrichtingen."""
-    return _beide_richtingen(graph.subjects(HAS_PART, subject), graph.objects(subject, IS_PART_OF))
+    t = _leestermen(graph.gwsw_basis)
+    return _beide_richtingen(
+        graph.subjects(t.has_part, subject), graph.objects(subject, t.is_part_of)
+    )
 
 
 def aspects_of(graph: GraafIndex, subject: RdfNode) -> Iterator[RdfNode]:
     """De aspecten van een object, in beide schrijfrichtingen van hasAspect."""
+    t = _leestermen(graph.gwsw_basis)
     return _beide_richtingen(
-        graph.objects(subject, HAS_ASPECT), graph.subjects(IS_ASPECT_OF, subject)
+        graph.objects(subject, t.has_aspect), graph.subjects(t.is_aspect_of, subject)
     )
 
 
 def aspect_holders_of(graph: GraafIndex, subject: RdfNode) -> Iterator[RdfNode]:
     """De objecten die dit object als aspect dragen, in beide schrijfrichtingen."""
+    t = _leestermen(graph.gwsw_basis)
     return _beide_richtingen(
-        graph.subjects(HAS_ASPECT, subject), graph.objects(subject, IS_ASPECT_OF)
+        graph.subjects(t.has_aspect, subject), graph.objects(subject, t.is_aspect_of)
     )
 
 
-def _connections(graph: GraafIndex, subject: RdfNode):
+def _connections(graph: GraafIndex, subject: RdfNode) -> Iterator[RdfNode]:
     """De hasConnection-buren van een object, in beide schrijfrichtingen."""
-    yield from graph.objects(subject, HAS_CONNECTION)
-    yield from graph.subjects(HAS_CONNECTION, subject)
+    t = _leestermen(graph.gwsw_basis)
+    yield from graph.objects(subject, t.has_connection)
+    yield from graph.subjects(t.has_connection, subject)
 
 
 # --------------------------------------------------------------------------------------
@@ -267,10 +281,11 @@ def _read_aspects(graph: GraafIndex, subject: RdfNode) -> tuple[Aspect, ...]:
     Aspecten zonder waarde en zonder verwijzing zijn geen kenmerken maar
     orientaties en geometrieen; die horen hier niet thuis en vallen af.
     """
+    t = _leestermen(graph.gwsw_basis)
     gevonden: list[Aspect] = []
     for aspect in aspects_of(graph, subject):
-        waarde = graph.value(aspect, HAS_VALUE)
-        referentie = graph.value(aspect, HAS_REFERENCE)
+        waarde = graph.value(aspect, t.has_value)
+        referentie = graph.value(aspect, t.has_reference)
         if waarde is None and referentie is None:
             continue
         inwinning = _read_inwinning(graph, aspect)
@@ -288,17 +303,18 @@ def _read_aspects(graph: GraafIndex, subject: RdfNode) -> tuple[Aspect, ...]:
 
 def _read_inwinning(graph: GraafIndex, subject: RdfNode) -> Inwinning | None:
     """Leest de inwinningsmetagegevens die aan een kenmerk hangen."""
+    t = _leestermen(graph.gwsw_basis)
     for aspect in aspects_of(graph, subject):
-        if (aspect, _RDF_TYPE, KLASSE_INWINNING) not in graph:
+        if (aspect, _RDF_TYPE, t.klasse_inwinning) not in graph:
             continue
         wijze: str | None = None
         datum: date | None = None
         for deel in aspects_of(graph, aspect):
-            if (deel, _RDF_TYPE, KLASSE_WIJZE_VAN_INWINNING) in graph:
-                referentie = graph.value(deel, HAS_REFERENCE)
+            if (deel, _RDF_TYPE, t.klasse_wijze_van_inwinning) in graph:
+                referentie = graph.value(deel, t.has_reference)
                 wijze = _short(str(referentie)) if referentie is not None else None
-            elif (deel, _RDF_TYPE, KLASSE_DATUM_INWINNING) in graph:
-                waarde = graph.value(deel, HAS_VALUE)
+            elif (deel, _RDF_TYPE, t.klasse_datum_inwinning) in graph:
+                waarde = graph.value(deel, t.has_value)
                 datum = _as_date(str(waarde)) if waarde is not None else None
         gevonden = Inwinning(wijze=wijze, datum=datum)
         if gevonden:
@@ -308,10 +324,11 @@ def _read_inwinning(graph: GraafIndex, subject: RdfNode) -> Inwinning | None:
 
 def _aspect_van_klasse(graph: GraafIndex, subject: RdfNode, klasse: URIRef) -> Aspect | None:
     """Het kenmerk van deze klasse dat direct aan het object hangt."""
+    t = _leestermen(graph.gwsw_basis)
     for aspect in aspects_of(graph, subject):
         if (aspect, _RDF_TYPE, klasse) not in graph:
             continue
-        waarde = graph.value(aspect, HAS_VALUE)
+        waarde = graph.value(aspect, t.has_value)
         if waarde is None:
             continue
         return Aspect(
@@ -330,10 +347,11 @@ def _maaiveld_kenmerk(
     Het GWSW hangt het maaiveld niet aan de put zelf maar aan een aparte
     maaiveldorientatie, die via hasConnection aan de putorientatie hangt.
     """
+    t = _leestermen(graph.gwsw_basis)
     for buur in _connections(graph, orientation):
-        if (buur, _RDF_TYPE, KLASSE_MAAIVELDORIENTATIE) not in graph:
+        if (buur, _RDF_TYPE, t.klasse_maaiveldorientatie) not in graph:
             continue
-        aspect = _aspect_van_klasse(graph, buur, KLASSE_MAAIVELDHOOGTE)
+        aspect = _aspect_van_klasse(graph, buur, t.klasse_maaiveldhoogte)
         if aspect is not None:
             return aspect, _herkomst(graph, buur, aspect)
     return None, None
@@ -350,12 +368,12 @@ def _herkomst(graph: GraafIndex, orientation: RdfNode, aspect: Aspect) -> Inwinn
     """
     if aspect.inwinning is not None:
         return aspect.inwinning
-    punt = _aspect_van_klasse(graph, orientation, KLASSE_PUNT)
+    punt = _aspect_van_klasse(graph, orientation, _leestermen(graph.gwsw_basis).klasse_punt)
     return punt.inwinning if punt is not None else None
 
 
 def _deksel_kenmerk(
-    graph: GraafIndex, subject: RdfNode, deksel_klassen: frozenset[str]
+    graph: GraafIndex, subject: RdfNode, deksel_klassen: frozenset[URIRef]
 ) -> tuple[Aspect | None, Inwinning | None]:
     """Het putdekselniveau van een put, met de herkomst ervan.
 
@@ -370,6 +388,13 @@ def _deksel_kenmerk(
     dekselniveau afnemen -- waarna `Node.bovenkant` op het maaiveld terugvalt zonder
     dat iemand het merkt.
 
+    Hij komt binnen als **termen** en niet als tekst (issue #23). Die drie klassen zijn
+    voor de hele lezing dezelfde en de membershiptest hieronder gebeurt per put én per
+    onderdeel daarvan; ze hier uit tekst opbouwen betekende dus dezelfde handvol
+    `URIRef`-constructies tienduizenden keren over. `_read_nodes` zet ze een keer om,
+    buiten de knopenlus, met `graaf._uriref_snel` -- dezelfde term als `URIRef()`, dus
+    dezelfde membership.
+
     **Wat hier niet gedekt is.** De afsluiting stopt bij `Putdeksel`. Het GWSW hangt
     onder `Deksel` ook `Straatpot`, `Drainputdeksel` en `Peilbuisdeksel` -- zusters
     van `Putdeksel`, geen subklassen -- en onder `Afdekking` daarnaast `Rooster`,
@@ -380,18 +405,19 @@ def _deksel_kenmerk(
     putdekselniveau? -- en die ligt bij de auteur, niet hier. Zie het rapport bij
     issue #36.
     """
-    direct = _aspect_van_klasse(graph, subject, KLASSE_PUTDEKSELNIVEAU)
+    putdekselniveau = _leestermen(graph.gwsw_basis).klasse_putdekselniveau
+    direct = _aspect_van_klasse(graph, subject, putdekselniveau)
     if direct is not None:
         return direct, _herkomst(graph, subject, direct)
 
     for deel in parts_of(graph, subject):
-        if not any((deel, _RDF_TYPE, URIRef(klasse)) in graph for klasse in deksel_klassen):
+        if not any((deel, _RDF_TYPE, klasse) in graph for klasse in deksel_klassen):
             continue
         for orientatie in aspects_of(graph, deel):
-            aspect = _aspect_van_klasse(graph, orientatie, KLASSE_PUTDEKSELNIVEAU)
+            aspect = _aspect_van_klasse(graph, orientatie, putdekselniveau)
             if aspect is not None:
                 return aspect, _herkomst(graph, orientatie, aspect)
-        aspect = _aspect_van_klasse(graph, deel, KLASSE_PUTDEKSELNIVEAU)
+        aspect = _aspect_van_klasse(graph, deel, putdekselniveau)
         if aspect is not None:
             return aspect, _herkomst(graph, deel, aspect)
     return None, None
@@ -420,20 +446,34 @@ def _types(graph: GraafIndex, subject: RdfNode) -> frozenset[str]:
     return frozenset(str(waarde) for waarde in graph.objects(subject, _RDF_TYPE))
 
 
-def _geometry(graph: GraafIndex, orientation: RdfNode, klasse: URIRef, errors: dict[str, str]):
-    """Zoekt de geometrie van een orientatie en geeft die met haar z-waarden terug."""
+def _geometry(
+    graph: GraafIndex, orientation: RdfNode, klasse: URIRef
+) -> tuple[Point | LineString | Polygon | None, list[float | None], str | None]:
+    """Zoekt de geometrie van een orientatie en geeft die met haar z-waarden en fout terug.
+
+    Via `parse_gml_met_z` en niet via `parse_gml` plus `parse_gml_z`: die twee zouden
+    dezelfde literaal twee tot vijf keer regexen en naar floats omzetten, en dit is het
+    pad dat dat voor elke geometrie in de export doet. De uitkomst en elke foutmelding
+    zijn per contract dezelfde (`test_parse_gml_met_z_is_gelijkwaardig_aan_de_twee_losse_lezers`).
+
+    Een leesbare literaal levert `<geometrie>, <z-waarden>, None` op, een onleesbare
+    `None, [], <melding>`. `_geometry` schrijft de melding sinds issue #36 niet meer zelf
+    in `errors`: `_read_nodes` en `_read_conduits` sleutelen haar op de knoop- of
+    streng-URI, zodat `GwswDataset.subset` haar met haar object mee kan filteren.
+    """
+    has_value = _leestermen(graph.gwsw_basis).has_value
     for aspect in aspects_of(graph, orientation):
         if (aspect, _RDF_TYPE, klasse) not in graph:
             continue
-        literal = graph.value(aspect, HAS_VALUE)
+        literal = graph.value(aspect, has_value)
         if literal is None:
             continue
         try:
-            return parse_gml(str(literal)), parse_gml_z(str(literal))
+            geometrie, z_waarden = parse_gml_met_z(str(literal))
         except GeometryError as error:
-            errors[str(orientation)] = str(error)
-            return None, []
-    return None, []
+            return None, [], str(error)
+        return geometrie, z_waarden, None
+    return None, [], None
 
 
 def _read_nodes(
@@ -449,23 +489,34 @@ def _read_nodes(
     valt de lader terug op de structurele herkenning (een orientatie met een
     puntgeometrie), zodat een dataset ook zonder ontologie leesbaar blijft.
     """
+    t = _leestermen(graph.gwsw_basis)
     nodes: dict[str, Node] = {}
-    deksel_klassen = deksel_klassen or _afsluiting({}, "Putdeksel")
+    deksel_klassen = deksel_klassen or _afsluiting({}, "Putdeksel", graph.gwsw_basis)
+    # Een keer, buiten de lus: `_deksel_kenmerk` toetst deze handvol klassen per put en
+    # per onderdeel daarvan, en bouwde ze tot issue #23 elke keer opnieuw uit tekst op.
+    deksel_termen = frozenset(_uriref_snel(klasse) for klasse in deksel_klassen)
 
     if knooppunt_klassen:
         bron = _orientations_of_class(graph, knooppunt_klassen)
     else:
-        bron = _orientations_with(graph, KLASSE_PUNT)
+        bron = _orientations_with(graph, t.klasse_punt)
 
     for orientation in bron:
-        point, z_waarden = _geometry(graph, orientation, KLASSE_PUNT, errors)
+        point, z_waarden, geometriefout = _geometry(graph, orientation, t.klasse_punt)
         maaiveld, maaiveld_inwinning = _maaiveld_kenmerk(graph, orientation)
-        multipart = _is_multipart(graph, orientation, KLASSE_PUNT)
+        multipart = _is_multipart(graph, orientation, t.klasse_punt)
+        houder_gezien = False
         for subject in aspect_holders_of(graph, orientation):
             uri = str(subject)
+            # Vóór de ontdubbelingsbewaker (issue #36): een object dat via twee
+            # orientaties langskomt houdt zo de melding van zijn kapotte orientatie, ook
+            # al is de `Node` al uit een eerdere, leesbare orientatie gebouwd.
+            houder_gezien = True
+            if geometriefout is not None:
+                errors[uri] = geometriefout
             if uri in nodes:
                 continue
-            deksel, deksel_inwinning = _deksel_kenmerk(graph, subject, deksel_klassen)
+            deksel, deksel_inwinning = _deksel_kenmerk(graph, subject, deksel_termen)
             nodes[uri] = Node(
                 uri=uri,
                 label=_label(graph, subject),
@@ -482,6 +533,11 @@ def _read_nodes(
                 deksel_inwinning=deksel_inwinning,
                 multipart=multipart,
             )
+        # Wees-orientatie (issue #36): een kapotte literaal op een orientatie die geen
+        # enkel object draagt, valt terug op de orientatie-URI, anders verdwijnt de
+        # melding stil. Zo'n wees zit per definitie in geen enkele subset.
+        if geometriefout is not None and not houder_gezien:
+            errors[str(orientation)] = geometriefout
 
     return nodes
 
@@ -507,24 +563,32 @@ def _parents(graph: GraafIndex, subject: RdfNode) -> tuple[str, ...]:
     )
 
 
-def _orientations_of_class(graph: GraafIndex, klassen: frozenset[str]):
-    """De orientaties waarvan het type in deze verzameling klassen valt."""
-    gezien = set()
-    for klasse in klassen:
-        for orientation in graph.subjects(_RDF_TYPE, URIRef(klasse)):
-            if orientation not in gezien:
-                gezien.add(orientation)
-                yield orientation
+def _orientations_of_class(graph: GraafIndex, klassen: frozenset[str]) -> Iterator[RdfNode]:
+    """De orientaties waarvan het type in deze verzameling klassen valt.
+
+    `sorted(klassen)` en niet de kale `frozenset`-iteratie (issue #37): de iteratievolgorde
+    van een `frozenset[str]` is per proces gerandomiseerd (`PYTHONHASHSEED`). Draagt één
+    object twee orientaties van verschillende Knooppunt-subklassen, dan zou die volgorde --
+    via de eerste-wint-ontdubbeling in `_read_nodes`/`_read_conduits` -- bepalen welke
+    orientatie de geometrie levert, en dan verschilt `node.point` (en sinds issue #36
+    `geometry_errors`) tussen twee runs op hetzelfde bestand. De alfabetische volgorde van de
+    klassenaam is willekeurig maar reproduceerbaar, en dat is wat het manifest vraagt. Het is
+    geen hete-lus-kost: `sorted()` draait een keer per aanroep over een handvol klassenamen.
+    """
+    return _uniek(
+        orientation
+        for klasse in sorted(klassen)
+        for orientation in graph.subjects(_RDF_TYPE, URIRef(klasse))
+    )
 
 
-def _orientations_with(graph: GraafIndex, klasse: URIRef):
+def _orientations_with(graph: GraafIndex, klasse: URIRef) -> Iterator[RdfNode]:
     """De orientaties die via hasAspect een geometrie van dit type dragen."""
-    gezien = set()
-    for aspect in graph.subjects(_RDF_TYPE, klasse):
-        for orientation in aspect_holders_of(graph, aspect):
-            if orientation not in gezien:
-                gezien.add(orientation)
-                yield orientation
+    return _uniek(
+        orientation
+        for aspect in graph.subjects(_RDF_TYPE, klasse)
+        for orientation in aspect_holders_of(graph, aspect)
+    )
 
 
 def _read_conduits(
@@ -542,6 +606,7 @@ def _read_conduits(
 
     Geeft naast de verbindingen het herstel van de fantoomkoppeling terug (issue #60).
     """
+    t = _leestermen(graph.gwsw_basis)
     orientation_to_node = {
         node.orientation: uri for uri, node in nodes.items() if node.orientation is not None
     }
@@ -557,13 +622,19 @@ def _read_conduits(
         else _leiding_orientations(graph)
     )
     for orientation in bron:
-        line, z_waarden = _geometry(graph, orientation, KLASSE_LIJN, errors)
-        multipart = _is_multipart(graph, orientation, KLASSE_LIJN)
-        begin = _endpoint(graph, orientation, KLASSEN_BEGINPUNT)
-        eind = _endpoint(graph, orientation, KLASSEN_EINDPUNT)
+        line, z_waarden, geometriefout = _geometry(graph, orientation, t.klasse_lijn)
+        multipart = _is_multipart(graph, orientation, t.klasse_lijn)
+        begin = _endpoint(graph, orientation, t.klassen_beginpunt)
+        eind = _endpoint(graph, orientation, t.klassen_eindpunt)
 
+        houder_gezien = False
         for subject in aspect_holders_of(graph, orientation):
             uri = str(subject)
+            # Vóór de ontdubbelingsbewaker (issue #36), net als bij `_read_nodes`: de
+            # melding hangt aan elk object dat deze kapotte orientatie draagt.
+            houder_gezien = True
+            if geometriefout is not None:
+                errors[uri] = geometriefout
             if uri in conduits:
                 continue
             # Draagt één orientatie twee leidingen, dan telt hetzelfde herstelde eind
@@ -578,12 +649,16 @@ def _read_conduits(
                     graph, begin, orientation_to_node, hulpstukken, hersteld
                 ),
                 end_node=_connected_node(graph, eind, orientation_to_node, hulpstukken, hersteld),
-                bob_start_aspect=_bob(graph, begin, KLASSE_BOB_BEGIN),
-                bob_end_aspect=_bob(graph, eind, KLASSE_BOB_EIND),
+                bob_start_aspect=_bob(graph, begin, t.klasse_bob_begin),
+                bob_end_aspect=_bob(graph, eind, t.klasse_bob_eind),
                 aspects=_read_aspects(graph, subject),
                 multipart=multipart,
                 z_values=tuple(z_waarden),
             )
+        # Wees-orientatie (issue #36), net als bij `_read_nodes`: een kapotte lijn op een
+        # orientatie zonder enkele houder valt terug op de orientatie-URI.
+        if geometriefout is not None and not houder_gezien:
+            errors[str(orientation)] = geometriefout
 
     return conduits, Koppelingsherstel(len(hersteld), len(set(hersteld)))
 
@@ -594,25 +669,26 @@ def _is_multipart(graph: GraafIndex, orientation: RdfNode, klasse: URIRef) -> bo
     Twee vormen tellen mee: een GML-literaal met een multi-geometrie erin, en meer
     dan een geometrie-aspect van dezelfde soort aan dezelfde orientatie.
     """
+    has_value = _leestermen(graph.gwsw_basis).has_value
     literalen = [
-        str(graph.value(aspect, HAS_VALUE))
+        str(graph.value(aspect, has_value))
         for aspect in aspects_of(graph, orientation)
-        if (aspect, _RDF_TYPE, klasse) in graph and graph.value(aspect, HAS_VALUE) is not None
+        if (aspect, _RDF_TYPE, klasse) in graph and graph.value(aspect, has_value) is not None
     ]
     if len(literalen) > 1:
         return True
     return any(is_multipart_literal(literal) for literal in literalen)
 
 
-def _leiding_orientations(graph: GraafIndex):
+def _leiding_orientations(graph: GraafIndex) -> Iterator[RdfNode]:
     """De orientaties die een begin- of eindpunt van een leiding bevatten."""
-    gezien = set()
-    for klasse in (*KLASSEN_BEGINPUNT, *KLASSEN_EINDPUNT):
-        for endpoint in graph.subjects(_RDF_TYPE, klasse):
-            for orientation in part_holders_of(graph, endpoint):
-                if orientation not in gezien:
-                    gezien.add(orientation)
-                    yield orientation
+    t = _leestermen(graph.gwsw_basis)
+    return _uniek(
+        orientation
+        for klasse in (*t.klassen_beginpunt, *t.klassen_eindpunt)
+        for endpoint in graph.subjects(_RDF_TYPE, klasse)
+        for orientation in part_holders_of(graph, endpoint)
+    )
 
 
 def _endpoint(
@@ -694,13 +770,14 @@ def _structural_diff(graph: GraafIndex, subclasses: dict[str, frozenset[str]]) -
     `_bruikbare_afsluiting` levert exact `None` waar `_afsluiting` een singleton
     oplevert, dus die twee zouden hier alleen als omweg naar dezelfde uitkomst dienen.
     """
+    basis = graph.gwsw_basis
     ontologisch_knopen = _houders(
-        graph, _orientations_of_class(graph, _afsluiting(subclasses, "Knooppunt"))
+        graph, _orientations_of_class(graph, _afsluiting(subclasses, "Knooppunt", basis))
     )
     ontologisch_strengen = _houders(
-        graph, _orientations_of_class(graph, _afsluiting(subclasses, "Verbinding"))
+        graph, _orientations_of_class(graph, _afsluiting(subclasses, "Verbinding", basis))
     )
-    structureel_knopen = _houders(graph, _orientations_with(graph, KLASSE_PUNT))
+    structureel_knopen = _houders(graph, _orientations_with(graph, _leestermen(basis).klasse_punt))
     structureel_strengen = _houders(graph, _leiding_orientations(graph))
 
     verschillen: dict[str, int] = {}

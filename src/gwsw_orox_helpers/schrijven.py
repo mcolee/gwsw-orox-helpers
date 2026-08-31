@@ -16,10 +16,11 @@ naar de serializer, zodat een export van honderden megabytes niet eerst als dome
 in het geheugen hoeft. Wie de dataset ook wil *lezen*, gebruikt daarnaast `load_dataset`.
 
 Wat ze wel met de leeslaag deelt is de kennis die anders uit elkaar zou lopen, en die
-staat onder allebei: de IRI's in `namen` en de coderingsregel in `codering`. Dat is geen
-gat in het eigen pad maar de reden dat het er een blijft -- een tweede exemplaar van de
-`gwsw:`-IRI of van de UTF-8-terugval zou pas opvallen als de twee lagen dezelfde bron
-verschillend lazen.
+staat onder allebei: de IRI's in `namen`, de coderingsregel in `codering` en de aanroep
+van de motor in `rdfmotor` (`ontleed_turtle` / `serialiseer_turtle`, plus de poort op de
+ondersteunde pyoxigraph-reeks). Dat is geen gat in het eigen pad maar de reden dat het er
+een blijft -- een tweede exemplaar van de `gwsw:`-IRI of van de UTF-8-terugval zou pas
+opvallen als de twee lagen dezelfde bron verschillend lazen.
 
 Twee ingangen, want een clip (fase 3) wil de twee helften wegschrijven zonder de bron
 een tweede keer te parsen:
@@ -60,6 +61,7 @@ import contextlib
 import itertools
 import os
 import re
+import secrets
 from collections.abc import Iterable, Iterator, Mapping
 from dataclasses import dataclass
 from pathlib import Path
@@ -68,9 +70,9 @@ from typing import Final
 
 import pyoxigraph
 
-from gwsw_orox_helpers import namen
+from gwsw_orox_helpers import namen, rdfmotor
 from gwsw_orox_helpers.codering import decodeer
-from gwsw_orox_helpers.errors import DatasetError
+from gwsw_orox_helpers.errors import BestandError, CoderingError, TurtleError
 from gwsw_orox_helpers.namen import GWSW
 
 # De kop van een OroX-export. De IRI's komen uit `namen`, de ene plek waar ze staan: de
@@ -131,13 +133,11 @@ def lees_orox(bron: Path, fallback_encoding: str | None = None) -> OroxBron:
     """
     try:
         if fallback_encoding is None:
-            parser = pyoxigraph.parse(path=bron, format=pyoxigraph.RdfFormat.TURTLE)
+            parser = rdfmotor.ontleed_turtle_bestand(bron)
         else:
-            parser = pyoxigraph.parse(
-                _gedecodeerd(bron, fallback_encoding), format=pyoxigraph.RdfFormat.TURTLE
-            )
+            parser = rdfmotor.ontleed_turtle(_gedecodeerd(bron, fallback_encoding))
     except OSError as fout:
-        raise DatasetError(f"{bron}: bestand kan niet gelezen worden ({fout}).") from fout
+        raise BestandError(f"{bron}: bestand kan niet gelezen worden ({fout}).") from fout
 
     stroom = _gecontroleerd(bron, parser, fallback_encoding)
     eerste = list(itertools.islice(stroom, 1))
@@ -181,31 +181,59 @@ def schrijf_orox_quads(
     hernoemd. Een luie bron kan halverwege afbreken -- een syntaxfout op regel 900.000 --
     en dan hoort er geen afgekapte export achter te blijven die zich als een hele
     voordoet. Wie na een `DatasetError` naar `doel` kijkt, ziet het oude bestand of niets.
+
+    Dat tmp-bestand krijgt een naam met het proces-ID en een willekeurig deel erin, en
+    wordt aangemaakt met `open(..., 'xb')` (`O_CREAT | O_EXCL`). Om twee redenen. `O_EXCL`
+    weigert een naam die er al is en volgt dus geen symlink: een vooraf geplant tijdelijk
+    pad in een gedeelde uitmap zou anders doorgeschreven worden naar waar het heen wijst
+    (CWE-59/377). En het willekeurige deel houdt twee gelijktijdige runs naar hetzelfde
+    doel uit elkaars tijdelijke bestand. De rechten zijn de rechten van een nieuw
+    aangemaakt bestand (`0o666 & ~umask`).
     """
     kop = dict(prefixen) if prefixen is not None else dict(STANDAARD_PREFIXEN)
     for sleutel in kop:
         if not PREFIX_PATROON.match(sleutel):
-            raise DatasetError(
+            raise TurtleError(
                 f"{doel}: {sleutel!r} is geen geldige Turtle-prefix; een prefix begint met "
                 "een letter, bestaat verder uit letters, cijfers, '_', '-' en '.', en "
                 "eindigt niet op een punt (de lege sleutel is de dataset-basis ':')."
             )
 
-    # Dezelfde map, want `os.replace` is alleen binnen één bestandssysteem atomair.
-    tijdelijk = doel.with_suffix(doel.suffix + ".tmp")
+    # Dezelfde map, want `replace` is alleen binnen één bestandssysteem atomair. `None`
+    # zolang het tijdelijke bestand niet aan de beurt was: faalt het aanmaken van de
+    # doelmap, dan is er ook geen tijdelijk bestand om op te ruimen.
+    tijdelijk: Path | None = None
     try:
         doel.parent.mkdir(parents=True, exist_ok=True)
-        with tijdelijk.open("wb") as bestand:
-            pyoxigraph.serialize(quads, bestand, pyoxigraph.RdfFormat.TURTLE, prefixes=kop)
-        os.replace(tijdelijk, doel)
+        # Eigen naam plus de `x`-modus (`O_CREAT | O_EXCL`, mode 0o666) in plaats van
+        # `tempfile.mkstemp`, anders dan in `cache._schrijf_atomair`: die schrijft privé
+        # pickles in `~/.cache`, waar de 0600 van `mkstemp` gewenst is, maar de schrijflaag
+        # levert een bestand af in andermans uitmap en mag de rechten van de gebruiker niet
+        # verstrengen. `O_EXCL` geeft dezelfde symlink-afsluiting; de kernel past
+        # `0o666 & ~umask` toe, zoals `open('wb')` deed. Een naambotsing (kans ~0 bij 8 hex)
+        # is een `FileExistsError` en gaat als `BestandError` naar boven, net als elke
+        # andere OSError hier.
+        kandidaat = doel.parent / f"{doel.name}.{os.getpid()}.{secrets.token_hex(4)}.tijdelijk"
+        with open(kandidaat, "xb") as bestand:
+            # De `open` staat bewust buiten het opruimbereik: pas hier, ná een geslaagd
+            # aanmaken, wordt het pad opruimbaar. De `finally` mag alleen weghalen wat hij
+            # zelf maakte -- weigert de `x` de naam, dan is dat bestand van iemand anders.
+            tijdelijk = kandidaat
+            rdfmotor.serialiseer_turtle(quads, bestand, prefixen=kop)
+        tijdelijk.replace(doel)
+        # Na de hernoeming bestaat het tijdelijke pad niet meer; de `finally` mag er dan
+        # ook niet meer naar grijpen (een minuscule TOCTOU als de naam intussen hergebruikt
+        # zou zijn).
+        tijdelijk = None
     except OSError as fout:
-        raise DatasetError(f"{doel}: bestand kan niet geschreven worden ({fout}).") from fout
+        raise BestandError(f"{doel}: bestand kan niet geschreven worden ({fout}).") from fout
     finally:
         # Na een geslaagde hernoeming is er niets meer op te ruimen; na een fout onderweg
         # (parsefout, OSError, Ctrl-C) wel. Het opruimen mag de oorspronkelijke fout niet
         # overschreeuwen -- ligt `doel` onder een bestand, dan faalt ook deze `unlink`.
-        with contextlib.suppress(OSError):
-            tijdelijk.unlink(missing_ok=True)
+        if tijdelijk is not None:
+            with contextlib.suppress(OSError):
+                tijdelijk.unlink(missing_ok=True)
 
 
 def _gedecodeerd(bron: Path, fallback_encoding: str) -> str:
@@ -224,7 +252,7 @@ def _gedecodeerd(bron: Path, fallback_encoding: str) -> str:
 def _gecontroleerd(
     bron: Path, parser: Iterator[pyoxigraph.Quad], fallback_encoding: str | None
 ) -> Iterator[pyoxigraph.Quad]:
-    """Vertaalt parsefouten onderweg naar `DatasetError`, net als de leeslaag doet.
+    """Vertaalt parsefouten onderweg naar `TurtleError`, net als de leeslaag doet.
 
     De parser is lui: een syntaxfout halverwege een export van 112 MB komt pas boven bij
     de quad waar hij staat, dus midden in het schrijven. Zonder deze laag zou de afnemer
@@ -243,7 +271,7 @@ def _gecontroleerd(
         yield from parser
     except (SyntaxError, ValueError) as fout:
         if fallback_encoding is None and "Invalid UTF-8" in str(fout):
-            raise DatasetError(
+            raise CoderingError(
                 f"{bron}: geen geldige UTF-8 ({fout}) en er is geen terugvalcodering opgegeven."
             ) from fout
-        raise DatasetError(f"{bron}: geen geldige Turtle ({fout}).") from fout
+        raise TurtleError(f"{bron}: geen geldige Turtle ({fout}).") from fout

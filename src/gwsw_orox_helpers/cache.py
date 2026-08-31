@@ -19,7 +19,7 @@ import os
 import pickle
 import tempfile
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from dataclasses import dataclass, fields, replace
 from functools import partial
 from hashlib import sha256
@@ -29,7 +29,9 @@ from typing import Any, cast
 import pyoxigraph
 import rdflib
 import shapely
+from rdflib.term import Node as RdfNode
 
+from gwsw_orox_helpers import bestand as bestand_module
 from gwsw_orox_helpers import codering as codering_module
 from gwsw_orox_helpers import dataset as dataset_module
 from gwsw_orox_helpers import domein as domein_module
@@ -38,7 +40,10 @@ from gwsw_orox_helpers import graaf as graaf_module
 from gwsw_orox_helpers import inlezen as inlezen_module
 from gwsw_orox_helpers import klassen as klassen_module
 from gwsw_orox_helpers import namen as namen_module
+from gwsw_orox_helpers import netwerk as netwerk_module
 from gwsw_orox_helpers import ontologie as ontologie_module
+from gwsw_orox_helpers import rdfmotor as rdfmotor_module
+from gwsw_orox_helpers.bronnen import GEBUNDELDE_VERSIES, gebundelde_ontologie_voor
 from gwsw_orox_helpers.dataset import GwswDataset, load_dataset, ontologiepaden
 from gwsw_orox_helpers.graaf import GraafIndex
 from gwsw_orox_helpers.voortgang import NUL_VOORTGANG, Voortgang
@@ -52,17 +57,40 @@ BESTAND_STRUCTUREN = "structuren.pickle"
 BESTAND_GRAAF = "graaf.pickle"
 
 # "De lader" is niet één bestand maar de hele leeslaag: `dataset` biedt hem aan,
-# `inlezen` leest de graaf uit, `domein` draagt de objecten die gecachet worden,
+# `bestand` maakt van een TTL-bestand een gevulde index, `inlezen` leest die index uit,
+# `domein` draagt de objecten die gecachet worden, `netwerk` beantwoordt de netwerkvragen
+# die de checks daarna over die objecten stellen,
 # `klassen` leidt de afsluitingen af, `codering` bepaalt hoe de bytes tekst worden,
 # `geometry` hoe een GML-literaal een shapely-object wordt en `namen` welke IRI's dat
 # allemaal opzoekt. `ontologie` staat erbij sinds `load_dataset` er `kenmerk_property`
 # uit afleidt (ATTR-014): die waarde wordt mee gecachet, dus een wijziging aan de
 # afleiding moet de sleutel veranderen. `graaf` draagt sinds de eigen graafindexen de
-# termconversie en de volgordegarantie van de gecachete graaf. Wie hier een module
-# vergeet, krijgt geen fout maar een cache die na een wijziging aan de lader de oude
-# lezing blijft teruggeven; `tests/test_cache.py` parametriseert over deze tuple en
-# bewaakt daarmee elke module erin én de lijst zelf.
+# termconversie en de volgordegarantie van de gecachete graaf. `rdfmotor` staat erbij
+# omdat `bestand._parse` zijn quads daarlangs haalt: wie daar de aanroep van de motor
+# verandert (een ander formaat, een andere invoervorm, een `lenient`-vlag) verandert wat
+# er gelezen wordt, en dus hoort dat een andere sleutel te zijn. Dat de schrijfweg dezelfde
+# module gebruikt, betekent dat een wijziging aan alléén `serialiseer_turtle` de leescache
+# ook ongeldig maakt; dat is de goede kant om op te vergissen -- te vaak herbouwen kost één
+# lezing, te weinig herbouwen geeft stil een verouderd antwoord. Wie hier een module
+# vergeet, krijgt geen fout maar een cache
+# die na een wijziging aan de lader de oude lezing blijft teruggeven;
+# `tests/test_cache.py` parametriseert over deze tuple en bewaakt daarmee elke module erin
+# én de lijst zelf.
+#
+# `bestand` kwam er bij issue #26 bij, toen het parseerpad uit `inlezen` verhuisde, en
+# `netwerk` bij issue #27, toen de wandeling omhoog uit `dataset` verhuisde. Dat is allebei
+# verplaatste en niet gewijzigde code, maar de sleutel hasht *bestanden* en niet functies:
+# de hersnit verandert hem dus één keer en bestaande caches worden één keer opnieuw
+# opgebouwd. Dat is de bedoelde werking (zie `docs/architectuur.md`, "De cache leest mee
+# met de lader") en geen gedragswijziging -- de tweede run is weer een treffer.
+#
+# `netwerk` draait weliswaar ná het laden -- van zijn uitkomst wordt niets gepickeld -- maar
+# hij hoort hier toch, en wel om de sterkste reden die deze lijst kent: tot #27 stond die
+# code ín `dataset.py` en telde zij dus al mee. Hem er nu buiten laten zou de garantie
+# stilzwijgend versmallen op het moment dat de code alleen van bestand wisselt. Te vaak
+# herbouwen kost één lezing; te weinig herbouwen geeft stil een verouderd antwoord.
 LADERMODULES = (
+    bestand_module,
     codering_module,
     dataset_module,
     domein_module,
@@ -71,7 +99,9 @@ LADERMODULES = (
     inlezen_module,
     klassen_module,
     namen_module,
+    netwerk_module,
     ontologie_module,
+    rdfmotor_module,
 )
 
 
@@ -98,6 +128,36 @@ class LuieGraaf:
     de graaf alsnog uit de brondata en de cache wordt opnieuw weggeschreven, zodat
     de volgende aanraking weer de snelle weg neemt. `cache.py` stelt die functie
     samen; deze klasse kent zelf geen paden naar de brondata en geen `load_dataset`.
+
+    **Het leescontract staat er expliciet op** (issue #34): de vijf bewerkingen uit de
+    moduledocstring van `graaf` -- `objects`, `subjects`, `value`, `subject_objects` en
+    `heeft_subject` -- plus `__len__` en `__contains__`, elk met dezelfde handtekening
+    als op `GraafIndex` en elk niets anders doend dan doorgeven. Dat is geen dienst aan
+    de aanroeper (die kreeg via `__getattr__` hetzelfde antwoord) maar aan mypy, en de
+    winst valt in twee helften uiteen:
+
+    - **nu al** wordt de doorgifte zelf gecontroleerd. `self._geladen()` is een
+      `GraafIndex`, dus mypy leest hier vijf echte aanroepen op dat type; hernoemt of
+      verschuift `GraafIndex` een parameter, dan wordt *dit bestand* rood. Onder
+      `__getattr__` gebeurde dat niet: die forwardde blind en de fout viel pas als
+      `AttributeError` op de leesweg. `tests/test_cache.py` vergelijkt de vijf
+      handtekeningen bovendien met `inspect.signature`, want de body doet de doorgifte
+      positioneel en zou een hernoemde parameternaam overleven.
+    - **pas na stap 2** ziet de aanroeper er iets van. `laad_met_cache` cast het geheel
+      meteen naar `GraafIndex` (zie daar), dus binnen deze package houdt nog niemand een
+      `LuieGraaf`-getypeerde verwijzing vast. Zolang die cast er staat, is dat deel van de
+      winst geboekt maar niet geïnd.
+
+    Met de methoden erop vervult `LuieGraaf` `graaf.GraafLezer` structureel;
+    `tests/typecheck/graaflezer.py` is daar het bewijs van en
+    `tests/test_cache.py::test_de_luie_graaf_geeft_per_leesbewerking_hetzelfde_als_een_echte_graafindex`
+    houdt antwoord én laadmoment per bewerking gelijk aan een verse `GraafIndex`.
+
+    Eén nuance bij "gedrag ongewijzigd", en ze gaat de goede kant op: het laden hangt nu
+    aan de *aanroep* en niet meer aan de attribuuttoegang. `getattr(luie, "objects")` of
+    `hasattr(luie, "value")` liep vroeger via `__getattr__` en las daarmee de pickle;
+    nu vindt Python de methode op de klasse en gebeurt er niets tot je haar aanroept.
+    Strikt luier dus, nooit gretiger -- en dat is precies waar deze klasse voor bestaat.
     """
 
     def __init__(self, pad: Path, herstel: Callable[[], GraafIndex]) -> None:
@@ -128,8 +188,36 @@ class LuieGraaf:
             )
         return self._graaf
 
+    def objects(self, subject: RdfNode, predicate: RdfNode) -> Iterator[RdfNode]:
+        """De objecten van (subject, predicate), in eerste-toevoegvolgorde."""
+        return self._geladen().objects(subject, predicate)
+
+    def subjects(self, predicate: RdfNode, object_: RdfNode) -> Iterator[RdfNode]:
+        """De subjecten van (predicate, object), in eerste-toevoegvolgorde."""
+        return self._geladen().subjects(predicate, object_)
+
+    def value(self, subject: RdfNode, predicate: RdfNode) -> RdfNode | None:
+        """Het eerste object van (subject, predicate), of None."""
+        return self._geladen().value(subject, predicate)
+
+    def subject_objects(self, predicate: RdfNode) -> Iterator[tuple[RdfNode, RdfNode]]:
+        """Alle (subject, object)-paren van dit predicaat, in pos-groepering."""
+        return self._geladen().subject_objects(predicate)
+
+    def heeft_subject(self, term: RdfNode) -> bool:
+        """Of deze term als subject in de graaf voorkomt."""
+        return self._geladen().heeft_subject(term)
+
     def __getattr__(self, naam: str) -> object:
-        """Alles wat een graaf kan, kan deze plaatsvervanger ook."""
+        """Vangnet voor alles buiten het leescontract hierboven.
+
+        Sinds issue #34 gaan de vijf leesbewerkingen niet meer hierlangs (`__len__` en
+        `__contains__` deden dat al niet: dunders worden op het type opgezocht, niet via
+        `__getattr__`). Wat overblijft is de rest -- een `__getstate__`-achtige aanraking,
+        `voeg_toe` of `vul_uit` van een afnemer die de plaatsvervanger als volwaardige
+        index gebruikt, en elk lid dat `GraafIndex` er in de toekomst bij krijgt. Die
+        blijven doorgegeven, en dus getypeerd als `object`.
+        """
         return getattr(self._geladen(), naam)
 
     def __len__(self) -> int:
@@ -153,6 +241,14 @@ def cachesleutel(
     ontologieopgave een sleutel krijgen waar de gebundelde ontologie niet in zit, en
     dan geeft de cache na het vervangen van die ontologie de oude lezing terug.
 
+    **Bij `None` worden alle gebundelde versies gehasht** (issue #32, reviewronde), niet
+    alleen de 1.6-default: sinds `load_dataset` bij `None` de gebundelde ontologie op de
+    gedetecteerde dataset-versie kiest, kan de lezing de 1.7-bundel gebruiken. Zou de sleutel
+    alleen de 1.6-bundel hashen, dan invalideert een data-only upgrade van uitsluitend de
+    1.7-bundel (de flow uit `CLAUDE.md`) de 1.7-cache niet. Alle bundels meehashen kost geen
+    dataset-parse en is de veilige kant om op te vergissen -- te vaak herbouwen kost één
+    lezing, te weinig herbouwen geeft stil een verouderd antwoord.
+
     De terugvalcodering telt mee: ze bepaalt hoe niet-UTF-8-bytes gelezen worden
     (zie `codering.py`), en een dataset die met een andere codering ingelezen is,
     is een andere dataset. Zonder haar in de sleutel zou de cache bij een andere
@@ -171,10 +267,22 @@ def cachesleutel(
     for module in LADERMODULES:
         # `__file__` is alleen None bij een namespace-pakket; dit zijn gewone modules.
         haas.update(Path(cast(str, module.__file__)).read_bytes())
-    for pad in [Path(dataset_path), *sorted(ontologiepaden(ontology_paths))]:
+    for pad in [Path(dataset_path), *sorted(_te_hashen_ontologiepaden(ontology_paths))]:
         haas.update(pad.name.encode("utf-8"))
         haas.update(_bestandshash(pad).encode("utf-8"))
     return haas.hexdigest()[:32]
+
+
+def _te_hashen_ontologiepaden(ontology_paths: list[Path] | None) -> list[Path]:
+    """De ontologiebestanden die in de sleutel gehasht worden.
+
+    Bij een opgegeven lijst: precies die (via `ontologiepaden`). Bij `None`: alle gebundelde
+    versies, want `load_dataset` kiest er bij `None` één op de gedetecteerde dataset-versie
+    en de sleutel moet op elk van die bundels reageren (issue #32).
+    """
+    if ontology_paths is None:
+        return [gebundelde_ontologie_voor(versie) for versie in GEBUNDELDE_VERSIES]
+    return ontologiepaden(ontology_paths)
 
 
 def _bestandshash(pad: Path) -> str:
@@ -203,16 +311,21 @@ def laad_met_cache(
 ) -> tuple[GwswDataset, CacheUitslag]:
     """Leest de dataset uit de cache, of leest hem in en legt hem weg.
 
-    `ontology_paths` betekent hier hetzelfde als in `load_dataset` (zie
-    `ontologiepaden`) en wordt hier één keer ingevuld, zodat de sleutel, de lezing en
-    het herstel van een beschadigde graafcache alle drie dezelfde bestanden zien.
+    `ontology_paths` betekent hier hetzelfde als in `load_dataset` (zie `ontologiepaden`).
+    Sinds issue #32 wordt het hier **niet** meer vooraf naar de gebundelde 1.6-ontologie
+    ingevuld: bij `None` moet `load_dataset` de gebundelde ontologie op de gedetecteerde
+    dataset-versie kunnen kiezen, en dat kan alleen als het `None` ook echt ziet. `None`
+    reist daarom ongewijzigd door naar de lezing (`load_dataset`) en het herstel
+    (`_herlees_graaf`) -- die twee zien zo dezelfde bestanden. De `cachesleutel` vult `None`
+    zelf in tot de gebundelde 1.6-bundel voor de hash: de sleutel is per dataset uniek langs
+    de bytes van het dataset-bestand (die per versie verschillen), dus dat de hash de
+    1.6-bundel noemt waar de lezing de 1.7-bundel kiest, maakt hem niet dubbelzinnig.
 
     Bij een cachetreffer wordt er niets geparseerd en start er dus geen laadfase:
     een balk die in nul seconden vol schiet zou suggereren dat het inlezen snel was
     in plaats van overgeslagen. De laadfase komt uit `load_dataset` zelf.
     """
     begin = time.perf_counter()
-    ontology_paths = ontologiepaden(ontology_paths)
     if not gebruik_cache:
         dataset = load_dataset(dataset_path, ontology_paths, fallback_encoding, voortgang=voortgang)
         return dataset, CacheUitslag("bestand", "", time.perf_counter() - begin)
@@ -236,6 +349,12 @@ def laad_met_cache(
             herstel = partial(_herlees_graaf, dataset_path, ontology_paths, fallback_encoding)
             # `LuieGraaf` is geen GraafIndex-subklasse maar een plaatsvervanger die
             # alles doorgeeft; het veld verwacht een GraafIndex en krijgt hier zijn gedrag.
+            # Sinds issue #34 draagt hij het leescontract expliciet en vervult hij
+            # `graaf.GraafLezer` structureel, maar dat protocol is niet wat hier gevraagd
+            # wordt: `GwswDataset.graph` staat gepind op de concrete `GraafIndex`
+            # (`tests/test_publieke_api.py`), en dat veld verbreden naar een protocol is
+            # een auteursbeslissing (`CLAUDE.md`, Harde regels; apart geparkeerd). Deze
+            # cast blijft dus staan tot die stap gezet is.
             luie = cast(GraafIndex, LuieGraaf(pad_graaf, herstel))
             dataset = replace(GwswDataset(graph=GraafIndex(), **velden), graph=luie)
             return dataset, CacheUitslag("cache", sleutel, time.perf_counter() - begin)
@@ -246,7 +365,7 @@ def laad_met_cache(
 
 
 def _herlees_graaf(
-    dataset_path: Path, ontology_paths: list[Path], fallback_encoding: str | None
+    dataset_path: Path, ontology_paths: list[Path] | None, fallback_encoding: str | None
 ) -> GraafIndex:
     """Leest de graafindex opnieuw uit de brondata; herstelweg voor `LuieGraaf`.
 
@@ -259,7 +378,8 @@ def _herlees_graaf(
 def _schrijf(map_: Path, dataset: GwswDataset) -> None:
     """Legt structuren en graaf weg, elk via een tijdelijk bestand.
 
-    De niet-init-velden (zoals de memo `_resolved_nodes`) blijven buiten de pickle:
+    De niet-init-velden (de memo's `_resolved_nodes` en `_types_memo`) blijven buiten de
+    pickle:
     `GwswDataset(**velden)` zou erop stuklopen, en zo'n memo hoort elke instantie
     vers op te bouwen. De lijst is afgeleid uit de dataclass zelf, zodat een volgend
     niet-init-veld niet stil het cacheleespad breekt.

@@ -19,7 +19,8 @@ inclusief volgorde:
   (`parts_of`/`aspects_of`/`part_holders_of`/`aspect_holders_of` -- met als externe
   aanroepers ook `checks/netwerk.py` en `checks/randvoorzieningen.py` -- ,
   `_read_aspects`, `_types`, `_connections`), `checks/administratief.py`
-  (hasConnection), `nulbevinding.py` (`_ouders`) en `ontologie.verwachte_property` (de
+  (hasConnection), `nulbevinding.py` (`_ouders`) en de ontologielezers
+  `ontologie.verwachte_property`, `functie_van_klasse` en `datatype_van_kenmerk` (de
   restrictiebron kan deze index zijn).
 - ``subjects(predicate, object)`` -- beide gebonden. `dataset.py`
   (`GwswDataset.subjects_of_class`), `inlezen.py` (de vier hasPart/hasAspect-lezers --
@@ -31,7 +32,12 @@ inclusief volgorde:
 - ``value(subject, predicate)`` -- het eerste object of None. `dataset.py`
   (`GwswDataset.onderdeel_label`), `inlezen.py` (`_read_aspects`, `_read_inwinning`,
   `_aspect_van_klasse`, `_label`, `_geometry`, `_is_multipart`),
-  `checks/attributen.py`, `ontologie.verwachte_property`.
+  `checks/attributen.py` en alle vijf de lezers van `ontologie` -- `verwachte_property`,
+  `functie_van_klasse`, `datatype_van_kenmerk`, `facetbereik` en (via die laatste)
+  `_lijstleden`, dat de `rdf:first`/`rdf:rest`-ketting van een
+  `owl:withRestrictions`-lijst er stap voor stap mee afloopt (issue #19). Dat een
+  RDF-lijst met alleen `value` te wandelen is, is de reden dat deze index geen
+  collectie-bewerking hoeft aan te bieden.
 - ``subject_objects(predicate)`` -- alleen het predicaat gebonden;
   `klassen._subclass_closure`. rdflib loopt hier de pos-index af (eerst per object,
   dan per subject), niet de triple-volgorde; de index spiegelt die groepering.
@@ -46,17 +52,22 @@ inclusief volgorde:
 
 Niet gebruikt en dus niet aangeboden: `triples()`, patronen met andere ongebonden
 argumenten, iteratie over de hele graaf, en elke schrijfbewerking na het vullen.
+
+Van dat contract is één plak getypt: `GraafLezer` (hieronder) draagt de twee bewerkingen
+die `ontologie` gebruikt. De rest van de lijst hierboven blijft proza, en met opzet --
+waarom, staat bij het protocol zelf.
 """
 
 from __future__ import annotations
 
 from collections.abc import Iterable, Iterator
+from typing import Protocol
 
 import pyoxigraph
 from rdflib import BNode, Literal, URIRef
 from rdflib.term import Node as RdfNode
 
-from gwsw_orox_helpers.namen import XSD_STRING
+from gwsw_orox_helpers.namen import GWSW, XSD_STRING
 
 
 def _uriref_snel(value: str) -> URIRef:
@@ -74,9 +85,18 @@ def _uriref_snel(value: str) -> URIRef:
     de bewaker voor een rdflib-upgrade die `URIRef.__new__` meer laat doen dan valideren.
 
     Wat wél wegvalt is de `logger.warning` die `_is_valid_uri` bij een vreemd ogende IRI
-    zou loggen. Op de leesweg was die er toch al niet -- `inlezen._parse` dempt
+    zou loggen. Bij het *vullen* was die er toch al niet -- `bestand._parse` dempt
     `rdflib.term` met `_quiet_rdflib` -- maar wie `GraafIndex.vul_uit` rechtstreeks
-    aanroept, ziet hem voortaan ook niet. De term zelf blijft dezelfde.
+    aanroept, ziet hem voortaan ook niet. Sinds issue #23 geldt dat ook voor twee
+    *opvraag*plekken buiten die demping: `dataset.GwswDataset.graph_types_of` en
+    `subjects_of_class` bouwen hun term hiermee, dus een afnemer die daar een misvormde
+    IRI in stopt krijgt geen waarschuwing meer te zien. De term zelf blijft dezelfde en
+    het antwoord dus ook -- dit gaat alleen over de logregel.
+
+    Eén randgeval erbij, en het ligt buiten de getypeerde afspraak: `URIRef(123)` liep op
+    een `TypeError` stuk (`_is_valid_uri` itereert over zijn argument), terwijl dit pad er
+    `URIRef("123")` van maakt. Beide parameters heten `str` en mypy bewaakt dat; wie er
+    iets anders in stopt kreeg een fout en krijgt nu een misser.
     """
     return str.__new__(URIRef, value)
 
@@ -140,6 +160,50 @@ def naar_rdflib(
     return Literal(term.value, datatype=URIRef(datatype))
 
 
+class GraafLezer(Protocol):
+    """Opzoeken met gebonden subject en predicaat -- wat `ontologie` van een graaf vraagt.
+
+    De getypte vorm van het deel van het leescontract hierboven dat de vijf lezers van
+    `ontologie` gebruiken (`facetbereik`, `datatype_van_kenmerk`, `kenmerkbereik`,
+    `verwachte_property`, `functie_van_klasse`, plus het interne `_lijstleden`). Zij
+    namen `Graph | GraafIndex` als union; met dit protocol staat er wat ze werkelijk
+    nodig hebben in plaats van een opsomming van de twee vormen die dat toevallig
+    kunnen. `GraafIndex` en `rdflib.Graph` vervullen het allebei **structureel** -- geen
+    van beide erft ervan, geen van beide weet ervan.
+
+    **Twee leden, en geen derde.** Dat is geen halve vertaling van de moduledocstring
+    maar de smalste vorm die werkt, en de smalste vorm is hier het doel: elk lid erbij
+    is een eis aan wie het protocol wil vervullen, niet een dienst aan wie het aanroept.
+    De vier andere bewerkingen van het contract (`subjects`, `subject_objects`,
+    `__contains__`, `__len__`) worden door `ontologie` niet aangeroepen, en
+    `heeft_subject` is bovendien een eigen aanvulling die `rdflib.Graph` niet heeft --
+    dat lid opnemen zou de `Graph`-kant per direct onvervulbaar maken. Meldt zich een
+    lezer die meer nodig heeft, dan is het protocol verbreden een additieve stap; hem
+    nu al breder maken dan de aanroepers zijn, sluit een vorm uit zonder dat iemand er
+    iets aan heeft. `test_het_protocol_is_precies_zo_breed_als_ontologie_het_gebruikt`
+    (in `tests/test_ontologie.py`) houdt de twee kanten aan elkaar: het protocol noemt
+    exact de bewerkingen die `ontologie` op zijn graafparameter aanroept.
+
+    **De parameters staan positioneel** (de `/`), en de types zijn zo ruim als
+    `GraafIndex` ze aanbiedt. Allebei de bedoelingen zijn defensief tegen de andere
+    vervuller, die van ons niet is: `rdflib.Graph.objects` draagt een derde parameter
+    (`unique`) en `Graph.value` is vijfvoudig overladen (`object`, `default`, `any`) --
+    extra parameters mét default breken de structurele vervulling niet, een afwijkende
+    parameter*naam* zou dat wel doen zodra rdflib er een hernoemt. Positioneel is dus de
+    vorm die een rdflib-upgrade overleeft; dat mypy het accepteert, staat vast in
+    `tests/typecheck/graaflezer.py`, dat de poort meeneemt (zie `[tool.mypy]` in
+    `pyproject.toml`).
+    """
+
+    def objects(self, subject: RdfNode, predicate: RdfNode, /) -> Iterator[RdfNode]:
+        """De objecten van (subject, predicate)."""
+        ...
+
+    def value(self, subject: RdfNode, predicate: RdfNode, /) -> RdfNode | None:
+        """Het eerste object van (subject, predicate), of None."""
+        ...
+
+
 class GraafIndex:
     """Twee dicts met het volledige leescontract van de checks (zie de moduledocstring).
 
@@ -151,6 +215,15 @@ class GraafIndex:
     """
 
     def __init__(self) -> None:
+        # De gedetecteerde GWSW-basis van de graaf (issue #32), additief naast de indexen.
+        # `bestand._parse` overschrijft hem na het vullen met de basis die het uit de bron
+        # afleidt; blijft de detectie leeg, dan is dit de gepinde 1.6-terugval. De lezers
+        # van `inlezen` leiden hun predicaten en klasse-IRI's hieruit af, zodat een 1.7-graaf
+        # met 1.7-predicaten gelezen wordt in plaats van met de vaste 1.6-string. Een gewoon
+        # attribuut en geen constructorparameter: `GraafIndex()` blijft parameterloos (de
+        # handtekening is gepind in `tests/test_publieke_api.py`), en de waarde reist als
+        # gewone staat mee in de pickle van de cache.
+        self.gwsw_basis: str = GWSW
         # De objecten per (s, p) zijn een insertie-geordende dict met None-waarden,
         # geen lijst: het duplicaatfilter bij het vullen en de membership-test zijn
         # daarmee O(1). Met een lijst kostte de dedupescan op de De Wolden en

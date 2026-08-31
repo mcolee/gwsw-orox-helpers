@@ -1,6 +1,8 @@
 """De schrijver geeft een OroX-TTL terug die naar dezelfde RDF-graaf parseert."""
 
+import os
 from collections import Counter
+from collections.abc import Iterator
 from pathlib import Path
 
 import pyoxigraph
@@ -15,6 +17,7 @@ import rdflib
 from rdflib.compare import isomorphic
 from rdflib.namespace import OWL, RDF
 
+from gwsw_orox_helpers import schrijven
 from gwsw_orox_helpers.errors import DatasetError
 from gwsw_orox_helpers.schrijven import (
     STANDAARD_PREFIXEN,
@@ -27,8 +30,9 @@ TTL_DIR = Path(__file__).parent / "fixtures" / "ttl"
 MINI = TTL_DIR / "mini_orox.ttl"
 CP850 = TTL_DIR / "codering_cp850.ttl"
 
-# De echte export van Stichting RIOned (Juinen); niet in deze repo getrackt.
-JUINEN = Path("/home/martin/nlriochecker/data/gwsw_orox_ttl/GwswDataset__Voorbeeld_v1_6_orox.ttl")
+# De echte voorbeeldexport van Stichting RIONED (Juinen), sinds issue #10 byte-exact als
+# fixture gebundeld; de test hangt daarmee niet meer aan een pad buiten de repo.
+JUINEN = TTL_DIR / "juinen_voorbeeld_v1_6.ttl"
 # De export van De Wolden en Hoogeveen: 112 MB, ook niet getrackt (marker `zwaar`).
 DEWOLDEN = Path("/home/martin/nlriochecker/data/gwsw_orox_ttl/dewoldenhoogeveen_orox.ttl")
 
@@ -259,6 +263,98 @@ def test_fout_halverwege_laat_geen_afgekapt_doel_achter(tmp_path: Path) -> None:
     assert list(doel.parent.iterdir()) == []
 
 
+def test_geslaagde_schrijf_laat_geen_tijdelijk_bestand_achter(tmp_path: Path) -> None:
+    """Na een geslaagde schrijf staat er alleen het doel in de map, geen tmp ernaast.
+
+    De hernoeming ruimt het tijdelijke bestand vanzelf op; deze test bewaakt dat het
+    daarbij blijft -- een tijdelijk bestand dat níét hernoemd maar gekopieerd zou worden,
+    blijft liggen en groeit de uitmap bij elke run vol.
+    """
+    doel = tmp_path / "uit" / "klaar.ttl"
+    schrijf_orox(MINI, doel)
+
+    assert [pad.name for pad in doel.parent.iterdir()] == ["klaar.ttl"]
+
+
+def test_fout_in_de_stroom_laat_een_bestaand_doel_ongemoeid(tmp_path: Path) -> None:
+    """Breekt de stroom af, dan blijft het oude `doel` staan en blijft de map schoon.
+
+    `test_fout_halverwege_laat_geen_afgekapt_doel_achter` doet dit voor een doel dat nog
+    niet bestond; hier ligt er al een export. Wie hem overschrijft met een bron die
+    halverwege afbreekt, hoort de vorige terug te krijgen -- niet een halve nieuwe, en ook
+    niet een tijdelijk bestand dat blijft rondslingeren.
+    """
+    doel = tmp_path / "uit" / "bestaat_al.ttl"
+    doel.parent.mkdir()
+    doel.write_text("de vorige export", encoding="utf-8")
+
+    def stroom() -> Iterator[pyoxigraph.Quad]:
+        for nummer, quad in enumerate(lees_orox(MINI).quads):
+            if nummer == 10:
+                raise RuntimeError("de bron breekt af")
+            yield quad
+
+    with pytest.raises(RuntimeError, match="de bron breekt af"):
+        schrijf_orox_quads(stroom(), doel)
+
+    assert doel.read_text(encoding="utf-8") == "de vorige export"
+    assert [pad.name for pad in doel.parent.iterdir()] == ["bestaat_al.ttl"]
+
+
+def test_geplante_tijdelijke_symlink_wordt_niet_doorheen_geschreven(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Een geplante symlink op het tijdelijke pad geeft geen schrijfrecht elders (CWE-59/377).
+
+    Schrijft de serializer met een gewone `open('wb')`, dan volgt hij een symlink die op
+    die naam al ligt: wie in een gedeelde uitmap het tijdelijke pad naar andermans bestand
+    laat wijzen, laat de export dat bestand overschrijven. Het tijdelijke bestand wordt
+    daarom met `open(..., 'xb')` aangemaakt (`O_CREAT | O_EXCL`): dat weigert een bestaande
+    naam -- symlink incluis -- en volgt dus niets.
+
+    Het willekeurige deel van de naam wordt hier vastgezet, want anders bewaakt de test
+    niets: planten op de oude vaste naam `<doel>.tmp` is vacuüm sinds de code die naam niet
+    meer opent, en met `O_EXCL` weggehaald bleef de suite groen. Nu is de kandidaat
+    voorspelbaar (`<doel>.<pid>.<hex>.tijdelijk`) en botst de schrijver er echt op.
+    """
+    monkeypatch.setattr(schrijven.secrets, "token_hex", lambda _bytes: "deadbeef")
+    slachtoffer = tmp_path / "slachtoffer.txt"
+    slachtoffer.write_text("niet aanraken", encoding="utf-8")
+    doel = tmp_path / "uit.ttl"
+    kandidaat = tmp_path / f"uit.ttl.{os.getpid()}.deadbeef.tijdelijk"
+    kandidaat.symlink_to(slachtoffer)
+
+    with pytest.raises(DatasetError, match="kan niet geschreven worden") as fout:
+        schrijf_orox(MINI, doel)
+
+    assert isinstance(fout.value.__cause__, FileExistsError)
+    assert slachtoffer.read_text(encoding="utf-8") == "niet aanraken"
+    assert not doel.exists()
+    # De opruiming mag alleen weghalen wat de code zelf aanmaakte; deze symlink is van
+    # iemand anders en hoort er na de mislukte schrijf nog te liggen.
+    assert kandidaat.is_symlink()
+
+
+def test_doel_krijgt_dezelfde_rechten_als_een_gewone_open(tmp_path: Path) -> None:
+    """Het geschreven doel draagt de umask-rechten, net als vóór het tijdelijke bestand.
+
+    De schrijflaag levert een bestand af in andermans uitmap; die mag de rechten van de
+    gebruiker niet verstrengen. Het ijkpunt is een referentiebestand dat in dezelfde map
+    met een gewone `open(..., 'wb')` is gemaakt -- een vast getal zou hier niet deugen,
+    want `0o666 & ~umask` verschilt per machine.
+    """
+    referentie = tmp_path / "referentie.bin"
+    with open(referentie, "wb") as bestand:
+        bestand.write(b"")
+    if referentie.stat().st_mode & 0o077 == 0:
+        pytest.skip("umask maskeert groep en anderen; de test kan het verschil niet zien")
+    doel = tmp_path / "rechten.ttl"
+
+    schrijf_orox(MINI, doel)
+
+    assert doel.stat().st_mode & 0o777 == referentie.stat().st_mode & 0o777
+
+
 @pytest.mark.parametrize("sleutel", ["kapot prefix", "1abc", "met:dubbelepunt", "eindigt."])
 def test_onbruikbare_prefixsleutel_is_een_dataseterror(tmp_path: Path, sleutel: str) -> None:
     """Een sleutel die geen PN_PREFIX is, wordt geweigerd in plaats van uitgeschreven.
@@ -281,7 +377,6 @@ def test_lege_prefixsleutel_is_de_dataset_basis(tmp_path: Path) -> None:
     assert "@prefix : <http://sparql.gwsw.nl/x#> ." in doel.read_text(encoding="utf-8")
 
 
-@pytest.mark.skipif(not JUINEN.exists(), reason="de Juinen-export ligt niet op deze machine")
 def test_juinen_blijft_isomorf(tmp_path: Path) -> None:
     """De echte voorbeeldexport (119 kB) overleeft de heen-en-weerweg ongeschonden."""
     doel = tmp_path / "juinen_terug.ttl"
@@ -331,3 +426,30 @@ def test_dewoldenhoogeveen_houdt_tellingen_en_orde_van_grootte(tmp_path: Path) -
     assert doel_triples == bron_triples
     assert doel_klassen == bron_klassen
     assert abs(doel_bytes - bron_bytes) / bron_bytes <= 0.15
+
+
+MINI17 = Path(__file__).parent / "fixtures" / "ttl17" / "mini_orox.ttl"
+
+
+def test_17_bron_blijft_17_bij_round_trip(tmp_path: Path) -> None:
+    """De regenererende serializer is graaf-agnostisch: een 1.7-bron komt er als 1.7 uit.
+
+    `schrijf_orox` injecteert `namen.GWSW` (1.6) nergens in een triple; de IRI's stromen
+    ongewijzigd door. `STANDAARD_PREFIXEN` zet `gwsw:` in de kop cosmetisch op 1.6, maar de
+    bronprefix wint (`{**STANDAARD_PREFIXEN, **parser.prefixes}`). Dus blijft de graaf gelijk
+    en draagt de kop de 1.7-`gwsw:`.
+    """
+    doel = tmp_path / "mini17_terug.ttl"
+    schrijf_orox(MINI17, doel)
+
+    # Graaf-gelijk: dezelfde triples, dezelfde 1.7-IRI's.
+    assert isomorphic(_graaf(MINI17), _graaf(doel))
+    # En de kop draagt de 1.7-prefix, niet de 1.6 uit STANDAARD_PREFIXEN.
+    kop = doel.read_text(encoding="utf-8")
+    assert "@prefix gwsw: <http://data.gwsw.nl/1.7/totaal/> ." in kop
+    assert "@prefix gwsw: <http://data.gwsw.nl/1.6/totaal/> ." not in kop
+
+
+def test_standaardprefixen_blijven_16() -> None:
+    """De cosmetische kopprefix blijft 1.6; de bronprefix wint erover (issue #32)."""
+    assert STANDAARD_PREFIXEN["gwsw"] == "http://data.gwsw.nl/1.6/totaal/"

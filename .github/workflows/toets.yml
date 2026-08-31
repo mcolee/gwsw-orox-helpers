@@ -1,15 +1,43 @@
 name: toets
 on:
+  # Push toetst alleen de langlevende takken. De regie pusht rechtstreeks naar `dev`
+  # (zonder PR) en `main` draagt de uitgebrachte versies, dus die twee moeten bij élke
+  # push door de poort. Een feature-branch toetst via zijn `pull_request`-event; zonder
+  # dit filter draaide zo'n commit de poort tweemaal (push én pull_request).
   push:
+    branches: [main, dev]
   pull_request:
+
+# Een nieuwe push op dezelfde ref maakt de lopende run overbodig: annuleer hem in plaats
+# van hem te laten uitdraaien.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   poort:
     runs-on: ubuntu-latest
+    strategy:
+      # Beide interpreters afmaken; een rode 3.13 mag de 3.12-uitslag niet wegnemen.
+      fail-fast: false
+      matrix:
+        # `requires-python = ">=3.12"` wordt zo op de onder- én bovengrens getoetst in
+        # plaats van op een toevallige interpreter. Kost 2x de runtime van één leg;
+        # de cache en het annuleren van superseded runs hierboven betalen dat terug.
+        python-version: ["3.12", "3.13"]
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v5
-      - run: uv sync
+        with:
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
+          python-version: ${{ matrix.python-version }}
+      # `--locked` faalt op een lockbestand dat niet bij `pyproject.toml` past: een
+      # vergeten `uv lock` valt hier om in plaats van stil te worden weggewerkt.
+      - run: uv sync --locked
       - run: uv run ruff check
       - run: uv run ruff format --check .
       - run: uv run mypy
-      - run: uv run --with pytest-cov pytest -q --cov=gwsw_orox_helpers --cov-fail-under=95
+      # pytest-cov komt uit de gelockte dev-groep, niet meer ongepind van PyPI via
+      # `--with`; uv synct de dev-groep standaard mee.
+      - run: uv run pytest -q --cov=gwsw_orox_helpers --cov-fail-under=95

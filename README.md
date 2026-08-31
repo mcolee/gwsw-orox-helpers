@@ -3,8 +3,8 @@
 gwsw-orox-helpers is een Python-bibliotheek voor GWSW-OroX-bestanden (Turtle): rioleringsdata volgens het
 [Gegevenswoordenboek Stedelijk Water](https://data.gwsw.nl/). Ze leest een OroX-export in een domeinmodel (putten,
 leidingen, aspecten, klassenhiërarchie) met de geometrie als shapely-objecten, schrijft dat model verliesloos terug,
-en knipt een export langs een grenslaag in delen die weer tot het origineel samen te voegen zijn. De GWSW-ontologie
-1.6 is meegebundeld. Eerste afnemer: [nlriochecker](https://github.com/mcolee/nlriochecker).
+en knipt een export langs een grenslaag in delen die weer tot het origineel samen te voegen zijn. De GWSW-ontologieën
+1.6 en 1.7 zijn meegebundeld (1.6 is de default). Eerste afnemer: [nlriochecker](https://github.com/mcolee/nlriochecker).
 
 [![toets](https://github.com/mcolee/gwsw-orox-helpers/actions/workflows/toets.yml/badge.svg?branch=main)](https://github.com/mcolee/gwsw-orox-helpers/actions/workflows/toets.yml)
 [![licentie MIT](https://img.shields.io/badge/licentie-MIT-blue.svg)](LICENSE)
@@ -17,8 +17,9 @@ De bibliotheek is bruikbaar, maar nog vóór 1.0.
 - **Pre-1.0.** De publieke API kan tot 1.0 nog wijzigen, maar alleen met een regel in [CHANGELOG.md](CHANGELOG.md)
   en een versiebump. Het oppervlak dat nlriochecker importeert ligt vast in `tests/test_publieke_api.py` en geldt
   als bevroren.
-- **GWSW-ontologie 1.6 meegebundeld** als package-resource (`bronnen.gebundelde_ontologie`,
-  `bronnen.vocabulaire_index_pad`). Een nieuwe GWSW-versie is een release hier plus een `uv lock` bij de afnemer.
+- **GWSW-ontologieën 1.6 en 1.7 meegebundeld** als package-resource (`bronnen.gebundelde_ontologie` /
+  `bronnen.vocabulaire_index_pad` leveren de default 1.6; `..._voor(versie)` kiest een van beide). Een nieuwe
+  GWSW-versie is een release hier plus een `uv lock` bij de afnemer.
 - **Getest op de export van De Wolden en Hoogeveen** (112 MB, 1,9 miljoen triples, ruim 23.000 putten en strengen).
   Andere gemeenten en andere beheerpakketten zijn nog niet geprobeerd.
 - **Niet op PyPI.** Installeren gaat rechtstreeks uit git (zie hieronder).
@@ -29,7 +30,7 @@ Drie bewerkingen op een OroX-export, elk uit één ingang.
 
 **Lezen** — `load_dataset` parseert een export naar een domeinmodel: putten, leidingen, aspecten en de
 klassenhiërarchie, met de GML-geometrie als shapely-objecten. Zonder opgave leest het met de gebundelde
-GWSW-ontologie 1.6. `laad_met_cache` maakt herladen vrijwel gratis.
+GWSW-ontologie (default 1.6). `laad_met_cache` maakt herladen vrijwel gratis.
 
 **Schrijven** — `schrijf_orox` regenereert een export van bestand naar bestand: niet byte-gelijk aan de bron, wel
 graaf-gelijk (isomorf). Het schrijft via een tijdelijk bestand en hernoemt pas bij succes, zodat een fout halverwege
@@ -58,7 +59,7 @@ from pathlib import Path
 from gwsw_orox_helpers import clip_orox, merge_orox
 from gwsw_orox_helpers.dataset import load_dataset
 
-ds = load_dataset(Path("gemeente_orox.ttl"))  # met de gebundelde GWSW-ontologie 1.6
+ds = load_dataset(Path("gemeente_orox.ttl"))  # met de gebundelde GWSW-ontologie (default 1.6)
 print(len(ds.nodes), "putten,", len(ds.conduits), "leidingen")
 
 delen = clip_orox(
@@ -88,7 +89,7 @@ uv run ruff check
 uv run ruff format --check .
 uv run mypy                                             # over src/gwsw_orox_helpers
 uv run pytest                                           # `zwaar` niet; `-m zwaar` draait tegen een niet-getrackte export
-uv run --with pytest-cov pytest --cov=gwsw_orox_helpers --cov-fail-under=95
+uv run pytest --cov=gwsw_orox_helpers --cov-fail-under=95  # pytest-cov komt uit de dev-groep
 ```
 
 Dezelfde vijf stappen draaien in CI bij elke push naar `main` of `dev` (`.github/workflows/toets.yml`). De werkwijze

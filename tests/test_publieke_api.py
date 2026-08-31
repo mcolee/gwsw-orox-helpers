@@ -34,9 +34,13 @@ de foto.
 
 from __future__ import annotations
 
+import ast
 import dataclasses
+import importlib
 import inspect
 import re
+import textwrap
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -55,6 +59,156 @@ MODULES = {
 
 # Een default die een objectrepr is, draagt een geheugenadres; dat is geen contract.
 ADRES = re.compile(r" object at 0x[0-9a-f]+>")
+# Python 3.13 verhuisde `Path` naar de submodule `pathlib._local`, dus schrijft
+# `inspect.signature` daar `-> pathlib._local.Path` waar 3.12 `-> pathlib.Path` schrijft.
+# `pathlib.Path is pathlib._local.Path`: hetzelfde object, andere repr. Net als het
+# geheugenadres hierboven is dat interpreterruis en geen contractverschil -- zonder deze
+# normalisatie zou de matrix uit issue #25 (3.12 én 3.13) rood staan op een verschil dat
+# geen afnemer merkt. De pin zelf blijft even streng: alleen dit ene modulepad wordt
+# teruggeschreven naar de vorm die de dictionary hieronder noteert.
+LOKALE_PATHLIB = re.compile(r"\bpathlib\._local\.")
+
+# De submodules van het `clip`-package, in de volgorde van de importrichting: een submodule
+# mag alleen naar een zuster *boven* zich wijzen. Zie de docstring van `gwsw_orox_helpers.clip`
+# en de lagentabel in `docs/architectuur.md`. Wie een fase toevoegt, hernoemt of verplaatst,
+# komt langs `test_de_clipsnit_ligt_vast` en `test_de_clipsubmodules_houden_de_importrichting`.
+# `bereik` staat achteraan naast `orkest` en niet in de rij ervoor: hij is geen stap van de
+# knip maar de opt-in bereikcontrole ernaast (issue #28), en alleen `orkest` roept hem aan.
+CLIPLAGEN = ("termen", "grenzen", "knip", "plan", "stroom", "merge", "bereik", "orkest")
+
+# De snit van de leeskant (issue #26): `bestand` draagt het parseerpad -- IO, codering en
+# de procesbrede GC -- en `inlezen` houdt de domeinlezers, die uitsluitend een gevulde
+# `GraafIndex` consumeren. Alle vier de namen zijn privé; ze staan hier niet als contract
+# maar als *snit*, net als `CLIPLAGEN` hierboven.
+BESTAND_FUNCTIES = ("_decode", "_gc_uit", "_parse", "_quiet_rdflib")
+
+# De snit van de netwerkkant (issue #27): `netwerk` draagt de wandeling langs hasPart
+# omhoog en de tekenrichting van een streng, als vrije functies op `nodes` en een
+# typepredicaat. `dataset` houdt er drie gepinde methoden voor over die niets anders doen
+# dan doorgeven. Net als `BESTAND_FUNCTIES` staan deze namen hier als *snit* en niet als
+# contract -- de drie methoden staan als contract al in `HANDTEKENINGEN` hierboven.
+# Eén tuple en niet twee: de vier functies van `netwerk` en de vier doorgeefluiken op
+# `GwswDataset` heten hetzelfde, en dat is precies wat de bewaker toetst. `_schakels` staat
+# erbij als *functie* maar wordt als methode niet afgedwongen -- die is privé en wordt
+# binnen de package door niemand meer aangeroepen, dus de auteur mag hem schrappen zonder
+# deze test rood te maken (zie de docstring van de methode). De drie andere kunnen niet
+# stilletjes verdwijnen: die staan hierboven in `HANDTEKENINGEN`.
+NETWERK_FUNCTIES = (
+    "_schakels",
+    "klim_naar_knoop",
+    "resolve_network_node",
+    "richting_van_geometrie",
+)
+
+# De modules die `netwerk` mag zien. Alleen `domein`: hij rekent met de waardeobjecten en
+# met shapely, en weet van `dataset`, `cache`, `graaf` en de ontologie niets. Zou daar een
+# rand bij komen, dan is de wandeling weer alleen via een volledige dataset toetsbaar.
+NETWERK_MAG_IMPORTEREN = frozenset({"domein"})
+
+# De modules die `bestand` mag zien. Hij staat in de lagentabel onder `inlezen` omdat hij
+# alleen op deze bladeren leunt, en hij weet dus niets van de lezers, van `dataset` of van
+# `cache`. Tussen `bestand` en `inlezen` loopt géén rand: die volgorde is een
+# rangschikking en geen afhankelijkheid (zie `docs/architectuur.md`, "De lagen").
+# `namen` kwam er bij issue #32 bij: `_parse` detecteert de GWSW-basis van de bron
+# (`gwsw:`-prefix, met de predicaat-IRI's als terugval) en zet die op `index.gwsw_basis`.
+# `namen` is een blad (alleen tekst, geen pakketimport), dus dat blijft een schone
+# neerwaartse rand; de detectie zelf spelt geen enkele IRI zelf.
+BESTAND_MAG_IMPORTEREN = frozenset({"codering", "errors", "graaf", "namen", "rdfmotor"})
+
+# De enige modules van de package die de cliplaag mag importeren. `dataset`, `graaf`,
+# `inlezen`, `klassen`, `ontologie` en `cache` staan er nadrukkelijk niet bij: de clip heeft
+# een eigen pad naast de leeslaag en bouwt geen domeinmodel. `rdfmotor` staat er evenmin
+# bij, en om een andere reden: de clip ontleedt en serialiseert niet zelf maar leent
+# `lees_orox` / `schrijf_orox_quads` van `schrijven`. De term-fabrieken die `clip/` wél
+# rechtstreeks bij pyoxigraph haalt, gaan sowieso niet door die adapter.
+CLIP_MAG_IMPORTEREN = frozenset({"clip", "errors", "geometry", "namen", "schrijven"})
+
+# De twee spellingshelpers die sinds issue #29 in `namen` wonen: `_uri` schrijft een korte
+# klassenaam uit tot een GWSW-IRI, `_short` leest hem er weer uit terug. Ze stonden in
+# `klassen`, en daardoor liep het spellen van twee andere modules (`inlezen` en `dataset`)
+# langs de klassenlaag. Net als `BESTAND_FUNCTIES` en `NETWERK_FUNCTIES` staan ze hier als
+# *snit* en niet als contract -- ze zijn privé en nlriochecker importeert ze niet.
+NAAMHELPERS = ("_short", "_uri")
+
+# De faalfamilies die sinds issue #31 onder `DatasetError` hangen, één per soort oorzaak.
+# Ze staan hier omdat de *hiërarchie* het contract is en niet de namen: nlriochecker vangt
+# `DatasetError` en blijft dat doen, dus elke familie hoort eronder te hangen en nergens
+# anders. De lijst is bewust uitgeschreven en niet uit de module afgeleid -- zo valt een
+# achtste familie op als een keuze die iemand maakte, en niet als een regel in een diff.
+FAMILIES = (
+    errors.BestandError,
+    errors.CoderingError,
+    errors.GrenslaagError,
+    errors.InhoudError,
+    errors.KnipError,
+    errors.MotorError,
+    errors.TurtleError,
+)
+
+
+def _clipbronnen() -> dict[str, str]:
+    """De broncode van het clip-package en van elke submodule, per naam."""
+    from gwsw_orox_helpers import clip
+
+    bronnen_ = {"clip": inspect.getsource(clip)}
+    for naam in CLIPLAGEN:
+        module = importlib.import_module(f"gwsw_orox_helpers.clip.{naam}")
+        bronnen_[f"clip.{naam}"] = inspect.getsource(module)
+    return bronnen_
+
+
+def _gepunt(knoop: ast.expr) -> str:
+    """De gepunte naam waarop een attribuut wordt opgevraagd (`gwsw_orox_helpers.klassen`).
+
+    Alles wat geen naam of attribuutketting is -- een aanroep, een index -- levert de lege
+    string, en die valt bij de aanroeper vanzelf buiten de toegestane verzameling.
+    """
+    delen: list[str] = []
+    while isinstance(knoop, ast.Attribute):
+        delen.append(knoop.attr)
+        knoop = knoop.value
+    if not isinstance(knoop, ast.Name):
+        return ""
+    delen.append(knoop.id)
+    return ".".join(reversed(delen))
+
+
+def _pakketimporten(bron: str) -> set[str]:
+    """De modules van de package die deze bron importeert, hoe hij ze ook schrijft.
+
+    Aan de boom en niet aan een regex op regelbegin: een ingesprongen import in een functie,
+    `from gwsw_orox_helpers import dataset` en `import gwsw_orox_helpers.graaf` zijn alle
+    drie manieren om de leeslaag binnen te halen die een `^from ...`-patroon niet ziet.
+    Wat eruit komt is de naam onder de package (`dataset`, `clip.knip`).
+    """
+    gevonden: set[str] = set()
+    for knoop in ast.walk(ast.parse(bron)):
+        if isinstance(knoop, ast.ImportFrom):
+            if knoop.level:  # `from . import x` / `from .knip import y`, binnen clip/
+                gevonden.update(
+                    f"clip.{knoop.module}" if knoop.module else f"clip.{alias.name}"
+                    for alias in knoop.names
+                )
+            elif knoop.module == "gwsw_orox_helpers":
+                gevonden.update(alias.name for alias in knoop.names)
+            elif knoop.module and knoop.module.startswith("gwsw_orox_helpers."):
+                gevonden.add(knoop.module.removeprefix("gwsw_orox_helpers."))
+        elif isinstance(knoop, ast.Import):
+            gevonden.update(
+                alias.name.removeprefix("gwsw_orox_helpers.")
+                for alias in knoop.names
+                if alias.name.startswith("gwsw_orox_helpers.")
+            )
+    return gevonden
+
+
+def _is_docstring(regel: ast.stmt) -> bool:
+    """Of dit de docstring van een functie is; die telt niet als lichaam."""
+    return (
+        isinstance(regel, ast.Expr)
+        and isinstance(regel.value, ast.Constant)
+        and isinstance(regel.value.value, str)
+    )
 
 
 def _op(naam: str) -> Any:
@@ -67,8 +221,12 @@ def _op(naam: str) -> Any:
 
 
 def _handtekening(obj: Any) -> str:
-    """De handtekening als tekst, zonder het geheugenadres van een objectdefault."""
-    return ADRES.sub(" object>", str(inspect.signature(obj)))
+    """De handtekening als tekst, zonder interpreterruis.
+
+    Twee dingen worden weggenormaliseerd: het geheugenadres van een objectdefault en het
+    3.13-modulepad van `pathlib.Path`. Zie de regexen bovenaan.
+    """
+    return LOKALE_PATHLIB.sub("pathlib.", ADRES.sub(" object>", str(inspect.signature(obj))))
 
 
 HANDTEKENINGEN: dict[str, str] = {
@@ -82,6 +240,20 @@ HANDTEKENINGEN: dict[str, str] = {
         "(dataset: 'GwswDataset', kenmerken: 'Sequence[str]', band_m: 'float') -> 'GwswDataset'"
     ),
     "dataset.ontologiepaden": "(ontology_paths: 'list[Path] | None') -> 'list[Path]'",
+    # Additief sinds issue #33: de ontologie-index die `load_dataset` intern opbouwt, nu
+    # ook los op te vragen. Hij staat hier **niet** omdat nlriochecker hem importeert --
+    # dat doet die (nog) niet -- maar omdat de auteur hem aanwees: issue #33 zet
+    # `lees_ontologie` met zoveel woorden in dit bestand ("additief: `lees_ontologie` mag
+    # erbij; bestaande pins ongewijzigd"). Dat is de tweede categorie uit de docstring
+    # hierboven. De parameternamen zijn Nederlands (`paden`/`terugvalcodering`), anders
+    # dan de bevroren Engelse van `load_dataset`/`laad_met_cache`: de auteur koos bij #33
+    # voor `CLAUDE.md` (Nederlandse identifiers) boven symmetrie, op het moment dat de
+    # naam nog vrij lag. Vanaf hier ligt hij vast.
+    "dataset.lees_ontologie": (
+        "(paden: 'list[Path] | None' = None, "
+        "terugvalcodering: 'str | None' = None, *, voortgang: 'Voortgang' = "
+        "<gwsw_orox_helpers.voortgang.NulVoortgang object>) -> 'GraafIndex'"
+    ),
     "dataset.GwswDataset": (
         "(source: 'Path', graph: 'GraafIndex', nodes: 'dict[str, Node]', "
         "conduits: 'dict[str, Conduit]', subclasses: 'dict[str, frozenset[str]]', "
@@ -169,6 +341,18 @@ HANDTEKENINGEN: dict[str, str] = {
         "(self, subject: 'RdfNode', predicate: 'RdfNode', object_: 'RdfNode') -> 'None'"
     ),
     "graaf.GraafIndex.vul_uit": "(self, quads: 'Iterable[pyoxigraph.Quad]') -> 'None'",
+    # De termomzetting waarmee de index gevuld wordt. Hij staat hier omdat de auteur hem
+    # aanwees bij issue #21/#23: nlriochecker importeert hem rechtstreeks
+    # (`scripts/maak_voorbeeld.py:57`, `from gwsw_orox_helpers.graaf import naar_rdflib`)
+    # om een pyoxigraph-parse in rdflib-termen te lezen zonder de index te bouwen. Dat is
+    # dezelfde tweede categorie als `dataset.lees_ontologie` hierboven: geen naam die uit
+    # de AST-sweep over `src/` en `tests/` van de afnemer komt, maar wel een naam waarop
+    # hij leunt. **Additief**: deze regel legt de bestaande handtekening vast en verandert
+    # er niets aan.
+    "graaf.naar_rdflib": (
+        "(term: 'pyoxigraph.NamedNode | pyoxigraph.BlankNode | pyoxigraph.Literal | "
+        "pyoxigraph.Triple') -> 'RdfNode'"
+    ),
     # Geometrie.
     "geometry.parse_gml": "(literal: 'str') -> 'Point | LineString | Polygon'",
     "geometry.parse_gml_z": "(literal: 'str') -> 'list[float | None]'",
@@ -197,6 +381,8 @@ HANDTEKENINGEN: dict[str, str] = {
     # Gebundelde bronnen.
     "bronnen.gebundelde_ontologie": "() -> pathlib.Path",
     "bronnen.vocabulaire_index_pad": "() -> pathlib.Path",
+    "bronnen.gebundelde_ontologie_voor": "(versie: str) -> pathlib.Path",
+    "bronnen.vocabulaire_index_pad_voor": "(versie: str) -> pathlib.Path",
 }
 
 VELDEN: dict[str, tuple[str, ...]] = {
@@ -288,6 +474,33 @@ def test_uitzonderingen_houden_hun_plaats_in_de_hierarchie() -> None:
     assert issubclass(errors.DatasetError, errors.OroxError)
     assert issubclass(errors.OroxError, Exception)
     assert issubclass(geometry.GeometryError, ValueError)
+    # Additief sinds issue #31: de zeven faalfamilies staan *onder* `DatasetError` en
+    # nergens anders. Zou er een naast komen te hangen, dan glipte hij langs de brede
+    # `except DatasetError` van nlriochecker -- precies de breuk die deze regel uitsluit.
+    # De lijst is compleet: `FAMILIES` hieronder toetst dat er geen achtste ongemerkt bij
+    # komt te staan.
+    for familie in FAMILIES:
+        assert issubclass(familie, errors.DatasetError)
+    # En andersom: de basisklassen blijven wat ze waren en zijn geen familie geworden.
+    assert errors.DatasetError.__bases__ == (errors.OroxError,)
+    assert errors.OroxError.__bases__ == (Exception,)
+
+
+def test_de_faalfamilies_liggen_vast() -> None:
+    """De indeling van issue #31 is zelf een foto, net als de lijsten hierboven.
+
+    Niet omdat nlriochecker de families importeert -- dat doet hij niet, hij vangt
+    `DatasetError` -- maar omdat een familie erbij of eraf een keuze van de auteur is en
+    geen bijvangst van een refactor. Verdwijnt er een naam, dan breekt een afnemer die hem
+    inmiddels wél gebruikt; komt er een bij zonder dat iemand de raise-plekken opnieuw
+    indeelde, dan is de indeling niet meer wat de docstrings beloven.
+    """
+    gevonden = {
+        naam
+        for naam, waarde in vars(errors).items()
+        if isinstance(waarde, type) and issubclass(waarde, errors.DatasetError)
+    }
+    assert gevonden == {"DatasetError"} | {familie.__name__ for familie in FAMILIES}
 
 
 def test_nul_voortgang_is_een_niets_doende_voortgang() -> None:
@@ -316,9 +529,13 @@ def test_cliplaag_is_additief() -> None:
 
     assert callable(clip.clip_orox)
     assert callable(clip.merge_orox)
+    # `bereikcontrole` kwam er in issue #28 bij: een nieuwe keyword-only parameter met de
+    # veilige default, dus elke bestaande aanroep doet nog letterlijk hetzelfde. Deze pin
+    # groeide daarvoor mee -- additief, en dat is precies wat het issue sanctioneerde.
     assert _handtekening(clip.clip_orox) == (
         "(bron: 'Path', grenzen: 'Path', uitmap: 'Path', *, sleutel: 'str', "
-        "fallback_encoding: 'str | None' = None) -> 'list[Path]'"
+        "fallback_encoding: 'str | None' = None, bereikcontrole: 'bool' = False) "
+        "-> 'list[Path]'"
     )
     assert _handtekening(clip.merge_orox) == "(delen: 'list[Path]', doel: 'Path') -> 'None'"
     # En ze staan, net als de schrijflaag, ook op de package zelf.
@@ -326,7 +543,255 @@ def test_cliplaag_is_additief() -> None:
 
     assert gwsw_orox_helpers.clip_orox is clip.clip_orox
     assert gwsw_orox_helpers.merge_orox is clip.merge_orox
-    # De clip hangt net zomin aan de leeslaag; alleen de GML-lezers worden gedeeld.
-    bron = inspect.getsource(clip)
-    assert "from gwsw_orox_helpers.dataset import" not in bron
-    assert "from gwsw_orox_helpers.graaf import" not in bron
+    # De clip hangt net zomin aan de leeslaag; alleen de GML-lezers worden gedeeld. Sinds de
+    # hersnit is `clip` een package, dus de vraag geldt niet alleen aan het oppervlak maar aan
+    # elke submodule: een enkele `from ...dataset import` in een fase zou de laag alsnog op de
+    # leeslaag laten hangen zonder dat het her-exporterende `__init__.py` er iets van laat zien.
+    for naam, bron in _clipbronnen().items():
+        assert "from gwsw_orox_helpers.dataset import" not in bron, naam
+        assert "from gwsw_orox_helpers.graaf import" not in bron, naam
+
+
+def test_de_clipsnit_ligt_vast() -> None:
+    """Het clip-package bestaat uit precies deze fasen, elk in een eigen submodule."""
+    from gwsw_orox_helpers import clip
+
+    pakket = Path(clip.__file__ or "").parent
+    aanwezig = {pad.stem for pad in pakket.glob("*.py")} - {"__init__"}
+
+    assert aanwezig == set(CLIPLAGEN)
+    assert clip.__doc__ is not None and len(clip.__doc__.splitlines()) > 50, (
+        "het verhaal van de clip hoort in de package-docstring te blijven staan"
+    )
+    # Het `__init__.py` is dun: het draagt het verhaal en de her-export, geen fase. Aan de
+    # boom en niet aan de tekst -- het verhaal noemt zelf functienamen, dus een kale
+    # `"def " not in bron` zou omvallen zodra iemand er `_maak_plan` in uitschrijft.
+    boom = ast.parse(inspect.getsource(clip))
+    definities = [
+        knoop.name
+        for knoop in boom.body
+        if isinstance(knoop, ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef)
+    ]
+    assert definities == [], f"{definities} horen in een fase te staan, niet in __init__.py"
+
+
+def test_de_bestandssnit_ligt_vast() -> None:
+    """Het parseerpad staat in `bestand`, de domeinlezers in `inlezen` (issue #26).
+
+    Dezelfde soort bewaker als `test_de_clipsnit_ligt_vast`, en om dezelfde reden: de
+    twee clusters in `inlezen` deelden alleen de `GraafIndex` en zijn nu gescheiden, maar
+    zonder test is dat een zin in een docstring en belet niets dat de volgende lezer weer
+    een `path.read_bytes()` naast een kenmerklezer zet.
+
+    Drie dingen tegelijk, elk op de AST en niet op de tekst. Welke functies `bestand`
+    draagt -- precies de vier, niet meer -- zodat een domeinlezer er niet stilzwijgend bij
+    komt te staan. Dat `inlezen` ze niet meer kent, ook niet als her-import: hij raakt geen
+    bestand meer aan, en dat is de winst van de snit. En de importrichting: `bestand` leunt
+    alleen op de bladeren (`codering`, `errors`, `graaf`, `rdfmotor`) en er loopt geen rand
+    tússen hem en `inlezen` -- in geen van beide richtingen. Zou zo'n rand er alsnog komen,
+    dan zou het testen van de lezers weer een echt bestand vergen.
+
+    De importtoets is een **deelverzameling** en geen gelijkheid, net als bij
+    `CLIP_MAG_IMPORTEREN`: de constante is een toestemmingslijst ("mag importeren"), en een
+    gelijkheid zou een module rood maken die er met goede reden eentje minder nodig heeft.
+    Wat bewaakt moet worden is de andere kant -- een rand naar `inlezen`, `dataset` of
+    `cache` -- en die vangt de deelverzameling wél.
+
+    Wat hier niet staat maar er wel bij hoort: `bestand` hoort in `cache.LADERMODULES`,
+    anders blijft een cache na een wijziging aan het parseerpad de oude lezing teruggeven.
+    `tests/test_cache.py::test_de_ladermodulelijst_dekt_de_hele_leeslaag` is daar de
+    bewaker van -- die eist van elke module van de package dat hij gehasht of met een reden
+    uitgezonderd is, dus een tweede assert hier zou dezelfde regel nog eens zijn.
+    """
+    from gwsw_orox_helpers import bestand, inlezen
+
+    boom = ast.parse(inspect.getsource(bestand))
+    definities = tuple(
+        sorted(
+            knoop.name
+            for knoop in boom.body
+            if isinstance(knoop, ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef)
+        )
+    )
+    assert definities == BESTAND_FUNCTIES
+
+    achtergebleven = sorted(naam for naam in BESTAND_FUNCTIES if naam in vars(inlezen))
+    assert achtergebleven == [], (
+        f"{achtergebleven} hoort in `bestand` te wonen; `inlezen` leest geen bestanden meer"
+    )
+
+    assert _pakketimporten(inspect.getsource(bestand)) <= BESTAND_MAG_IMPORTEREN
+    assert "bestand" not in _pakketimporten(inspect.getsource(inlezen)), (
+        "tussen `bestand` en `inlezen` hoort geen rand te lopen, ook niet als her-import"
+    )
+
+
+def test_de_netwerksnit_ligt_vast() -> None:
+    """De wandeling woont in `netwerk`; `dataset` houdt er doorgeefluiken over (issue #27).
+
+    Drie dingen tegelijk, elk op de AST en niet op de tekst -- dezelfde soort bewaker als
+    `test_de_bestandssnit_ligt_vast`. Welke functies `netwerk` draagt, precies de vier.
+    Dat hij alleen op `domein` leunt, zodat de wandeling toetsbaar blijft zonder een
+    ingelezen export (dat is de hele winst van de verhuizing; een enkele import van
+    `dataset` of `graaf` maakt haar weer ongedaan). En dat de methoden op `GwswDataset`
+    **dun** zijn gebleven: één `return netwerk.<zelfde naam>(...)` en niets anders.
+
+    Die derde is de belangrijkste en hij is niet aan het antwoord te zien. Zou iemand de
+    wandeling terugkopiëren in `dataset.py` -- of er "even" een extra stap voor zetten --
+    dan blijven alle gedragstests groen terwijl er weer twee exemplaren van dezelfde
+    logica staan, precies de toestand die #27 opruimde.
+
+    Wat hier niet staat maar er wel bij hoort: de handtekeningen van de drie publieke
+    methoden liggen in `HANDTEKENINGEN` vast, en `netwerk` hoort in `cache.LADERMODULES`
+    (`tests/test_cache.py::test_de_ladermodulelijst_dekt_de_hele_leeslaag` bewaakt dat).
+    """
+    from gwsw_orox_helpers import netwerk
+
+    boom = ast.parse(inspect.getsource(netwerk))
+    definities = tuple(
+        sorted(
+            knoop.name
+            for knoop in boom.body
+            if isinstance(knoop, ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef)
+        )
+    )
+    assert definities == tuple(sorted(NETWERK_FUNCTIES))
+
+    assert _pakketimporten(inspect.getsource(netwerk)) <= NETWERK_MAG_IMPORTEREN
+
+    for naam in NETWERK_FUNCTIES:
+        methode_op_de_dataset = getattr(dataset.GwswDataset, naam, None)
+        if methode_op_de_dataset is None:  # alleen `_schakels` mag ooit verdwijnen
+            continue
+        bron = textwrap.dedent(inspect.getsource(methode_op_de_dataset))
+        (methode,) = [
+            knoop for knoop in ast.walk(ast.parse(bron)) if isinstance(knoop, ast.FunctionDef)
+        ]
+        lijf = [regel for regel in methode.body if not _is_docstring(regel)]
+        assert len(lijf) == 1, f"{naam} doet meer dan doorgeven"
+        (regel,) = lijf
+        assert isinstance(regel, ast.Return)
+        aanroep = regel.value
+        assert isinstance(aanroep, ast.Call), f"{naam} geeft niet een aanroep terug"
+        doel = aanroep.func
+        assert isinstance(doel, ast.Attribute) and isinstance(doel.value, ast.Name)
+        assert (doel.value.id, doel.attr) == ("netwerk", naam), f"{naam} wijst ergens anders heen"
+
+
+def test_de_namensnit_ligt_vast() -> None:
+    """De twee spellingshelpers wonen in `namen`, en `namen` blijft een blad (issue #29).
+
+    Vier dingen tegelijk. Dat `namen` geen enkele module van de package importeert -- dat
+    is wat hem een blad maakt en wat elke andere laag toestaat hem te lezen zonder iets
+    binnen te halen. Dat `_short` en `_uri` er *staan*. Dat geen tweede module ze
+    definieert: een teruggekopieerde `rsplit` levert overal hetzelfde antwoord op, dus
+    geen enkele gedragstest zou daarvan omvallen, en dan spelt de package zijn IRI's op
+    twee plekken. En dat wie ze gebruikt, ze bij `namen` haalt en niet bij `klassen`, waar
+    ze stonden.
+
+    Die vierde gaat *niet* over een rand die verdwijnt -- er verdwijnt er geen, `inlezen`
+    houdt `klassen` nodig voor `_afsluiting` en `dataset` voor tien andere namen. Hij gaat
+    over de reden dat de verhuizing iets oplevert: wie voortaan alleen wil spellen, hoeft
+    de klassenlaag niet binnen te halen, en dat blijft alleen waar zolang niemand de oude
+    route weer gebruikt.
+
+    Wat hier bewust *niet* staat: dat `klassen` ze niet meer kent. Hij is zelf een
+    gebruiker (`_afsluiting` roept `_uri` aan, `_kenmerk_properties` en `_klassefuncties`
+    roepen `_short` aan), dus ze staan met recht in zijn namespace en `from
+    gwsw_orox_helpers.klassen import _short` blijft van buiten de package gewoon werken.
+    Wat deze test afdwingt is smaller en eerlijker: *binnen* de package gaat niemand meer
+    die weg.
+
+    De drie sweeps kijken naar de boom en niet naar de regels, en ze vangen elk een vorm
+    die een naïeve variant zou missen: een her-definitie als toewijzing (`_short = ...`)
+    naast een `def`, en een gebruik via de module (`klassen._short(...)`) naast een
+    `from ... import _short`. Juist die tweede is de makkelijke terugval -- `_pakketimporten`
+    hierboven documenteert bij zijn eigen sweep al dat een moduleimport langs een
+    naamgerichte controle glipt. De laatste assert is de runtime-tegenhanger: een naam die
+    ná de import herbonden wordt (een blijven staan monkeypatch, een `globals()`-toewijzing)
+    is aan de AST niet te zien, en `is` toetst dat het echt hetzelfde object is.
+
+    Net als bij `bestand` en `netwerk` hoort `namen` in `cache.LADERMODULES`; hij stond er
+    al, en `tests/test_cache.py::test_de_ladermodulelijst_dekt_de_hele_leeslaag` bewaakt
+    dat er geen module buiten valt.
+    """
+    from gwsw_orox_helpers import dataset as dataset_module
+    from gwsw_orox_helpers import inlezen, klassen, namen
+
+    assert _pakketimporten(inspect.getsource(namen)) == set(), (
+        "`namen` is een blad: hij spelt alleen tekst en importeert niets uit de package"
+    )
+
+    pakket = Path(namen.__file__ or "").parent
+    definieert: dict[str, set[str]] = {}
+    haalt_bij: dict[str, set[str]] = {}
+    for pad in sorted(pakket.rglob("*.py")):
+        naam = pad.relative_to(pakket).with_suffix("").as_posix().replace("/", ".")
+        boom = ast.parse(pad.read_text(encoding="utf-8"))
+        eigen: set[str] = set()
+        for knoop in ast.walk(boom):
+            if isinstance(knoop, ast.FunctionDef | ast.AsyncFunctionDef):
+                if knoop.name in NAAMHELPERS:
+                    eigen.add(knoop.name)
+            elif isinstance(knoop, ast.Assign | ast.AnnAssign | ast.NamedExpr):
+                # Een `def` is niet de enige manier om er een tweede te maken.
+                doelen = knoop.targets if isinstance(knoop, ast.Assign) else [knoop.target]
+                eigen.update(
+                    doel.id
+                    for doel in doelen
+                    if isinstance(doel, ast.Name) and doel.id in NAAMHELPERS
+                )
+            elif isinstance(knoop, ast.ImportFrom) and any(
+                alias.name in NAAMHELPERS for alias in knoop.names
+            ):
+                herkomst = knoop.module or ""
+                if knoop.level:  # `from ..namen import _short`, binnen `clip/`
+                    herkomst = f"gwsw_orox_helpers.{herkomst}"
+                haalt_bij.setdefault(naam, set()).add(herkomst)
+            elif isinstance(knoop, ast.Attribute) and knoop.attr in NAAMHELPERS:
+                haalt_bij.setdefault(naam, set()).add(_gepunt(knoop.value))
+        definieert[naam] = eigen
+
+    assert definieert.pop("namen") == set(NAAMHELPERS)
+    tweede = {naam: gevonden for naam, gevonden in definieert.items() if gevonden}
+    assert tweede == {}, f"{tweede} spelt zijn IRI's zelf; dat hoort `namen` één keer te doen"
+
+    bij_de_bron = {"namen", "gwsw_orox_helpers.namen"}
+    verkeerd = {
+        naam: sorted(gevonden - bij_de_bron)
+        for naam, gevonden in haalt_bij.items()
+        if not gevonden <= bij_de_bron
+    }
+    assert verkeerd == {}, f"{verkeerd} haalt `_short`/`_uri` niet bij `namen`"
+
+    for helper in NAAMHELPERS:
+        bron = getattr(namen, helper)
+        for gebruiker in (klassen, inlezen, dataset_module):
+            gevonden_helper = getattr(gebruiker, helper, None)
+            if gevonden_helper is not None:  # `inlezen` gebruikt alleen `_short`
+                assert gevonden_helper is bron, f"{gebruiker.__name__}.{helper} is een ander object"
+
+
+def test_de_clipsubmodules_houden_de_importrichting() -> None:
+    """Elke fase importeert alleen de bladeren onder de cliplaag en zusters boven zich.
+
+    Twee dingen tegelijk, en allebei aan de broncode: welke modules van de package een fase
+    mag zien (`CLIP_MAG_IMPORTEREN` -- geen `dataset`/`graaf`/`inlezen`/`cache`), en dat de
+    zusterranden binnen het package een richting houden. Die richting is de volgorde van
+    `CLIPLAGEN`: `termen` weet van niemand, `orkest` weet van iedereen. Zonder deze test kan
+    een fase stil een lus met een andere sluiten, en dan is de hersnit weer een bak.
+    """
+    for naam, bron in _clipbronnen().items():
+        eigen = naam.removeprefix("clip.") if naam != "clip" else None
+        for pad in sorted(_pakketimporten(bron)):
+            kop, *rest = pad.split(".")
+            assert kop in CLIP_MAG_IMPORTEREN, f"{naam} importeert {pad}"
+            if kop != "clip" or not rest:
+                continue
+            zuster = rest[0]
+            assert zuster in CLIPLAGEN, f"{naam} importeert onbekende zuster {zuster}"
+            if eigen is None:  # __init__.py mag elke fase her-exporteren
+                continue
+            assert CLIPLAGEN.index(zuster) < CLIPLAGEN.index(eigen), (
+                f"{naam} importeert {zuster}, dat onder hem ligt; de importrichting draait om"
+            )

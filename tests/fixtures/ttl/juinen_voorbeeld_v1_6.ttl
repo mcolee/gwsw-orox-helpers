@@ -1,0 +1,2800 @@
+@prefix rdf:       <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
+@prefix rdfs:      <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix owl:       <http://www.w3.org/2002/07/owl#> .
+@prefix xsd:       <http://www.w3.org/2001/XMLSchema#> .
+@prefix skos:      <http://www.w3.org/2004/02/skos/core#> .
+@prefix geo:       <http://www.opengis.net/ont/geosparql#> .
+@prefix :          <http://sparql.gwsw.nl/repositories/Juinen#> .
+@prefix gwsw:      <http://data.gwsw.nl/1.6/totaal/> .
+
+# 20260808/mv: Voorbeelden aansluitingen (kolk en perceel) aangescherpt (zoek op "aansluiting")
+# 20260808/mv: Voorbeeld putdeksel erbij (zoek op "putdeksel")
+
+# 20260710/mv: Handtekening van dataset-leverancier specificeren
+# 20260416/mv: Maatregelen Inspecteren en Reinigen verder uitgewerkt (voorbeeld: alleen meest recente datum in Geo-bestanden)
+# 20240716/mv: Vanuit voorbeeld 1.5, alleen GWSW-versie gewijzigd in 1.6
+
+#============================================================================================
+# Voor verder onderzoek: 
+# - Upload dit voorbeeldbestand in uw dataset op de GWSW Server
+# - Weergeven in een GIS, gebruik WFS-connectie: https://geodata.gwsw.nl/[dataset]/default
+#============================================================================================
+
+<file:///D:/Data/GwswDataset__Voorbeeld_v1.6.orox.ttl>
+	rdf:type                      owl:Ontology ;
+	owl:versionInfo               "Export for GWSW from app, company, date" ; # Handtekening van dataset-leverancier (applicatienaam, bedrijfsnaam, datum) (20260710/mv)
+.
+ 
+#============================================================================================
+#Opm: Zuiveringsgebied "eenheid_Zuivering" heeft een polygoon als buitengrens (20180918)
+#============================================================================================
+
+:Zuiveringsgebied_1a
+	rdf:type                      gwsw:Zuiveringsgebied ;
+	rdfs:label                    "eenheid rond Zuivering" ;
+	gwsw:hasAspect                :Zuiveringsgebied_1a_ori .
+:Zuiveringsgebied_1a_ori
+	rdf:type                      gwsw:Gebiedsorientatie ;
+	gwsw:hasAspect                _:Buitengrens_2a .
+_:Buitengrens_2a
+	rdf:type                      gwsw:Buitengrens ;
+	gwsw:hasValue                 "<gml:Polygon xmlns:gml=\"http://www.opengis.net/gml\"><gml:exterior><gml:LinearRing><gml:posList srsDimension=\"2\"> 168124.56 443251.35 169075.68 443269.64 169109.09 442577.77 168264.52 442580.95 168092.75 442846.56 168124.56 443251.35</gml:posList></gml:LinearRing></gml:exterior></gml:Polygon>"^^geo:gmlLiteral ;
+.
+#corr: URI gecorrigeerd (20190409)
+:Zuiveringsgebied_1a
+	gwsw:hasPart                  :Rioleringsgebied_1 ;
+	gwsw:hasPart                  :RWZI_1 .
+	
+#============================================================================================
+#Opm: Zuiveringsgebied "eenheid_Zuivering" bevat een zuivering (20180918)
+#============================================================================================
+	
+:RWZI_1
+	rdf:type                      gwsw:RWZI ;
+	rdfs:label                    "zuivering ZoSchoon" .
+:RWZI_1
+	gwsw:hasAspect                :RWZI_1_ori .
+:RWZI_1_ori
+	rdf:type                      gwsw:Bouwwerkorientatie ;
+	gwsw:hasAspect                _:Punt_91 .
+_:Punt_91
+	rdf:type                      gwsw:Punt ;
+	gwsw:hasValue                 "<gml:Point xmlns:gml=\"http://www.opengis.net/gml\"><gml:pos>168731.34 443190.11</gml:pos></gml:Point>"^^geo:gmlLiteral .
+:RWZI_1
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:BreedteBouwwerk ;
+	gwsw:hasValue                   100000 ] .
+:RWZI_1
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:LengteBouwwerk ;
+	gwsw:hasValue                   200000 ] .
+ 
+#============================================================================================
+#Opm: Rioleringsgebied "gebied_DM/Rioolstelsel vv 1" heeft een polygoon als buitengrens
+#============================================================================================
+
+:Rioleringsgebied_1
+
+#============================================================================================
+#Opm: Test turtle-notatie (a = rdf:type, @nl = taal-aanduiding) 
+#============================================================================================
+
+	a                             gwsw:Rioleringsgebied ;
+	rdfs:label                    "gebied_DM/Rioolstelsel vv 1"@nl ;
+	
+	gwsw:hasAspect                :Rioleringsgebied_1_ori .
+:Rioleringsgebied_1_ori
+	rdf:type                      gwsw:Gebiedsorientatie ;
+	gwsw:hasAspect                _:Buitengrens_2 .
+_:Buitengrens_2
+	rdf:type                      gwsw:Buitengrens ;
+	gwsw:hasValue                 "<gml:Polygon xmlns:gml=\"http://www.opengis.net/gml\"><gml:exterior><gml:LinearRing><gml:posList srsDimension=\"2\"> 168399.69 442788.15 168660.18 442795.24 168666.79 442591.01 168390.94 442597.63 168399.69 442788.15</gml:posList></gml:LinearRing></gml:exterior></gml:Polygon>"^^geo:gmlLiteral ;
+	.
+
+#============================================================================================
+#Opm04: Individual "DM/Rioolstelsel vv 1" is een gemengd stelsel, is deel van het rioleringsgebied
+#============================================================================================
+
+:GemengdStelsel_2
+	rdf:type                      gwsw:GemengdStelsel ;
+	rdfs:label                    "DM/Rioolstelsel vv 1" .
+:Rioleringsgebied_1
+	gwsw:hasPart                  :GemengdStelsel_2 .
+	
+#============================================================================================
+#Opm20191205: Verwijderd, straat wordt niet gebruikt in heeft foute :hasPart relatie
+#============================================================================================
+#
+#:Straat_22730
+#	rdf:type                      gwsw:Straat ;
+#	gwsw:hasAspect                [
+#	rdf:type                      gwsw:Straatnaam ;
+#	gwsw:hasValue                 "De Kloosterhof" ] .
+#:Straat_22730
+#	gwsw:hasPart                  :GemengdStelsel_2 .
+	
+#============================================================================================
+#Opm: District/wijk "buurt 01" bevat het rioolstelsel. Relatie geldt vanaf GWSW v1.5
+#============================================================================================
+
+:Kern_3
+	rdf:type                      gwsw:Kern ;
+#============================================================================================
+#Opm20191205: Foute? turtle-syntax (regel eindigt met ".") wordt wel ingelezen. Daardoor wordt 
+#             :GemengdStelsel_2 (in de volgende regel) ook van het type rdf:Property !!
+#             rdfs:label "Heiloo Midden" .
+#============================================================================================
+	rdfs:label                    "Heiloo Midden" ;
+	gwsw:hasPart                  :GemengdStelsel_2 .
+
+:District_01
+	rdf:type                      gwsw:District ;
+	rdfs:label                    "buurt 01" ;
+	gwsw:hasPart                  :GemengdStelsel_2 .
+
+#============================================================================================
+#Opm04: Individual "0978" is een rioolgemaal
+#============================================================================================
+
+:Rioolgemaal_3
+	rdf:type                      gwsw:Rioolgemaal ;
+	rdfs:label                    "0978" .
+
+#============================================================================================
+#Opm03: Het gemengde stelsel bevat rioolgemaal "0978"
+#       Relatie geldt vanaf GWSW v1.5
+#============================================================================================
+
+:GemengdStelsel_2
+	gwsw:hasPart                  :Rioolgemaal_3 .
+:Rioolgemaal_3
+	gwsw:hasAspect                :Rioolgemaal_3_ori .
+
+#============================================================================================
+# Straten kunnen de putten/leidingen bevatten: daarmee straatnaam bekend bij object
+#============================================================================================
+
+:Straat_A
+	rdf:type                      gwsw:Straat ;
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:Straatnaam ;
+	gwsw:hasValue                 "Gemaalstraat" ] .
+:Straat_JS_vrh_2_fun_1
+	rdf:type                      gwsw:Straat ;
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:Straatnaam ;
+	gwsw:hasValue                 "Jan Staalweg" ] .
+:Straat_021_vrh_1_fun_1
+	rdf:type                      gwsw:Straat ;
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:Straatnaam ;
+	gwsw:hasValue                 "021" ] .
+
+#============================================================================================
+#Opm11: Rioolgemaal "0978" heeft bouwwerk-orientatie (topologie) en geometrie (punt)
+#============================================================================================
+
+:Rioolgemaal_3_ori
+	rdf:type                      gwsw:Bouwwerkorientatie ;
+	gwsw:hasAspect                _:Punt_4 .
+_:Punt_4
+	rdf:type                      gwsw:Punt ;
+	gwsw:hasValue                 "<gml:Point xmlns:gml=\"http://www.opengis.net/gml\"><gml:pos>168443.01 442691.00 22.42</gml:pos></gml:Point>"^^geo:gmlLiteral .
+:Straat_A
+	gwsw:hasPart                  :Rioolgemaal_3 .
+
+#============================================================================================
+#Opm10: De aspecten breedte, lengte, hoogte, vorm en materiaal bij rioolgemaal "0978"
+#============================================================================================
+
+:Rioolgemaal_3
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:BreedteBouwwerk ;
+	gwsw:hasValue                  "2000"^^xsd:integer ] .
+	
+#NTA8035:
+#:Rioolgemaal_3 gwsw:breedteBouwwerk [
+#	rdf:value                  2000 ] .
+	
+:Rioolgemaal_3
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:LengteBouwwerk ;
+	gwsw:hasValue                  4000 ] ,
+
+# 20230417/mv: 
+	[
+	rdf:type                      gwsw:OntwerpcapaciteitGemaal ;
+	gwsw:hasValue                 20 ] , # Vanaf GWSW 1.6 in m3/h
+
+#============================================================================================
+#Opm: Test turtle-notatie (scheiding "," = zelfde subject + predicate) 
+#============================================================================================
+	
+	[							
+	rdf:type                      gwsw:HoogteBouwwerk ;
+	gwsw:hasValue                  1780 ] .
+:Rioolgemaal_3
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:VormBouwwerk ;
+	gwsw:hasReference             gwsw:Rechthoekig ] .
+:Rioolgemaal_3
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:MateriaalBouwwerk ;
+	gwsw:hasReference             gwsw:Beton ] .
+
+#NTA8035:
+#:Rioolgemaal_3 gwsw:materiaalBouwwerk gwsw:Beton .
+
+:Rioolgemaal_3
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:Begindatum ;
+	gwsw:hasValue                 "1970-01-01"^^xsd:date ] .
+
+# 20230416/mv: Gemeaal heeft een StatusFunctioneren en comment
+:Rioolgemaal_3
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:StatusFunctioneren ;
+	gwsw:hasReference             gwsw:InGebruik ] ;
+	rdfs:comment                  "Opmerking bij Rioolgemaal_3" ;
+.
+
+#============================================================================================
+# 20220405/mv: Einddatum pomp/bouwwerk-object, uitbreiding geo-thema Beheer
+#============================================================================================
+
+:Rioolgemaal_3
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:Einddatum ;
+	gwsw:hasValue                 "2030-01-02"^^xsd:date ] .
+
+:Rioolgemaal_3_ori
+	gwsw:hasConnection            _:Maaiveldorientatie_5 .
+_:Maaiveldorientatie_5
+	rdf:type                      gwsw:Maaiveldorientatie ;
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:Maaiveldhoogte ;
+	gwsw:hasValue                 "24.20"^^xsd:decimal ] .
+
+#============================================================================================
+#Opm05: Rioolgemaal heeft als deel een compartiment	
+#============================================================================================
+
+:Compartiment_6
+	rdf:type                      gwsw:Compartiment ;
+	rdfs:label                    "0978/c1" .
+:Rioolgemaal_3
+	gwsw:hasPart                  :Compartiment_6 .
+:Compartiment_6
+	gwsw:hasAspect                :Compartiment_6_ori .
+:Compartiment_6_ori
+	rdf:type                      gwsw:Compartimentorientatie .
+
+#============================================================================================
+#Opm: Afmetingen van compartiment niet in GWSW-MdsPlan, wel in GWSW-Basis
+#============================================================================================
+
+:Compartiment_6
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:BreedteCompartiment ;
+	gwsw:hasValue                 2000 ] .
+:Compartiment_6
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:LengteCompartiment ;
+	gwsw:hasValue                 1000 ] .
+:Compartiment_6
+	gwsw:hasAspect                _:VormCompartiment_7 .
+_:VormCompartiment_7
+	rdf:type                      gwsw:VormCompartiment ;
+	gwsw:hasReference             gwsw:Rechthoekig ;
+	gwsw:hasAspect                _:Inwinning_8 .
+_:Inwinning_8
+	rdf:type                      gwsw:Inwinning ;
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:WijzeVanInwinning ;
+	gwsw:hasReference             gwsw:Schatting ] .
+
+#============================================================================================
+#Opm: In naam compartiment ook het rioolgemaal noemen ("0978/c2"), verduidelijkt rapportages
+#============================================================================================
+
+:Compartiment_9
+	rdf:type                      gwsw:Compartiment ;
+	rdfs:label                    "0978/c2" .
+:Rioolgemaal_3
+	gwsw:hasPart                  :Compartiment_9 .
+:Compartiment_9
+	gwsw:hasAspect                :Compartiment_9_ori .
+:Compartiment_9_ori
+	rdf:type                      gwsw:Compartimentorientatie .
+:Pomp_10
+	rdf:type                      gwsw:Pomp ;
+	rdfs:label                    "0978/p1" .
+:Rioolgemaal_3
+	gwsw:hasPart                  :Pomp_10 .
+
+#============================================================================================
+#Opm: Verbindingen van onderdelen (zoals Pomp) niet in GWSW-MdsPlan, wel in GWSW-Basis
+#============================================================================================
+
+:Pomp_10
+	gwsw:hasAspect                _:Onderdeelorientatie_11 .
+_:Onderdeelorientatie_11
+	rdf:type                      gwsw:Onderdeelorientatie ;
+	gwsw:hasPart                  _:BeginpuntOnderdeel_12 .
+_:BeginpuntOnderdeel_12
+	rdf:type                      gwsw:BeginpuntOnderdeel ;
+	gwsw:hasConnection            :Compartiment_6_ori .
+_:Onderdeelorientatie_11
+	gwsw:hasPart                  _:EindpuntOnderdeel_13 .
+_:EindpuntOnderdeel_13
+	rdf:type                      gwsw:EindpuntOnderdeel ;
+	gwsw:hasConnection            :Compartiment_9_ori .
+	
+#============================================================================================
+#corr: Pomp koppelt via Knooppunt :Compartiment_9 aan Persleiding (20190530)
+#============================================================================================
+
+:Pomp_10
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:Pompcapaciteit ;
+	gwsw:hasValue                 15 ] . # Vanaf GWSW 1.6 in m3/h
+:Pomp_10
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:AanslagniveauBenedenstrooms ;
+	gwsw:hasValue                 22.30 ] .
+:Pomp_10
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:AfslagniveauBenedenstrooms ;
+	gwsw:hasValue                 22.00 ] .
+:Pomp_14
+	rdf:type                      gwsw:Pomp ;
+	rdfs:label                    "0978/p2" .
+:Rioolgemaal_3
+	gwsw:hasPart                  :Pomp_14 .
+:Pomp_14
+	gwsw:hasAspect                _:Onderdeelorientatie_15 .
+_:Onderdeelorientatie_15
+	rdf:type                      gwsw:Onderdeelorientatie ;
+	gwsw:hasPart                  _:BeginpuntOnderdeel_16 .
+_:BeginpuntOnderdeel_16
+	rdf:type                      gwsw:BeginpuntOnderdeel ;
+	gwsw:hasConnection            :Compartiment_6_ori .
+_:Onderdeelorientatie_15
+	gwsw:hasPart                  _:EindpuntOnderdeel_17 .
+
+#============================================================================================
+#corr: Pomp koppelt via Knooppunt :Compartiment_9 aan Persleiding (20190530)
+#============================================================================================
+
+_:EindpuntOnderdeel_17
+	rdf:type                      gwsw:EindpuntOnderdeel ;
+	gwsw:hasConnection            :Compartiment_9_ori .	
+:Pomp_14
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:Pompcapaciteit ;
+	gwsw:hasValue                 15 ] . # Vanaf GWSW 1.6 in m3/h
+:Pomp_14
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:AanslagniveauBenedenstrooms ;
+	gwsw:hasValue                 22.50 ] .
+:Pomp_14
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:AfslagniveauBenedenstrooms ;
+	gwsw:hasValue                 22.00 ] .
+
+#============================================================================================
+# Inspectieput 0979 heeft extra type (rol), is niet zichtbaar vanaf maaiveld (20240716)
+#============================================================================================
+
+:Inspectieput_17
+	rdf:type                      gwsw:Inspectieput ;
+	rdf:type                      gwsw:VerdektePut ; # extra objecttype (deksel niet zichtbaar)
+	rdfs:label                    "0979" .
+:GemengdStelsel_2
+	gwsw:hasPart                  :Inspectieput_17 .
+
+#Opm14: Inspectieput 0979 heeft putorientatie + geometrie (punt)
+
+:Inspectieput_17
+	gwsw:hasAspect                :Inspectieput_17_ori .
+:Inspectieput_17_ori
+	rdf:type                      gwsw:Putorientatie ;
+	gwsw:hasAspect                [
+  	rdf:type                    gwsw:Punt ;
+	  gwsw:hasValue               "<gml:Point xmlns:gml=\"http://www.opengis.net/gml\"><gml:pos>168462.01 442691.30 22.45</gml:pos></gml:Point>"^^geo:gmlLiteral ] .
+
+# Inspectieput 0979 heeft een putdeksel, met een niveau en inwinnings-metadata
+
+:Inspectieput_17
+	gwsw:hasPart                  :Inspectieput_17_dek .
+:Inspectieput_17_dek
+	rdf:type                      gwsw:Putdeksel ;
+  rdfs:label                    "Deksel 0979" . # Label bij onderdeel is nodig voor GIS-presentaties
+:Inspectieput_17_dek
+	gwsw:hasAspect                # gebruik verkorte turtle-notatie: alle eigenschappen (met hasAspect-relatie)
+                                [ rdf:type gwsw:MateriaalDeksel ; gwsw:hasReference gwsw:Gietijzer ] ,
+                                [ rdf:type gwsw:VormDeksel ; gwsw:hasReference gwsw:Rond ] ,
+                                [ rdf:type gwsw:BelastingklasseDIN19580_EN1433 ; gwsw:hasReference gwsw:KlasseC250 ] , # vanaf GWSW versie 1.6
+                                :Inspectieput_17_dek_ori .
+:Inspectieput_17_dek_ori        # Orientatie erbij (geometrie, ligging)
+	rdf:type                      gwsw:Dekselorientatie ; 
+	gwsw:hasAspect                [ # Exacte locatie van de deksel erbij (bij meerdere deksels of indien niet boven hart put of voor GIS-presentaties)
+  	rdf:type                    gwsw:Punt ;
+	  gwsw:hasValue               "<gml:Point xmlns:gml=\"http://www.opengis.net/gml\"><gml:pos>168462.51 442691.30</gml:pos></gml:Point>"^^geo:gmlLiteral ] ;
+  gwsw:hasAspect                :Inspectieput_17_dek_niv .
+:Inspectieput_17_dek_niv        # Het dekselniveau is een eigenschap van de orientatie
+  rdf:type                      gwsw:Putdekselniveau ;
+  gwsw:hasValue                 22.15 ; # Deksel ligt onder maaiveld (verdekte put)
+	gwsw:hasAspect                [ # Het kenmerk heeft meta-gegevens over de inwinning
+  	rdf:type                    gwsw:Inwinning ;
+    gwsw:hasAspect              [ 
+      rdf:type                  gwsw:WijzeVanInwinning ; 
+      gwsw:hasReference         gwsw:Inmeting ] ; # Vanaf GWSW 1.6
+    gwsw:hasAspect              [ 
+      rdf:type                  gwsw:DatumInwinning ; 
+      gwsw:hasValue             "2022-04-05"^^xsd:date ] ; ] .
+
+# Inspectieput 0979 bevat alle MdsPlan-kenmerken
+
+:Inspectieput_17
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:BreedtePut ;
+	gwsw:hasValue                 800 ] .
+:Inspectieput_17
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:LengtePut ;
+	gwsw:hasValue                 800 ] .
+:Inspectieput_17
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:HoogtePut ;
+	gwsw:hasValue                 1750 ] .
+:Inspectieput_17
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:MateriaalPut ;
+	gwsw:hasReference             gwsw:Beton ] .
+:Inspectieput_17
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:GeslotenVerhardOppervlakVlak ;
+	gwsw:hasValue                 774 ] .
+:Inspectieput_17
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:Begindatum ;
+	gwsw:hasValue                 "1970-01-01"^^xsd:date ] .
+
+# Inspectieput 0979 is gefundeerd door Grondverbetering
+
+:Inspectieput_17
+	gwsw:hasPart                  [
+	rdf:type                      gwsw:Grondverbetering ] .
+
+# Inspectieput 0979 is geïnspecteerd in 2012
+
+:VisueelInspecterenRioolput_1
+	rdf:type                      gwsw:VisueelInspecterenRioolput ;
+	gwsw:hasInput                 :Inspectieput_17 ;
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:DatumMaatregel ;
+	gwsw:hasValue                 "2012-02-17"^^xsd:date ] .
+
+#Opm09: Maaiveld-orientatie (met maaiveldhoogte) is gekoppeld aan put-orientatie
+
+:Inspectieput_17_ori
+	gwsw:hasConnection            _:Maaiveldorientatie_19 .
+_:Maaiveldorientatie_19
+	rdf:type                      gwsw:Maaiveldorientatie ;
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:Maaiveldhoogte ;
+	gwsw:hasValue                 24.20 ;
+	gwsw:hasAspect								_:Inwinning_17 ;
+	] .
+	
+# 20220405/mv: Inwinning maaiveld, uitbreiding geo-thema Beheer
+
+_:Inwinning_17
+	rdf:type                      gwsw:Inwinning ;
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:DatumInwinning ;
+	gwsw:hasValue             		"2022-04-05"^^xsd:date ] ;
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:WijzeVanInwinning ;
+	gwsw:hasReference             gwsw:AHN2 ] .
+
+#============================================================================================
+# Volgende inspectieput
+#============================================================================================
+
+:Inspectieput_20
+
+#corr: Inspectieput kan geen compartimenten hebben, gecorrigeerd (20190409)
+#	rdf:type                      gwsw:Inspectieput ;
+	rdf:type                      gwsw:BijzonderePutconstructie ;
+	rdfs:label                    "0980" .
+:GemengdStelsel_2
+	gwsw:hasPart                  :Inspectieput_20 .
+:Inspectieput_20
+	gwsw:hasAspect                :Inspectieput_20_ori .
+:Inspectieput_20_ori
+	rdf:type                      gwsw:Putorientatie ;
+	gwsw:hasAspect                _:Punt_21 .
+_:Punt_21
+	rdf:type                      gwsw:Punt ;
+	gwsw:hasValue                 "<gml:Point xmlns:gml=\"http://www.opengis.net/gml\"><gml:pos>168503.00 442701.30 22.45</gml:pos></gml:Point>"^^geo:gmlLiteral .
+:Inspectieput_20
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:BreedtePut ;
+	gwsw:hasValue                 4000 ] .
+:Inspectieput_20
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:LengtePut ;
+	gwsw:hasValue                 2000 ] .
+:Inspectieput_20
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:HoogtePut ;
+	gwsw:hasValue                 1750 ] .
+:Inspectieput_20
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:MateriaalPut ;
+	gwsw:hasReference             gwsw:Beton ] .
+:Inspectieput_20
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:GeslotenVerhardOppervlakVlak ;
+	gwsw:hasValue                 1155 ] .
+:Inspectieput_20
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:Begindatum ;
+	gwsw:hasValue                 "1970-01-01"^^xsd:date ] .
+:Inspectieput_20_ori
+	gwsw:hasConnection            _:Maaiveldorientatie_22 .
+_:Maaiveldorientatie_22
+	rdf:type                      gwsw:Maaiveldorientatie ;
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:Maaiveldhoogte ;
+	gwsw:hasValue                 24.20 ] .
+:Compartiment_23
+	rdf:type                      gwsw:Compartiment ;
+	rdfs:label                    "0980/c2" .
+:Inspectieput_20
+	gwsw:hasPart                  :Compartiment_23 .
+:Compartiment_23
+	gwsw:hasAspect                :Compartiment_23_ori .
+:Compartiment_23_ori
+	rdf:type                      gwsw:Compartimentorientatie ;
+	gwsw:hasAspect                _:Punt_24 .
+_:Punt_24
+	rdf:type                      gwsw:Punt ;
+	gwsw:hasValue                 "<gml:Point xmlns:gml=\"http://www.opengis.net/gml\"><gml:pos>168502.82 442700.68 22.45</gml:pos></gml:Point>"^^geo:gmlLiteral .
+	
+#============================================================================================
+#Opm: Put 0980 (bijzondere putconstructie) heeft compartimenten c1 en c2
+#============================================================================================
+
+:Compartiment_25
+	rdf:type                      gwsw:Compartiment ;
+	rdfs:label                    "0980/c1" .
+:Inspectieput_20
+	gwsw:hasPart                  :Compartiment_25 .
+:Compartiment_25
+	gwsw:hasAspect                :Compartiment_25_ori .
+:Compartiment_25_ori
+	rdf:type                      gwsw:Compartimentorientatie ;
+	gwsw:hasAspect                _:Punt_26 .
+_:Punt_26
+	rdf:type                      gwsw:Punt ;
+	gwsw:hasValue                 "<gml:Point xmlns:gml=\"http://www.opengis.net/gml\"><gml:pos>168502.82 442702.46 22.45</gml:pos></gml:Point>"^^geo:gmlLiteral .
+:Compartiment_25
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:GeslotenVerhardOppervlakVlak ;
+	gwsw:hasValue                 500 ] .
+:Inspectieput_27
+	rdf:type                      gwsw:Inspectieput ;
+	rdfs:label                    "0981" .
+:GemengdStelsel_2
+	gwsw:hasPart                  :Inspectieput_27 .
+:Inspectieput_27
+	gwsw:hasAspect                :Inspectieput_27_ori .
+:Inspectieput_27_ori
+	rdf:type                      gwsw:Putorientatie ;
+	gwsw:hasAspect                _:Punt_28 .
+_:Punt_28
+	rdf:type                      gwsw:Punt ;
+	gwsw:hasValue                 "<gml:Point xmlns:gml=\"http://www.opengis.net/gml\"><gml:pos>168512.00 442665.00 22.84</gml:pos></gml:Point>"^^geo:gmlLiteral .
+:Inspectieput_27
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:BreedtePut ;
+	gwsw:hasValue                 800 ] .
+:Inspectieput_27
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:LengtePut ;
+	gwsw:hasValue                 800 ] .
+:Inspectieput_27
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:HoogtePut ;
+	gwsw:hasValue                 1360 ] .
+:Inspectieput_27
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:VormPut ;
+	gwsw:hasReference             gwsw:Rond ] .
+:Inspectieput_27
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:MateriaalPut ;
+	gwsw:hasReference             gwsw:Beton ] .
+:Inspectieput_27
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:Begindatum ;
+	gwsw:hasValue                 "1970-01-01"^^xsd:date ] .
+:Inspectieput_27_ori
+	gwsw:hasConnection            _:Maaiveldorientatie_29 .
+_:Maaiveldorientatie_29
+	rdf:type                      gwsw:Maaiveldorientatie ;
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:Maaiveldhoogte ;
+	gwsw:hasValue                 24.20 ] .
+:Inspectieput_30
+	rdf:type                      gwsw:Inspectieput ;
+	rdfs:label                    "0982" .
+:GemengdStelsel_2
+	gwsw:hasPart                  :Inspectieput_30 .
+:Inspectieput_30
+	gwsw:hasAspect                :Inspectieput_30_ori .
+:Inspectieput_30_ori
+	rdf:type                      gwsw:Putorientatie ;
+	gwsw:hasAspect                _:Punt_31 .
+_:Punt_31
+	rdf:type                      gwsw:Punt ;
+	gwsw:hasValue                 "<gml:Point xmlns:gml=\"http://www.opengis.net/gml\"><gml:pos>168520.00 442628.50 23.00</gml:pos></gml:Point>"^^geo:gmlLiteral .
+:Inspectieput_30
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:BreedtePut ;
+	gwsw:hasValue                 1000 ] .
+:Inspectieput_30
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:LengtePut ;
+	gwsw:hasValue                 1000 ] .
+:Inspectieput_30
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:HoogtePut ;
+	gwsw:hasValue                 1200 ] .
+:Inspectieput_30
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:MateriaalPut ;
+	gwsw:hasReference             gwsw:Beton ] .
+:Inspectieput_30
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:Begindatum ;
+	gwsw:hasValue                 "1970-01-01"^^xsd:date ] .
+:Inspectieput_30_ori
+	gwsw:hasConnection            _:Maaiveldorientatie_32 .
+_:Maaiveldorientatie_32
+	rdf:type                      gwsw:Maaiveldorientatie ;
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:Maaiveldhoogte ;
+	gwsw:hasValue                 24.20 ] .
+	
+#corr: Compartimenten bij Inspectieput hoort niet en worden niet gebruikt, gecorrigeerd (20190410)
+#:Compartiment_33
+#	rdf:type                      gwsw:Compartiment ;
+#	rdfs:label                    "0982/c1" .
+#:Inspectieput_30
+#	gwsw:hasPart                  :Compartiment_33 .
+#:Compartiment_33
+#	gwsw:hasAspect                :Compartiment_33_ori .
+#:Compartiment_33_ori
+#	rdf:type                      gwsw:Compartimentorientatie .
+#:Compartiment_34
+#	rdf:type                      gwsw:Compartiment ;
+#	rdfs:label                    "0982/c2" .
+#:Inspectieput_30
+#	gwsw:hasPart                  :Compartiment_34 .
+#:Compartiment_34
+#	gwsw:hasAspect                :Compartiment_34_ori .
+#:Compartiment_34_ori
+#	rdf:type                      gwsw:Compartimentorientatie .
+
+:Stuwput_35
+	rdf:type                      gwsw:Stuwput ;
+	rdfs:label                    "0987" .
+:GemengdStelsel_2
+	gwsw:hasPart                  :Stuwput_35 .
+:Stuwput_35
+	gwsw:hasAspect                :Stuwput_35_ori .
+:Stuwput_35_ori
+	rdf:type                      gwsw:Putorientatie ;
+	gwsw:hasAspect                _:Punt_36 .
+_:Punt_36
+	rdf:type                      gwsw:Punt ;
+	gwsw:hasValue                 "<gml:Point xmlns:gml=\"http://www.opengis.net/gml\"><gml:pos>168540.80 442716.50 22.45</gml:pos></gml:Point>"^^geo:gmlLiteral .
+:Stuwput_35
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:BreedtePut ;
+	gwsw:hasValue                 4000 ] .
+:Stuwput_35
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:LengtePut ;
+	gwsw:hasValue                 1000 ] .
+:Stuwput_35
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:HoogtePut ;
+	gwsw:hasValue                 1750 ] .
+:Stuwput_35
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:MateriaalPut ;
+	gwsw:hasReference             gwsw:Beton ] .
+:Stuwput_35
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:Begindatum ;
+	gwsw:hasValue                 "1970-01-01"^^xsd:date ] .
+:Stuwput_35_ori
+	gwsw:hasConnection            _:Maaiveldorientatie_37 .
+_:Maaiveldorientatie_37
+	rdf:type                      gwsw:Maaiveldorientatie ;
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:Maaiveldhoogte ;
+	gwsw:hasValue                 24.20 ] .
+:Compartiment_38
+	rdf:type                      gwsw:Compartiment ;
+	rdfs:label                    "0987/c1" .
+:Stuwput_35
+	gwsw:hasPart                  :Compartiment_38 .
+:Compartiment_38
+	gwsw:hasAspect                :Compartiment_38_ori .
+:Compartiment_38_ori
+	rdf:type                      gwsw:Compartimentorientatie ;
+	gwsw:hasAspect                _:Punt_39 .
+_:Punt_39
+	rdf:type                      gwsw:Punt ;
+	gwsw:hasValue                 "<gml:Point xmlns:gml=\"http://www.opengis.net/gml\"><gml:pos>168540.22 442717.40 22.45</gml:pos></gml:Point>"^^geo:gmlLiteral .
+:Compartiment_40
+	rdf:type                      gwsw:Compartiment ;
+	rdfs:label                    "0987/c2" .
+:Stuwput_35
+	gwsw:hasPart                  :Compartiment_40 .
+:Compartiment_40
+	gwsw:hasAspect                :Compartiment_40_ori .
+:Compartiment_40_ori
+	rdf:type                      gwsw:Compartimentorientatie ;
+	gwsw:hasAspect                _:Punt_41 .
+_:Punt_41
+	rdf:type                      gwsw:Punt ;
+	gwsw:hasValue                 "<gml:Point xmlns:gml=\"http://www.opengis.net/gml\"><gml:pos>168541.35 442715.77 22.45</gml:pos></gml:Point>"^^geo:gmlLiteral .
+:Compartiment_40
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:GeslotenVerhardOppervlakVlak ;
+	gwsw:hasValue                 520 ] .
+:Compartiment_42
+	rdf:type                      gwsw:Compartiment ;
+	rdfs:label                    "0987/c3" .
+:Stuwput_35
+	gwsw:hasPart                  :Compartiment_42 .
+:Compartiment_42
+	gwsw:hasAspect                :Compartiment_42_ori .
+:Compartiment_42_ori
+	rdf:type                      gwsw:Compartimentorientatie .
+:Compartiment_42
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:GeslotenVerhardOppervlakVlak ;
+	gwsw:hasValue                 311 ] .
+:OpeningInWand_43
+	rdf:type                      gwsw:OpeningInWand ;
+	rdfs:label                    "0987/o1" .
+	
+#============================================================================================
+#Opm: Vanaf GWSW v1.4 is stuwconstructie vervallen als onderdeel
+#============================================================================================
+
+:Stuwput_35
+	gwsw:hasPart                  :OpeningInWand_43 .
+:OpeningInWand_43
+	gwsw:hasAspect                _:Onderdeelorientatie_44 .
+_:Onderdeelorientatie_44
+	rdf:type                      gwsw:Onderdeelorientatie ;
+	gwsw:hasPart                  _:BeginpuntOnderdeel_45 .
+_:BeginpuntOnderdeel_45
+	rdf:type                      gwsw:BeginpuntOnderdeel ;
+	gwsw:hasConnection            :Compartiment_42_ori .
+_:Onderdeelorientatie_44
+	gwsw:hasPart                  _:EindpuntOnderdeel_46 .
+_:EindpuntOnderdeel_46
+	rdf:type                      gwsw:EindpuntOnderdeel ;
+	gwsw:hasConnection            :Compartiment_38_ori .
+_:BeginpuntOnderdeel_45
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:BinnenonderkantOnderdeel ;
+	gwsw:hasValue                   22.75 ] .
+:OpeningInWand_43
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:BreedteOpening ;
+	gwsw:hasValue                   100 ] .
+:OpeningInWand_43
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:HoogteOpening ;
+	gwsw:hasValue                   100 ] .
+:OpeningInWand_43
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:VormOpening ;
+	gwsw:hasReference             gwsw:Rechthoekig ] .
+:OpeningInWand_43
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:Stromingsrichting ;
+	gwsw:hasReference             gwsw:StromingInBeideRichtingen ] .
+:Overstortdrempel_47
+
+#============================================================================================
+#Opm: Stuwmuur heeft als kenmerk Drempelbreedte en -niveau, geldt vanaf GWSW v1.5
+#============================================================================================
+
+#	rdf:type                      gwsw:Overstortdrempel ;
+	rdf:type                      gwsw:Stuwmuur ;
+	rdfs:label                    "0987/w1" .
+:Stuwput_35
+	gwsw:hasPart                  :Overstortdrempel_47 .
+:Overstortdrempel_47
+	gwsw:hasAspect                _:Onderdeelorientatie_48 .
+_:Onderdeelorientatie_48
+	rdf:type                      gwsw:Onderdeelorientatie ;
+	gwsw:hasPart                  _:BeginpuntOnderdeel_49 .
+_:BeginpuntOnderdeel_49
+	rdf:type                      gwsw:BeginpuntOnderdeel ;
+	gwsw:hasConnection            :Compartiment_38_ori .
+_:Onderdeelorientatie_48
+	gwsw:hasPart                  _:EindpuntOnderdeel_50 .
+_:EindpuntOnderdeel_50
+	rdf:type                      gwsw:EindpuntOnderdeel ;
+	gwsw:hasConnection            :Compartiment_42_ori .
+	
+#corr: Drempelkenmerken bij Stuwmuur ontbreken nog in GWSW, is gecorrigeerd in de volgende GWSW-versie (20190410)
+#:Overstortdrempel_47
+#	gwsw:hasAspect                [
+#	rdf:type                      gwsw:Drempelniveau ;
+#	gwsw:hasValue                 24.00 ] .
+#:Overstortdrempel_47
+#	gwsw:hasAspect                [
+#	rdf:type                      gwsw:Drempelbreedte ;
+#	gwsw:hasValue                 1000 ] .
+
+:OpeningInWand_51
+	rdf:type                      gwsw:OpeningInWand ;
+	rdfs:label                    "0987/o2" .
+:Stuwput_35
+	gwsw:hasPart                  :OpeningInWand_51 .
+:OpeningInWand_51
+	gwsw:hasAspect                _:Onderdeelorientatie_52 .
+_:Onderdeelorientatie_52
+	rdf:type                      gwsw:Onderdeelorientatie ;
+	gwsw:hasPart                  _:BeginpuntOnderdeel_53 .
+_:BeginpuntOnderdeel_53
+	rdf:type                      gwsw:BeginpuntOnderdeel ;
+	gwsw:hasConnection            :Compartiment_42_ori .
+_:Onderdeelorientatie_52
+	gwsw:hasPart                  _:EindpuntOnderdeel_54 .
+_:EindpuntOnderdeel_54
+	rdf:type                      gwsw:EindpuntOnderdeel ;
+	gwsw:hasConnection            :Compartiment_38_ori .
+_:BeginpuntOnderdeel_53
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:BinnenonderkantOnderdeel ;
+	gwsw:hasValue                   24.00 ] .
+:OpeningInWand_51
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:BreedteOpening ;
+	gwsw:hasValue                   200 ] .
+:OpeningInWand_51
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:HoogteOpening ;
+	gwsw:hasValue                   200 ] .
+:Overstortput_55
+	rdf:type                      gwsw:Overstortput ;
+	rdfs:label                    "0989" .
+:GemengdStelsel_2
+	gwsw:hasPart                  :Overstortput_55 .
+:Overstortput_55
+	gwsw:hasAspect                :Overstortput_55_ori .
+:Overstortput_55_ori
+	rdf:type                      gwsw:Putorientatie ;
+	gwsw:hasAspect                _:Punt_56 .
+_:Punt_56
+	rdf:type                      gwsw:Punt ;
+	gwsw:hasValue                 "<gml:Point xmlns:gml=\"http://www.opengis.net/gml\"><gml:pos>168584.30 442739.80 22.72</gml:pos></gml:Point>"^^geo:gmlLiteral .
+:Overstortput_55
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:BreedtePut ;
+	gwsw:hasValue                 4000 ] .
+:Overstortput_55
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:LengtePut ;
+	gwsw:hasValue                 2000 ] .
+:Overstortput_55
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:HoogtePut ;
+	gwsw:hasValue                 1480 ] .
+:Overstortput_55
+	gwsw:hasAspect                _:VormPut_57 .
+_:VormPut_57
+	rdf:type                      gwsw:VormPut ;
+	gwsw:hasReference             gwsw:Rechthoekig ;
+	gwsw:hasAspect                _:Inwinning_58 .
+_:Inwinning_58
+	rdf:type                      gwsw:Inwinning ;
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:WijzeVanInwinning ;
+	gwsw:hasReference             gwsw:Schatting ] .
+:Overstortput_55
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:MateriaalPut ;
+	gwsw:hasReference             gwsw:Beton ] .
+:Overstortput_55
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:Begindatum ;
+	gwsw:hasValue                 "1970-01-01"^^xsd:date ] .
+
+#============================================================================================
+# 20220405/mv: Einddatum lozing-object, uitbreiding geo-thema Beheer
+#============================================================================================
+
+:Overstortput_55
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:Einddatum ;
+	gwsw:hasValue                 "2030-01-01"^^xsd:date ] .
+
+:Overstortput_55_ori
+	gwsw:hasConnection            _:Maaiveldorientatie_59 .
+_:Maaiveldorientatie_59
+	rdf:type                      gwsw:Maaiveldorientatie ;
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:Maaiveldhoogte ;
+	gwsw:hasValue                 24.20 ] .
+:Compartiment_60
+	rdf:type                      gwsw:Compartiment ;
+	rdfs:label                    "0989/c1" .
+:Overstortput_55
+	gwsw:hasPart                  :Compartiment_60 .
+:Compartiment_60
+	gwsw:hasAspect                :Compartiment_60_ori .
+:Compartiment_60_ori
+	rdf:type                      gwsw:Compartimentorientatie .
+:Compartiment_61
+	rdf:type                      gwsw:Compartiment ;
+	rdfs:label                    "0989/c2" .
+:Overstortput_55
+	gwsw:hasPart                  :Compartiment_61 .
+:Compartiment_61
+	gwsw:hasAspect                :Compartiment_61_ori .
+:Compartiment_61_ori
+	rdf:type                      gwsw:Compartimentorientatie .
+	
+#============================================================================================
+#corr: Overstortput mag maximaal 1 drempel bevatten - 3e compartiment vervalt ook (20190530)
+#============================================================================================
+#
+#:Compartiment_62
+#	rdf:type                      gwsw:Compartiment ;
+#	rdfs:label                    "0989/c3" .
+#:Overstortput_55
+#	gwsw:hasPart                  :Compartiment_62 .
+#:Compartiment_62
+#	gwsw:hasAspect                :Compartiment_62_ori .
+#:Compartiment_62_ori
+#	rdf:type                      gwsw:Compartimentorientatie .
+
+:Overstortdrempel_63
+	rdf:type                      gwsw:Overstortdrempel ;
+	rdfs:label                    "0989/w1" .
+:Overstortput_55
+	gwsw:hasPart                  :Overstortdrempel_63 .
+:Overstortdrempel_63
+	gwsw:hasAspect                _:Onderdeelorientatie_64 .
+_:Onderdeelorientatie_64
+	rdf:type                      gwsw:Onderdeelorientatie ;
+	gwsw:hasPart                  _:BeginpuntOnderdeel_65 .
+_:BeginpuntOnderdeel_65
+	rdf:type                      gwsw:BeginpuntOnderdeel ;
+	gwsw:hasConnection            :Compartiment_60_ori .
+_:Onderdeelorientatie_64
+	gwsw:hasPart                  _:EindpuntOnderdeel_66 .
+_:EindpuntOnderdeel_66
+	rdf:type                      gwsw:EindpuntOnderdeel ;
+	gwsw:hasConnection            :Compartiment_61_ori .
+:Overstortdrempel_63
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:Drempelniveau ;
+	gwsw:hasValue                 23.51 ] .
+:Overstortdrempel_63
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:Drempelbreedte ;
+	gwsw:hasValue                 4000 ] .
+
+#============================================================================================
+#Opm: Overstortput mag maximaal 1 drempel bevatten
+#============================================================================================
+#
+#:Overstortdrempel_67
+#	rdf:type                      gwsw:Overstortdrempel ;
+#	rdfs:label                    "0989/w2" .
+#:Overstortput_55
+#	gwsw:hasPart                  :Overstortdrempel_67 .
+#:Overstortdrempel_67
+#	gwsw:hasAspect                _:Onderdeelorientatie_68 .
+#_:Onderdeelorientatie_68
+#	rdf:type                      gwsw:Onderdeelorientatie ;
+#	gwsw:hasPart                  _:BeginpuntOnderdeel_69 .
+#_:BeginpuntOnderdeel_69
+#	rdf:type                      gwsw:BeginpuntOnderdeel ;
+#	gwsw:hasConnection            :Compartiment_61_ori .
+#_:Onderdeelorientatie_68
+#	gwsw:hasPart                  _:EindpuntOnderdeel_70 .
+#_:EindpuntOnderdeel_70
+#	rdf:type                      gwsw:EindpuntOnderdeel ;
+#	gwsw:hasConnection            :Compartiment_62_ori .
+#:Overstortdrempel_67
+#	gwsw:hasAspect                [
+#	rdf:type                      gwsw:Drempelniveau ;
+#	gwsw:hasValue                 23.40 ] .
+#:Overstortdrempel_67
+#	gwsw:hasAspect                [
+#	rdf:type                      gwsw:Drempelbreedte ;
+#	gwsw:hasValue                 3000 ] .
+
+:Inspectieput_71
+	rdf:type                      gwsw:Inspectieput ;
+	rdfs:label                    "0990" .
+:GemengdStelsel_2
+	gwsw:hasPart                  :Inspectieput_71 .
+:Inspectieput_71
+	gwsw:hasAspect                :Inspectieput_71_ori .
+:Inspectieput_71_ori
+	rdf:type                      gwsw:Putorientatie ;
+	gwsw:hasAspect                _:Punt_72 .
+_:Punt_72
+	rdf:type                      gwsw:Punt ;
+	gwsw:hasValue                 "<gml:Point xmlns:gml=\"http://www.opengis.net/gml\"><gml:pos>168613.21 442749.90 23.10</gml:pos></gml:Point>"^^geo:gmlLiteral ;
+	gwsw:hasAspect                _:Inwinning_73 .
+_:Inwinning_73
+	rdf:type                      gwsw:Inwinning ;
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:WijzeVanInwinning ;
+	gwsw:hasReference             gwsw:Schatting ] .
+:Inspectieput_71
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:BreedtePut ;
+	gwsw:hasValue                 800 ] .
+:Inspectieput_71
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:LengtePut ;
+	gwsw:hasValue                 800 ] .
+:Inspectieput_71
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:HoogtePut ;
+	gwsw:hasValue                 1620 ] .
+:Inspectieput_71
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:MateriaalPut ;
+	gwsw:hasReference             gwsw:Beton ] .
+:Inspectieput_71
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:Begindatum ;
+	gwsw:hasValue                 "1970-01-01"^^xsd:date ] .
+:Inspectieput_71_ori
+	gwsw:hasConnection            _:Maaiveldorientatie_74 .
+_:Maaiveldorientatie_74
+	rdf:type                      gwsw:Maaiveldorientatie ;
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:Maaiveldhoogte ;
+	gwsw:hasValue                 24.72 ] .
+	
+:Inspectieput_78
+	rdf:type                      gwsw:Inspectieput ;
+	rdfs:label                    "1016" .
+:GemengdStelsel_2
+	gwsw:hasPart                  :Inspectieput_78 .
+:Inspectieput_78
+	gwsw:hasAspect                :Inspectieput_78_ori .
+:Inspectieput_78_ori
+	rdf:type                      gwsw:Putorientatie ;
+	gwsw:hasAspect                _:Punt_79 .
+_:Punt_79
+	rdf:type                      gwsw:Punt ;
+	gwsw:hasValue                 "<gml:Point xmlns:gml=\"http://www.opengis.net/gml\"><gml:pos>168478.00 442618.60 22.90</gml:pos></gml:Point>"^^geo:gmlLiteral .
+:Inspectieput_78
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:BreedtePut ;
+	gwsw:hasValue                 1000 ] .
+:Inspectieput_78
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:LengtePut ;
+	gwsw:hasValue                 1000 ] .
+:Inspectieput_78
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:HoogtePut ;
+	gwsw:hasValue                 1300 ] .
+:Inspectieput_78
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:VormPut ;
+	gwsw:hasReference             gwsw:Rond ] .
+:Inspectieput_78
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:MateriaalPut ;
+	gwsw:hasReference             gwsw:Beton ] .
+:Inspectieput_78
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:GeslotenVerhardOppervlakVlak ;
+	gwsw:hasValue                 546 ] .
+:Inspectieput_78
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:Begindatum ;
+	gwsw:hasValue                 "1970-01-01"^^xsd:date ] .
+:Inspectieput_78_ori
+	gwsw:hasConnection            _:Maaiveldorientatie_80 .
+_:Maaiveldorientatie_80
+	rdf:type                      gwsw:Maaiveldorientatie ;
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:Maaiveldhoogte ;
+	gwsw:hasValue                 24.20 ] .
+:Inspectieput_81
+	rdf:type                      gwsw:Inspectieput ;
+	rdfs:label                    "1017" .
+:GemengdStelsel_2
+	gwsw:hasPart                  :Inspectieput_81 .
+:Inspectieput_81
+	gwsw:hasAspect                :Inspectieput_81_ori .
+:Inspectieput_81_ori
+	rdf:type                      gwsw:Putorientatie ;
+	gwsw:hasAspect                _:Punt_82 .
+_:Punt_82
+	rdf:type                      gwsw:Punt ;
+	gwsw:hasValue                 "<gml:Point xmlns:gml=\"http://www.opengis.net/gml\"><gml:pos>168470.51 442655.66 22.84</gml:pos></gml:Point>"^^geo:gmlLiteral ;
+	gwsw:hasAspect                _:Inwinning_83 .
+
+#============================================================================================
+#Opm: Inwinning: metagegeven kwaliteit
+#============================================================================================
+
+_:Inwinning_83
+	rdf:type                      gwsw:Inwinning ;
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:WijzeVanInwinning ;
+	gwsw:hasReference             gwsw:Schatting ] .
+:Inspectieput_81
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:BreedtePut ;
+	gwsw:hasValue                 800 ] .
+:Inspectieput_81
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:LengtePut ;
+	gwsw:hasValue                 800 ] .
+:Inspectieput_81
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:HoogtePut ;
+	gwsw:hasValue                 1360 ] .
+:Inspectieput_81
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:MateriaalPut ;
+	gwsw:hasReference             gwsw:Beton ] .
+:Inspectieput_81
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:Begindatum ;
+	gwsw:hasValue                 "1970-01-01"^^xsd:date ] .
+:Inspectieput_81_ori
+	gwsw:hasConnection            _:Maaiveldorientatie_84 .
+_:Maaiveldorientatie_84
+	rdf:type                      gwsw:Maaiveldorientatie ;
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:Maaiveldhoogte ;
+	gwsw:hasValue                 24.20 ] .
+
+#============================================================================================
+#Opm: Verbindingsstuk verbindt de persleidingen - Niet in GWSW-MdsPlan, wel in GWSW-Basis
+#============================================================================================
+
+:Verbindingsstuk_85
+	rdf:type                      gwsw:Verbindingsstuk ;
+	rdfs:label                    "0977" .
+
+#corr: Relatie komt niet voor in GWSW, gecorrigeerd (20190409)
+#:GemengdStelsel_2
+#	gwsw:hasPart                  :Verbindingsstuk_85 .
+
+:Verbindingsstuk_85
+	gwsw:hasAspect                :Verbindingsstuk_85_ori .
+:Verbindingsstuk_85_ori
+	rdf:type                      gwsw:Hulpstukorientatie ;
+	gwsw:hasAspect                _:Punt_86 .
+_:Punt_86
+	rdf:type                      gwsw:Punt ;
+	gwsw:hasValue                 "<gml:Point xmlns:gml=\"http://www.opengis.net/gml\"><gml:pos>168420.59 442733.53</gml:pos></gml:Point>"^^geo:gmlLiteral ;
+	gwsw:hasAspect                _:Inwinning_87 .
+_:Inwinning_87
+	rdf:type                      gwsw:Inwinning ;
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:WijzeVanInwinning ;
+	gwsw:hasReference             gwsw:Schatting ] .
+
+#============================================================================================
+#Opm: Maaiveldhoogte tpv verbindingsstuk (nieuw in GWSW v1.4)
+#============================================================================================
+
+:Verbindingsstuk_85_ori
+	gwsw:hasConnection            _:Maaiveldorientatie_88 .
+_:Maaiveldorientatie_88
+	rdf:type                      gwsw:Maaiveldorientatie ;
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:Maaiveldhoogte ;
+	gwsw:hasValue                 24.20 ] .
+:Persleiding_89
+	rdf:type                      gwsw:Persleiding ;
+	rdfs:label                    "2" .
+
+#corr: Gemengd stelsel heeft geen persleiding, gecorrigeerd (20190409)
+:Persleidingsysteem_1
+	rdf:type                      gwsw:Persleidingsysteem;
+	rdfs:label                    "DM/Persleidingsysteem" .
+#:GemengdStelsel_2
+:Persleidingsysteem_1
+	gwsw:hasPart                  :Persleiding_89 .
+	
+:Persleiding_89
+	gwsw:hasAspect                :Persleiding_89_ori .
+:Persleiding_89_ori
+	rdf:type                      gwsw:Leidingorientatie ;
+	gwsw:hasPart                  _:BeginpuntLeiding_90 .
+_:BeginpuntLeiding_90
+	rdf:type                      gwsw:BeginpuntLeiding ;
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:BobBeginpuntLeiding ;
+	gwsw:hasValue                 22.77 ] .
+:Persleiding_89_ori
+	gwsw:hasPart                  _:EindpuntLeiding_91 .
+_:EindpuntLeiding_91
+	rdf:type                      gwsw:EindpuntLeiding ;
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:BobEindpuntLeiding ;
+	gwsw:hasValue                 22.45 ] .
+	
+#============================================================================================
+#Opm13: De leidingorientatie van een leiding heeft altijd een geometrie (lijn)
+#		(nieuw in GWSW v1.4)
+#============================================================================================
+
+:Persleiding_89_ori
+	gwsw:hasAspect                _:Lijn_92 .
+_:Lijn_92
+	rdf:type                      gwsw:Lijn ;
+	gwsw:hasValue                 "<gml:LineString xmlns:gml=\"http://www.opengis.net/gml\"><gml:posList srsDimension=\"3\">168420.59 442733.53 22.77 168420.89 442713.20 22.65 168429.28 442698.20 22.54 168443.01 442691.00 22.45</gml:posList></gml:LineString>"^^geo:gmlLiteral .
+
+# 20220107/mv: test met nul-lengte
+#	gwsw:hasValue                 "<gml:LineString xmlns:gml=\"http://www.opengis.net/gml\"><gml:posList srsDimension=\"2\">168420.59 442733.53 168420.59 442733.53</gml:posList></gml:LineString>"^^geo:gmlLiteral .
+
+_:BeginpuntLeiding_90
+	gwsw:hasConnection            :Verbindingsstuk_85_ori .
+
+#============================================================================================
+#corr: De persleiding koppelt via Knooppunt (met oriëntatie :Compartiment_9_ori) aan de Pompen
+#      (20190530)
+#============================================================================================
+
+_:EindpuntLeiding_91
+	gwsw:hasConnection            :Compartiment_9_ori .
+:Persleiding_89
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:LengteLeiding ;
+	gwsw:hasValue                 53.02 ] .
+:Persleiding_89
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:MateriaalLeiding ;
+	gwsw:hasReference             gwsw:PVC ] .
+:Persleiding_89
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:Verbindingstype ;
+	gwsw:hasReference             gwsw:Vaar_moer ] .
+	
+#============================================================================================
+#Opm01: Nieuwe individual voor straat zodra aspecten wisselen (naam/verharding/functie)
+#Opm02: Individual :Straat_HG_vrh_2_fun_1 bevat meerdere leidingen
+#============================================================================================
+
+:Straat_HG_vrh_2_fun_1
+	rdf:type                      gwsw:Straat ;
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:Straatnaam ;
+	gwsw:hasValue                 "Hugostraatje" ] .
+:Straat_HG_vrh_2_fun_1
+	gwsw:hasPart                  :Persleiding_89 .
+:Kern_AA
+	rdf:type                      gwsw:Kern ;
+	rdfs:label                    "Bloemendijk / Demo-wijk Oost" ;
+	gwsw:hasPart                  :Persleiding_89 .
+
+#============================================================================================
+#Opm: Grondsoort (kenmerk van ondergrond) niet in GWSW-MdsPlan, wel in GWSW-Basis
+#============================================================================================
+
+:Ondergrond_3
+	rdf:type                      gwsw:Ondergrond ;
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:Grondsoort ;
+	gwsw:hasReference             gwsw:Klei ] .
+:Ondergrond_3
+	gwsw:hasPart                  :Persleiding_89 .
+:Afwateringsgebied_Dfd
+	rdf:type                      gwsw:Afwateringsgebied ;
+	rdfs:label                    "dfd" ;
+	gwsw:hasPart                  :Persleiding_89 .
+
+:Persleiding_89
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:BreedteLeiding ;
+	gwsw:hasValue                 150 ] .
+:Persleiding_89
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:HoogteLeiding ;
+	gwsw:hasValue                 150 ] .
+:Persleiding_89
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:Begindatum ;
+	gwsw:hasValue                 "1970-01-01"^^xsd:date ] .
+:GemengdRiool_93
+	rdf:type                      gwsw:GemengdRiool ;
+	rdfs:label                    "4" .
+:GemengdStelsel_2
+	gwsw:hasPart                  :GemengdRiool_93 .
+:GemengdRiool_93
+	gwsw:hasAspect                :GemengdRiool_93_ori .
+:GemengdRiool_93_ori
+	rdf:type                      gwsw:Leidingorientatie ;
+	gwsw:hasPart                  _:BeginpuntLeiding_94 .
+
+#============================================================================================
+#Opm12: Beginpunt van leiding "4" heeft aspect Bob (z-waarde in m.nap)
+#============================================================================================
+
+_:BeginpuntLeiding_94
+	rdf:type                      gwsw:BeginpuntLeiding ;
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:BobBeginpuntLeiding ;
+	gwsw:hasValue                 22.45 ] .
+:GemengdRiool_93_ori
+	gwsw:hasPart                  _:EindpuntLeiding_95 .
+_:EindpuntLeiding_95
+	rdf:type                      gwsw:EindpuntLeiding ;
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:BobEindpuntLeiding ;
+	gwsw:hasValue                 22.45 ] .
+:GemengdRiool_93_ori
+	gwsw:hasAspect                _:Lijn_96 .
+_:Lijn_96
+	rdf:type                      gwsw:Lijn ;
+	gwsw:hasValue                 "<gml:LineString xmlns:gml=\"http://www.opengis.net/gml\"><gml:posList srsDimension=\"3\">168462.01 442691.30 22.45 168503.00 442701.30 22.45</gml:posList></gml:LineString>"^^geo:gmlLiteral .
+
+#============================================================================================
+#Opm08: Leiding "4" (tussen putten 0979 en 0980) is bij begin/eind gekoppeld aan put-orientatie
+#============================================================================================
+
+_:BeginpuntLeiding_94
+	gwsw:hasConnection            :Inspectieput_17_ori .
+_:EindpuntLeiding_95
+	gwsw:hasConnection            :Inspectieput_20_ori .
+:GemengdRiool_93
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:LengteLeiding ;
+	gwsw:hasValue                 42.00 ] .
+:GemengdRiool_93
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:MateriaalLeiding ;
+	gwsw:hasReference             gwsw:Beton ] .
+:GemengdRiool_93
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:Verbindingstype ;
+	gwsw:hasReference             gwsw:Vaar_moer ] .
+:GemengdRiool_93
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:AantalWoningen ;
+	gwsw:hasValue                 2 ] .
+:GemengdRiool_93
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:Aantal_ieBedrijven ;
+	gwsw:hasValue                 2 ] .
+:GemengdRiool_93
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:LateraalDebietHWA ;
+	gwsw:hasValue                 200 ] . # Vanaf GWSW 1.6 in m3/h
+:GemengdRiool_93
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:LateraalDebietDWA ;
+	gwsw:hasValue                 100 ] . # Vanaf GWSW 1.6 in m3/h
+
+#============================================================================================
+#Opm01: Nieuwe individual voor straat zodra aspecten wisselen (naam/verharding/functie)
+#============================================================================================
+
+:Straat_HG_vrh_3_fun_1
+	rdf:type                      gwsw:Straat ;
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:Straatnaam ;
+	gwsw:hasValue                 "Hugostraatje" ] .
+:Straat_HG_vrh_3_fun_1
+	gwsw:hasPart                  :GemengdRiool_93 .
+:Kern_AA
+	gwsw:hasPart                  :GemengdRiool_93 .
+:Ondergrond_3
+	gwsw:hasPart                  :GemengdRiool_93 .
+	
+#============================================================================================
+#Opm: Afwaterringsgebied heeft als deel Riolering, geldt vanaf GWSW v1.5
+#============================================================================================
+
+:Afwateringsgebied_Dfd
+	gwsw:hasPart                  :GemengdRiool_93 .
+:GemengdRiool_93
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:BreedteLeiding ;
+	gwsw:hasValue                 400 ] .
+:GemengdRiool_93
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:HoogteLeiding ;
+	gwsw:hasValue                 600 ] .
+:GemengdRiool_93
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:VormLeiding ;
+# 20220118/mv: Heul-profiel toegevoegd	
+#	gwsw:hasReference             gwsw:Eivormig ] .
+	gwsw:hasReference             gwsw:Heul ] .
+:GemengdRiool_93
+	gwsw:hasPart                  [
+	rdf:type                      gwsw:Grondverbetering ] .
+:GemengdRiool_93
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:Begindatum ;
+	gwsw:hasValue                 "1970-01-01"^^xsd:date ] .
+	
+#============================================================================================
+#Opm06: Activiteit "Inspecteren" heeft leiding "5" als input
+#============================================================================================
+
+:VisueelInspecterenVrijvervalLeiding_97
+	rdf:type                      gwsw:VisueelInspecterenVrijvervalLeiding ;
+	gwsw:hasInput                 :GemengdRiool_93 ;
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:DatumMaatregel ;
+	gwsw:hasValue                 "2003-02-17"^^xsd:date ] .
+:GemengdRiool_98
+	rdf:type                      gwsw:GemengdRiool ;
+	rdfs:label                    "5" .
+:GemengdStelsel_2
+	gwsw:hasPart                  :GemengdRiool_98 .
+:GemengdRiool_98
+	gwsw:hasAspect                :GemengdRiool_98_ori .
+:GemengdRiool_98_ori
+	rdf:type                      gwsw:Leidingorientatie ;
+	gwsw:hasPart                  _:BeginpuntLeiding_99 .
+_:BeginpuntLeiding_99
+	rdf:type                      gwsw:BeginpuntLeiding ;
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:BobBeginpuntLeiding ;
+	gwsw:hasValue                 22.45  ;
+	gwsw:hasAspect								_:Inwinning_99 ;
+	] .
+	
+#============================================================================================
+# 20220405/mv: Inwinning bob-begin, uitbreiding geo-thema Beheer
+#============================================================================================
+
+_:Inwinning_99
+	rdf:type                      gwsw:Inwinning ;
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:DatumInwinning ;
+	gwsw:hasValue             		"2022-04-04"^^xsd:date ] ;
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:WijzeVanInwinning ;
+	gwsw:hasReference             gwsw:Inmeting ] .
+
+:GemengdRiool_98_ori
+	gwsw:hasPart                  _:EindpuntLeiding_100 .
+_:EindpuntLeiding_100
+	rdf:type                      gwsw:EindpuntLeiding ;
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:BobEindpuntLeiding ;
+	gwsw:hasValue                 22.72 ;
+	gwsw:hasAspect								_:Inwinning_100 ;
+	] .
+	
+#============================================================================================
+# 20220405/mv: Inwinning bob-eind, uitbreiding geo-thema Beheer
+#============================================================================================
+
+_:Inwinning_100
+	rdf:type                      gwsw:Inwinning ;
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:DatumInwinning ;
+	gwsw:hasValue             		"2022-04-03"^^xsd:date ] ;
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:WijzeVanInwinning ;
+	gwsw:hasReference             gwsw:Schatting ] .
+
+:GemengdRiool_98_ori
+	gwsw:hasAspect                _:Lijn_101 .
+_:Lijn_101
+	rdf:type                      gwsw:Lijn ;
+	gwsw:hasValue                 "<gml:LineString xmlns:gml=\"http://www.opengis.net/gml\"><gml:posList srsDimension=\"3\">168540.80 442716.50 22.45 168584.30 442739.80 22.72</gml:posList></gml:LineString>"^^geo:gmlLiteral .
+_:BeginpuntLeiding_99
+	gwsw:hasConnection            :Compartiment_42_ori .
+_:EindpuntLeiding_100
+	gwsw:hasConnection            :Compartiment_60_ori .
+:GemengdRiool_98
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:LengteLeiding ;
+	gwsw:hasValue                 49.00 ] .
+:GemengdRiool_98
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:MateriaalLeiding ;
+	gwsw:hasReference             gwsw:Beton ] .
+:GemengdRiool_98
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:Verbindingstype ;
+	gwsw:hasReference             gwsw:Vaar_moer ] .
+:GemengdRiool_98
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:GeslotenVerhardOppervlakVlak ;
+	gwsw:hasValue                 311 ] .
+:GemengdRiool_98
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:AantalWoningen ;
+	gwsw:hasValue                 3 ] .
+:GemengdRiool_98
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:Aantal_ieBedrijven ;
+	gwsw:hasValue                 3 ] .
+:Straat_HG_vrh_2_fun_1
+	gwsw:hasPart                  :GemengdRiool_98 .
+:Kern_AA
+	gwsw:hasPart                  :GemengdRiool_98 .
+:Ondergrond_3
+	gwsw:hasPart                  :GemengdRiool_98 .
+:GemengdRiool_98
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:BreedteLeiding ;
+	gwsw:hasValue                 600 ] .
+:GemengdRiool_98
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:HoogteLeiding ;
+	gwsw:hasValue                 600 ] .
+:GemengdRiool_98
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:VormLeiding ;
+	gwsw:hasReference             gwsw:Rechthoekig ] .
+:GemengdRiool_98
+	gwsw:hasPart                  [
+	rdf:type                      gwsw:Grondverbetering ] .
+:GemengdRiool_98
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:Begindatum ;
+	gwsw:hasValue                 "1970-01-01"^^xsd:date ] .
+:VisueelInspecterenVrijvervalLeiding_102
+	rdf:type                      gwsw:VisueelInspecterenVrijvervalLeiding ;
+	gwsw:hasInput                 :GemengdRiool_98 ;
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:DatumMaatregel ;
+	gwsw:hasValue                 "1992-02-17"^^xsd:date ] .
+:GemengdRiool_103
+	rdf:type                      gwsw:GemengdRiool ;
+	rdfs:label                    "6" .
+:GemengdStelsel_2
+	gwsw:hasPart                  :GemengdRiool_103 .
+:GemengdRiool_103
+	gwsw:hasAspect                :GemengdRiool_103_ori .
+:GemengdRiool_103_ori
+	rdf:type                      gwsw:Leidingorientatie ;
+	gwsw:hasPart                  _:BeginpuntLeiding_104 .
+_:BeginpuntLeiding_104
+	rdf:type                      gwsw:BeginpuntLeiding ;
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:BobBeginpuntLeiding ;
+	gwsw:hasValue                 22.65 ] .
+:GemengdRiool_103_ori
+	gwsw:hasPart                  _:EindpuntLeiding_105 .
+_:EindpuntLeiding_105
+	rdf:type                      gwsw:EindpuntLeiding ;
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:BobEindpuntLeiding ;
+	gwsw:hasValue                 22.45 ] .
+:GemengdRiool_103_ori
+	gwsw:hasAspect                _:Lijn_106 .
+_:Lijn_106
+	rdf:type                      gwsw:Lijn ;
+	gwsw:hasValue                 "<gml:LineString xmlns:gml=\"http://www.opengis.net/gml\"><gml:posList srsDimension=\"3\">168503.00 442701.30 22.65 168540.80 442716.50 22.45</gml:posList></gml:LineString>"^^geo:gmlLiteral .
+_:BeginpuntLeiding_104
+	gwsw:hasConnection            :Compartiment_25_ori .
+_:EindpuntLeiding_105
+	gwsw:hasConnection            :Compartiment_38_ori .
+:GemengdRiool_103
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:LengteLeiding ;
+	gwsw:hasValue                 41.00 ] .
+:GemengdRiool_103
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:MateriaalLeiding ;
+	gwsw:hasReference             gwsw:Beton ] .
+:GemengdRiool_103
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:Verbindingstype ;
+	gwsw:hasReference             gwsw:Vaar_moer ] .
+:GemengdRiool_103
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:GeslotenVerhardOppervlakVlak ;
+	gwsw:hasValue                 1041 ] .
+:GemengdRiool_103
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:AantalWoningen ;
+	gwsw:hasValue                 4 ] .
+:GemengdRiool_103
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:Aantal_ieBedrijven ;
+	gwsw:hasValue                 40 ] .
+:Straat_HG_vrh_2_fun_1
+	gwsw:hasPart                  :GemengdRiool_103 .
+:Kern_AA
+	gwsw:hasPart                  :GemengdRiool_103 .
+:Ondergrond_3
+	gwsw:hasPart                  :GemengdRiool_103 .
+:Afwateringsgebied_XXX
+	rdf:type                      gwsw:Afwateringsgebied ;
+	rdfs:label                    "XXX" ;
+	gwsw:hasPart                  :GemengdRiool_103 .
+
+:GemengdRiool_103
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:BreedteLeiding ;
+	gwsw:hasValue                 400 ] .
+:GemengdRiool_103
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:HoogteLeiding ;
+	gwsw:hasValue                 600 ] .
+:GemengdRiool_103
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:VormLeiding ;
+	gwsw:hasReference             gwsw:Eivormig ] .
+:GemengdRiool_103
+	gwsw:hasPart                  [
+	rdf:type                      gwsw:Grondverbetering ] .
+:GemengdRiool_103
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:Begindatum ;
+	gwsw:hasValue                 "1970-01-01"^^xsd:date ] .
+:VisueelInspecterenVrijvervalLeiding_107
+	rdf:type                      gwsw:VisueelInspecterenVrijvervalLeiding ;
+	gwsw:hasInput                 :GemengdRiool_103 ;
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:DatumMaatregel ;
+	gwsw:hasValue                 "1992-02-17"^^xsd:date ] .
+:GemengdRiool_108
+	rdf:type                      gwsw:GemengdRiool ;
+	rdfs:label                    "7" .
+:GemengdStelsel_2
+	gwsw:hasPart                  :GemengdRiool_108 .
+:GemengdRiool_108
+	gwsw:hasAspect                :GemengdRiool_108_ori .
+:GemengdRiool_108_ori
+	rdf:type                      gwsw:Leidingorientatie ;
+	gwsw:hasPart                  _:BeginpuntLeiding_109 .
+_:BeginpuntLeiding_109
+	rdf:type                      gwsw:BeginpuntLeiding ;
+	gwsw:hasAspect                _:BobBeginpuntLeiding_110 .
+_:BobBeginpuntLeiding_110
+	rdf:type                      gwsw:BobBeginpuntLeiding ;
+	gwsw:hasValue                 22.65 ;
+	gwsw:hasAspect                _:Inwinning_111 .
+_:Inwinning_111
+	rdf:type                      gwsw:Inwinning ;
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:WijzeVanInwinning ;
+	gwsw:hasReference             gwsw:Inmeting ] .
+:GemengdRiool_108_ori
+	gwsw:hasPart                  _:EindpuntLeiding_112 .
+_:EindpuntLeiding_112
+	rdf:type                      gwsw:EindpuntLeiding ;
+	gwsw:hasAspect                _:BobEindpuntLeiding_113 .
+_:BobEindpuntLeiding_113
+	rdf:type                      gwsw:BobEindpuntLeiding ;
+	gwsw:hasValue                 22.85 ;
+	gwsw:hasAspect                _:Inwinning_114 .
+_:Inwinning_114
+	rdf:type                      gwsw:Inwinning ;
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:WijzeVanInwinning ;
+	gwsw:hasReference             gwsw:Schatting ] .
+:GemengdRiool_108_ori
+	gwsw:hasAspect                _:Lijn_115 .
+_:Lijn_115
+	rdf:type                      gwsw:Lijn ;
+	gwsw:hasValue                 "<gml:LineString xmlns:gml=\"http://www.opengis.net/gml\"><gml:posList srsDimension=\"3\">168503.00 442701.30 22.65 168540.80 442716.50 22.85</gml:posList></gml:LineString>"^^geo:gmlLiteral .
+	
+#============================================================================================
+#Opm: Leiding 7 is verbonden aan compartiment c2 van put 0980
+#============================================================================================
+
+_:BeginpuntLeiding_109
+	gwsw:hasConnection            :Compartiment_23_ori .
+_:EindpuntLeiding_112
+	gwsw:hasConnection            :Compartiment_40_ori .
+:GemengdRiool_108
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:LengteLeiding ;
+	gwsw:hasValue                 41.00 ] .
+:GemengdRiool_108
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:MateriaalLeiding ;
+	gwsw:hasReference             gwsw:PVC ] .
+:GemengdRiool_108
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:Verbindingstype ;
+	gwsw:hasReference             gwsw:DubbeleSteekmof ] .
+:Straat_421_vrh_1_fun_1
+	rdf:type                      gwsw:Straat ;
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:Straatnaam ;
+	gwsw:hasValue                 "421" ] .
+:Straat_421_vrh_1_fun_1
+	gwsw:hasPart                  :GemengdRiool_108 .
+:Kern_AA
+	gwsw:hasPart                  :GemengdRiool_108 .
+:Afwateringsgebied_XXX
+	gwsw:hasPart                  :GemengdRiool_108 .
+:GemengdRiool_108
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:BreedteLeiding ;
+	gwsw:hasValue                 250 ] .
+:GemengdRiool_108
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:HoogteLeiding ;
+	gwsw:hasValue                 250 ] .
+	
+#============================================================================================
+#Opm20: Materiaal is PVC met SDR 51, wanddikte berekend: 250/51 (20190903)
+#============================================================================================
+:GemengdRiool_108
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:Wanddikte ;
+	gwsw:hasValue                 5 ] .
+
+:GemengdRiool_108
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:VormLeiding ;
+	gwsw:hasReference             gwsw:Rond ] .
+:GemengdRiool_108
+	gwsw:hasPart                  [
+	rdf:type                      gwsw:Grondverbetering ] .
+:GemengdRiool_108
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:Begindatum ;
+	gwsw:hasValue                 "1980-01-01"^^xsd:date ] .
+	
+#============================================================================================
+#Opm: Leiding 8 (tussen putten 0978 en 0979) bevat alle kenmerken conform GWSW-MdsPlan
+#============================================================================================
+
+:GemengdRiool_116
+	rdf:type                      gwsw:GemengdRiool ;
+	rdfs:label                    "8" .
+:GemengdStelsel_2
+	gwsw:hasPart                  :GemengdRiool_116 .
+:GemengdRiool_116
+	gwsw:hasAspect                :GemengdRiool_116_ori .
+:GemengdRiool_116_ori
+	rdf:type                      gwsw:Leidingorientatie ;
+	gwsw:hasPart                  _:BeginpuntLeiding_117 .
+_:BeginpuntLeiding_117
+	rdf:type                      gwsw:BeginpuntLeiding ;
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:BobBeginpuntLeiding ;
+	gwsw:hasValue                 22.77 ] .
+:GemengdRiool_116_ori
+	gwsw:hasPart                  _:EindpuntLeiding_118 .
+_:EindpuntLeiding_118
+	rdf:type                      gwsw:EindpuntLeiding ;
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:BobEindpuntLeiding ;
+	gwsw:hasValue                 22.45 ] .
+:GemengdRiool_116_ori
+	gwsw:hasAspect                _:Lijn_119 .
+_:Lijn_119
+	rdf:type                      gwsw:Lijn ;
+	gwsw:hasValue                 "<gml:LineString xmlns:gml=\"http://www.opengis.net/gml\"><gml:posList srsDimension=\"3\">168443.01 442691.00 22.77 168462.01 442691.30 22.45</gml:posList></gml:LineString>"^^geo:gmlLiteral .
+_:BeginpuntLeiding_117
+	gwsw:hasConnection            :Compartiment_6_ori .
+_:EindpuntLeiding_118
+	gwsw:hasConnection            :Inspectieput_17_ori .
+:GemengdRiool_116
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:LengteLeiding ;
+	gwsw:hasValue                 19.00 ] .
+:GemengdRiool_116
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:MateriaalLeiding ;
+	gwsw:hasReference             gwsw:Beton ] .
+:GemengdRiool_116
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:Verbindingstype ;
+	gwsw:hasReference             gwsw:Vaar_moer ] .
+:GemengdRiool_116
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:GeslotenVerhardOppervlakVlak ;
+	gwsw:hasValue                 10000 ] .
+:GemengdRiool_116
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:OpenVerhardOppervlakVlak ;
+	gwsw:hasValue                 193 ] .
+:Straat_HG_vrh_2_fun_1
+	gwsw:hasPart                  :GemengdRiool_116 .
+:Kern_AA
+	gwsw:hasPart                  :GemengdRiool_116 .
+:Ondergrond_3
+	gwsw:hasPart                  :GemengdRiool_116 .
+:Afwateringsgebied_Dfd
+	gwsw:hasPart                  :GemengdRiool_116 .
+:GemengdRiool_116
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:BreedteLeiding ;
+	gwsw:hasValue                 400 ] .
+:GemengdRiool_116
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:HoogteLeiding ;
+	gwsw:hasValue                 600 ] .
+:GemengdRiool_116
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:VormLeiding ;
+	gwsw:hasReference             gwsw:Eivormig ] .
+:GemengdRiool_116
+	gwsw:hasPart                  [
+	rdf:type                      gwsw:Grondverbetering ] .
+:GemengdRiool_116
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:Begindatum ;
+	gwsw:hasValue                 "1970-01-01"^^xsd:date ] .
+:VisueelInspecterenVrijvervalLeiding_120
+	rdf:type                      gwsw:VisueelInspecterenVrijvervalLeiding ;
+	gwsw:hasInput                 :GemengdRiool_116 ;
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:DatumMaatregel ;
+	gwsw:hasValue                 "2003-02-17"^^xsd:date ] .
+	
+#==============================================================================================
+# Opm: 2x Reinigen. In Geo-thema Default en Beheer verschijnt de meest recente datum (20260416)
+#==============================================================================================
+:Hoge_drukReinigen_121
+	rdf:type                      gwsw:ReinigenVrijvervalLeiding ;
+	gwsw:hasInput                 :GemengdRiool_116 ;
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:DatumMaatregel ;
+	gwsw:hasValue                 "2003-02-17"^^xsd:date ] .
+
+:Doorspoelen_122
+	rdf:type                      gwsw:Doorspoelen ;
+	gwsw:hasInput                 :GemengdRiool_116 ;
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:DatumMaatregel ;
+	gwsw:hasValue                 "2026-04-16"^^xsd:date ] .
+	
+:GemengdRiool_128
+	rdf:type                      gwsw:GemengdRiool ;
+	rdfs:label                    "10" .
+:GemengdStelsel_2
+	gwsw:hasPart                  :GemengdRiool_128 .
+:GemengdRiool_128
+	gwsw:hasAspect                :GemengdRiool_128_ori .
+:GemengdRiool_128_ori
+	rdf:type                      gwsw:Leidingorientatie ;
+	gwsw:hasPart                  _:BeginpuntLeiding_129 .
+_:BeginpuntLeiding_129
+	rdf:type                      gwsw:BeginpuntLeiding ;
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:BobBeginpuntLeiding ;
+	gwsw:hasValue                 22.84 ] .
+:GemengdRiool_128_ori
+	gwsw:hasPart                  _:EindpuntLeiding_130 .
+_:EindpuntLeiding_130
+	rdf:type                      gwsw:EindpuntLeiding ;
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:BobEindpuntLeiding ;
+	gwsw:hasValue                 22.70 ] .
+:GemengdRiool_128_ori
+	gwsw:hasAspect                _:Lijn_131 .
+_:Lijn_131
+	rdf:type                      gwsw:Lijn ;
+	gwsw:hasValue                 "<gml:LineString xmlns:gml=\"http://www.opengis.net/gml\"><gml:posList srsDimension=\"3\">168470.51 442655.66 22.84 168462.01 442691.30 22.70</gml:posList></gml:LineString>"^^geo:gmlLiteral .
+_:BeginpuntLeiding_129
+	gwsw:hasConnection            :Inspectieput_81_ori .
+_:EindpuntLeiding_130
+	gwsw:hasConnection            :Inspectieput_17_ori .
+:GemengdRiool_128
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:LengteLeiding ;
+	gwsw:hasValue                 37.00 ] .
+:GemengdRiool_128
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:MateriaalLeiding ;
+	gwsw:hasReference             gwsw:Beton ] .
+:GemengdRiool_128
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:Verbindingstype ;
+	gwsw:hasReference             gwsw:Vaar_moer ] .
+:GemengdRiool_128
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:GeslotenVerhardOppervlakVlak ;
+	gwsw:hasValue                 939 ] .
+:Straat_JH_vrh_2_fun_1
+	rdf:type                      gwsw:Straat ;
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:Straatnaam ;
+	gwsw:hasValue                 "Jan Hardhoutweg" ] .
+:Straat_JH_vrh_2_fun_1
+	gwsw:hasPart                  :GemengdRiool_128 .
+:Kern_AA
+	gwsw:hasPart                  :GemengdRiool_128 .
+:Ondergrond_3
+	gwsw:hasPart                  :GemengdRiool_128 .
+
+:Afwateringsgebied_Dfd
+	gwsw:hasPart                  :GemengdRiool_128 .
+
+:GemengdRiool_128
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:BreedteLeiding ;
+	gwsw:hasValue                 400 ] .
+:GemengdRiool_128
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:HoogteLeiding ;
+	gwsw:hasValue                 600 ] .
+:GemengdRiool_128
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:VormLeiding ;
+	gwsw:hasReference             gwsw:Eivormig ] .
+:GemengdRiool_128
+	gwsw:hasPart                  [
+	rdf:type                      gwsw:Grondverbetering ] .
+:GemengdRiool_128
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:Begindatum ;
+	gwsw:hasValue                 "1970-01-01"^^xsd:date ] .
+:GemengdRiool_132
+	rdf:type                      gwsw:GemengdRiool ;
+	rdfs:label                    "11" .
+:GemengdStelsel_2
+	gwsw:hasPart                  :GemengdRiool_132 .
+:GemengdRiool_132
+	gwsw:hasAspect                :GemengdRiool_132_ori .
+:GemengdRiool_132_ori
+	rdf:type                      gwsw:Leidingorientatie ;
+	gwsw:hasPart                  _:BeginpuntLeiding_133 .
+_:BeginpuntLeiding_133
+	rdf:type                      gwsw:BeginpuntLeiding .
+:GemengdRiool_132_ori
+	gwsw:hasPart                  _:EindpuntLeiding_134 .
+_:EindpuntLeiding_134
+	rdf:type                      gwsw:EindpuntLeiding .
+:GemengdRiool_132_ori
+	gwsw:hasAspect                _:Lijn_135 .
+_:Lijn_135
+	rdf:type                      gwsw:Lijn ;
+	gwsw:hasValue                 "<gml:LineString xmlns:gml=\"http://www.opengis.net/gml\"><gml:posList srsDimension=\"3\">168503.00 442701.30 23.09 168512.00 442665.00 23.09</gml:posList></gml:LineString>"^^geo:gmlLiteral .
+_:BeginpuntLeiding_133
+	gwsw:hasConnection            :Inspectieput_20_ori .
+_:EindpuntLeiding_134
+	gwsw:hasConnection            :Inspectieput_27_ori .
+:GemengdRiool_132
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:LengteLeiding ;
+	gwsw:hasValue                 37.00 ] .
+:GemengdRiool_132
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:MateriaalLeiding ;
+	gwsw:hasReference             gwsw:PVC ] .
+:GemengdRiool_132
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:Verbindingstype ;
+	gwsw:hasReference             gwsw:Vaar_moer ] .
+:GemengdRiool_132
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:GeslotenVerhardOppervlakVlak ;
+	gwsw:hasValue                 939 ] .
+:Straat_JS_vrh_2_fun_1
+	gwsw:hasPart                  :GemengdRiool_132 .
+:Kern_AA
+	gwsw:hasPart                  :GemengdRiool_132 .
+:Ondergrond_3
+	gwsw:hasPart                  :GemengdRiool_132 .
+:Afwateringsgebied_XXX
+	gwsw:hasPart                  :GemengdRiool_132 .
+#
+# Opm: concept DiameterLeiding ipv Breedte/Hoogte is toegestaan (20210521)
+#
+:GemengdRiool_132
+	gwsw:hasAspect                [
+#	rdf:type                      gwsw:BreedteLeiding ;
+	rdf:type                      gwsw:DiameterLeiding ;
+	gwsw:hasValue                 110 ] .
+#:GemengdRiool_132
+#	gwsw:hasAspect                [
+#	rdf:type                      gwsw:HoogteLeiding ;
+#	gwsw:hasValue                 110 ] .
+:GemengdRiool_132
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:VormLeiding ;
+	gwsw:hasReference             gwsw:Rond ] .
+:GemengdRiool_132
+	gwsw:hasPart                  [
+	rdf:type                      gwsw:Grondverbetering ] .
+:GemengdRiool_132
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:Begindatum ;
+	gwsw:hasValue                 "1970-01-01"^^xsd:date ] .
+:GemengdRiool_136
+	rdf:type                      gwsw:GemengdRiool ;
+	rdfs:label                    "12" .
+:GemengdStelsel_2
+	gwsw:hasPart                  :GemengdRiool_136 .
+:GemengdRiool_136
+	gwsw:hasAspect                :GemengdRiool_136_ori .
+:GemengdRiool_136_ori
+	rdf:type                      gwsw:Leidingorientatie ;
+	gwsw:hasPart                  _:BeginpuntLeiding_137 .
+_:BeginpuntLeiding_137
+	rdf:type                      gwsw:BeginpuntLeiding ;
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:BobBeginpuntLeiding ;
+	gwsw:hasValue                 22.90 ] .
+:GemengdRiool_136_ori
+	gwsw:hasPart                  _:EindpuntLeiding_138 .
+_:EindpuntLeiding_138
+	rdf:type                      gwsw:EindpuntLeiding ;
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:BobEindpuntLeiding ;
+	gwsw:hasValue                 22.84 ] .
+:GemengdRiool_136_ori
+	gwsw:hasAspect                _:Lijn_139 .
+_:Lijn_139
+	rdf:type                      gwsw:Lijn ;
+	gwsw:hasValue                 "<gml:LineString xmlns:gml=\"http://www.opengis.net/gml\"><gml:posList srsDimension=\"3\">168478.00 442618.60 22.90 168470.51 442655.66 22.84</gml:posList></gml:LineString>"^^geo:gmlLiteral .
+_:BeginpuntLeiding_137
+	gwsw:hasConnection            :Inspectieput_78_ori .
+_:EindpuntLeiding_138
+	gwsw:hasConnection            :Inspectieput_81_ori .
+:GemengdRiool_136
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:LengteLeiding ;
+	gwsw:hasValue                 38.00 ] .
+
+#============================================================================================
+# 20220301/mv: Leiding is gerelined, heeft als deel Lining met kenmerken
+#============================================================================================
+
+:GemengdRiool_136
+	gwsw:hasPart                  [
+		rdf:type                    gwsw:Lining ;
+		gwsw:hasAspect [
+			rdf:type                  gwsw:Begindatum ;
+			gwsw:hasValue             "2022-03-01"^^xsd:date ; 
+		] ;
+  	gwsw:hasAspect [ 
+			rdf:type                  gwsw:DikteLining ;
+			gwsw:hasValue             20 ;
+		] ;
+  ] .
+
+:GemengdRiool_136
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:MateriaalLeiding ;
+	gwsw:hasReference             gwsw:Beton ] .
+:GemengdRiool_136
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:Verbindingstype ;
+	gwsw:hasReference             gwsw:Vaar_moer ] .
+:GemengdRiool_136
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:GeslotenVerhardOppervlakVlak ;
+	gwsw:hasValue                 964 ] .
+:Straat_JH_vrh_2_fun_1
+	gwsw:hasPart                  :GemengdRiool_136 .
+:Kern_AA
+	gwsw:hasPart                  :GemengdRiool_136 .
+:Ondergrond_3
+	gwsw:hasPart                  :GemengdRiool_136 .
+:Afwateringsgebied_XXX
+	gwsw:hasPart                  :GemengdRiool_136 .
+:GemengdRiool_136
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:BreedteLeiding ;
+	gwsw:hasValue                 400 ] .
+:GemengdRiool_136
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:HoogteLeiding ;
+	gwsw:hasValue                 600 ] .
+:GemengdRiool_136
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:VormLeiding ;
+	gwsw:hasReference             gwsw:Eivormig ] .
+:GemengdRiool_136
+	gwsw:hasPart                  [
+	rdf:type                      gwsw:Grondverbetering ] .
+:GemengdRiool_136
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:Begindatum ;
+	gwsw:hasValue                 "1970-01-01"^^xsd:date ] .
+:GemengdRiool_140
+	rdf:type                      gwsw:GemengdRiool ;
+	rdfs:label                    "13" .
+:GemengdStelsel_2
+	gwsw:hasPart                  :GemengdRiool_140 .
+:GemengdRiool_140
+	gwsw:hasAspect                :GemengdRiool_140_ori .
+:GemengdRiool_140_ori
+	rdf:type                      gwsw:Leidingorientatie ;
+	gwsw:hasPart                  _:BeginpuntLeiding_141 .
+_:BeginpuntLeiding_141
+	rdf:type                      gwsw:BeginpuntLeiding ;
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:BobBeginpuntLeiding ;
+	gwsw:hasValue                 23.00 ] .
+:GemengdRiool_140_ori
+	gwsw:hasPart                  _:EindpuntLeiding_142 .
+_:EindpuntLeiding_142
+	rdf:type                      gwsw:EindpuntLeiding .
+:GemengdRiool_140_ori
+	gwsw:hasAspect                _:Lijn_143 .
+_:Lijn_143
+	rdf:type                      gwsw:Lijn ;
+	gwsw:hasValue                 "<gml:LineString xmlns:gml=\"http://www.opengis.net/gml\"><gml:posList srsDimension=\"2\">168520.00 442628.50 168562.38 442641.20</gml:posList></gml:LineString>"^^geo:gmlLiteral .
+_:BeginpuntLeiding_141
+	gwsw:hasConnection            :Inspectieput_30_ori .
+:GemengdRiool_140
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:LengteLeiding ;
+	gwsw:hasValue                 44.00 ] .
+:GemengdRiool_140
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:MateriaalLeiding ;
+	gwsw:hasReference             gwsw:Beton ] .
+:GemengdRiool_140
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:Verbindingstype ;
+	gwsw:hasReference             gwsw:Mof_spie ] .
+:Straat_021_vrh_1_fun_1
+	gwsw:hasPart                  :GemengdRiool_140 .
+:GemengdRiool_140
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:BreedteLeiding ;
+	gwsw:hasValue                 500 ] .
+:GemengdRiool_140
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:HoogteLeiding ;
+	gwsw:hasValue                 500 ] .
+:GemengdRiool_140
+	gwsw:hasAspect                _:VormLeiding_144 .
+_:VormLeiding_144
+	rdf:type                      gwsw:VormLeiding ;
+	gwsw:hasReference             gwsw:Rond ;
+	gwsw:hasAspect                _:Inwinning_145 .
+_:Inwinning_145
+	rdf:type                      gwsw:Inwinning ;
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:WijzeVanInwinning ;
+	gwsw:hasReference             gwsw:Luchtfoto ] .
+:GemengdRiool_140
+	gwsw:hasPart                  [
+	rdf:type                      gwsw:Grondverbetering ] .
+:GemengdRiool_140
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:Begindatum ;
+	gwsw:hasValue                 "1970-01-01"^^xsd:date ] .
+:GemengdRiool_146
+	rdf:type                      gwsw:GemengdRiool ;
+	rdfs:label                    "14" .
+:GemengdStelsel_2
+	gwsw:hasPart                  :GemengdRiool_146 .
+:GemengdRiool_146
+	gwsw:hasAspect                :GemengdRiool_146_ori .
+:GemengdRiool_146_ori
+	rdf:type                      gwsw:Leidingorientatie ;
+	gwsw:hasPart                  _:BeginpuntLeiding_147 .
+_:BeginpuntLeiding_147
+	rdf:type                      gwsw:BeginpuntLeiding ;
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:BobBeginpuntLeiding ;
+	gwsw:hasValue                 23.00 ] .
+:GemengdRiool_146_ori
+	gwsw:hasPart                  _:EindpuntLeiding_148 .
+_:EindpuntLeiding_148
+	rdf:type                      gwsw:EindpuntLeiding ;
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:BobEindpuntLeiding ;
+	gwsw:hasValue                 22.90 ] .
+:GemengdRiool_146_ori
+	gwsw:hasAspect                _:Lijn_149 .
+_:Lijn_149
+	rdf:type                      gwsw:Lijn ;
+	gwsw:hasValue                 "<gml:LineString xmlns:gml=\"http://www.opengis.net/gml\"><gml:posList srsDimension=\"3\">168520.00 442628.50 23.00 168478.00 442618.60 22.90</gml:posList></gml:LineString>"^^geo:gmlLiteral .
+_:BeginpuntLeiding_147
+	gwsw:hasConnection            :Inspectieput_30_ori .
+_:EindpuntLeiding_148
+	gwsw:hasConnection            :Inspectieput_78_ori .
+:GemengdRiool_146
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:LengteLeiding ;
+	gwsw:hasValue                 43.00 ] .
+:GemengdRiool_146
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:MateriaalLeiding ;
+	gwsw:hasReference             gwsw:Beton ] .
+:GemengdRiool_146
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:Verbindingstype ;
+	gwsw:hasReference             gwsw:Mof_spie ] .
+:Straat_021_vrh_1_fun_1
+	gwsw:hasPart                  :GemengdRiool_146 .
+:Kern_AA
+	gwsw:hasPart                  :GemengdRiool_146 .
+:Afwateringsgebied_XXX
+	gwsw:hasPart                  :GemengdRiool_146 .
+:GemengdRiool_146
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:BreedteLeiding ;
+	gwsw:hasValue                 500 ] .
+:GemengdRiool_146
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:HoogteLeiding ;
+	gwsw:hasValue                 500 ] .
+:GemengdRiool_146
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:VormLeiding ;
+	gwsw:hasReference             gwsw:Rond ] .
+:GemengdRiool_146
+	gwsw:hasPart                  [
+	rdf:type                      gwsw:Grondverbetering ] .
+:GemengdRiool_146
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:Begindatum ;
+	gwsw:hasValue                 "1970-01-01"^^xsd:date ] .
+:VisueelInspecterenVrijvervalLeiding_150
+	rdf:type                      gwsw:VisueelInspecterenVrijvervalLeiding ;
+	gwsw:hasInput                 :GemengdRiool_146 ;
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:DatumMaatregel ;
+	gwsw:hasValue                 "1984-09-14"^^xsd:date ] .
+:GemengdRiool_151
+	rdf:type                      gwsw:GemengdRiool ;
+	rdfs:label                    "15" .
+:GemengdStelsel_2
+	gwsw:hasPart                  :GemengdRiool_151 .
+:GemengdRiool_151
+	gwsw:hasAspect                :GemengdRiool_151_ori .
+:GemengdRiool_151_ori
+	rdf:type                      gwsw:Leidingorientatie ;
+	gwsw:hasPart                  _:BeginpuntLeiding_152 .
+_:BeginpuntLeiding_152
+	rdf:type                      gwsw:BeginpuntLeiding ;
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:BobBeginpuntLeiding ;
+	gwsw:hasValue                 22.72 ] .
+:GemengdRiool_151_ori
+	gwsw:hasPart                  _:EindpuntLeiding_153 .
+_:EindpuntLeiding_153
+	rdf:type                      gwsw:EindpuntLeiding ;
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:BobEindpuntLeiding ;
+	gwsw:hasValue                 23.11 ] .
+:GemengdRiool_151_ori
+	gwsw:hasAspect                _:Lijn_154 .
+_:Lijn_154
+	rdf:type                      gwsw:Lijn ;
+	gwsw:hasValue                 "<gml:LineString xmlns:gml=\"http://www.opengis.net/gml\"><gml:posList srsDimension=\"3\">168584.30 442739.80 22.72 168613.21 442749.90 23.11</gml:posList></gml:LineString>"^^geo:gmlLiteral .
+_:BeginpuntLeiding_152
+	gwsw:hasConnection            :Compartiment_60_ori .
+_:EindpuntLeiding_153
+	gwsw:hasConnection            :Inspectieput_71_ori .
+:GemengdRiool_151
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:LengteLeiding ;
+	gwsw:hasValue                 30.62 ] .
+:GemengdRiool_151
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:MateriaalLeiding ;
+	gwsw:hasReference             gwsw:Beton ] .
+:GemengdRiool_151
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:Verbindingstype ;
+	gwsw:hasReference             gwsw:Vaar_moer ] .
+:Straat_HG_vrh_2_fun_1
+	gwsw:hasPart                  :GemengdRiool_151 .
+:Kern_AA
+	gwsw:hasPart                  :GemengdRiool_151 .
+:Ondergrond_3
+	gwsw:hasPart                  :GemengdRiool_151 .
+:GemengdRiool_151
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:BreedteLeiding ;
+	gwsw:hasValue                 400 ] .
+:GemengdRiool_151
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:HoogteLeiding ;
+	gwsw:hasValue                 600 ] .
+:GemengdRiool_151
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:VormLeiding ;
+	gwsw:hasReference             gwsw:Eivormig ] .
+:GemengdRiool_151
+	gwsw:hasPart                  [
+	rdf:type                      gwsw:Grondverbetering ] .
+:GemengdRiool_151
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:Begindatum ;
+	gwsw:hasValue                 "1970-01-01"^^xsd:date ] .
+:VisueelInspecterenVrijvervalLeiding_155
+	rdf:type                      gwsw:VisueelInspecterenVrijvervalLeiding ;
+	gwsw:hasInput                 :GemengdRiool_151 ;
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:DatumMaatregel ;
+	gwsw:hasValue                 "1992-02-17"^^xsd:date ] .
+	
+:Persleiding_160
+	rdf:type                      gwsw:Persleiding ;
+	rdfs:label                    "1" .
+
+# 20230417/mv: Persleiding heeft als deel Ontluchter
+
+:Persleiding_160
+	gwsw:hasPart											:Ontluchter_160 .
+:Ontluchter_160
+	rdf:type				              gwsw:Ontluchter ;
+	rdfs:label                    "Ontluchter persleiding 106" ;
+	gwsw:hasAspect   								  [
+	rdf:type                      gwsw:Appendage_orientatie ;
+	gwsw:hasAspect                    [
+	rdf:type                      gwsw:Punt ;
+	gwsw:hasValue                     "<gml:Point xmlns:gml=\"http://www.opengis.net/gml\"><gml:pos>168423.53 442760.75</gml:pos></gml:Point>"^^geo:gmlLiteral ;
+	]] ; 
+.
+
+# 20230417/mv: Persleiding heeft een StatusFunctioneren
+
+:Persleiding_160
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:StatusFunctioneren ;
+	gwsw:hasReference             gwsw:InGebruik ] ;
+.
+	
+#corr: Gemengd stelsel heeft geen persleiding, gecorrigeerd (20190409)
+#:GemengdStelsel_2
+:Persleidingsysteem_1
+	gwsw:hasPart                  :Persleiding_160 .
+
+:Persleiding_160
+	gwsw:hasAspect                :Persleiding_160_ori .
+:Persleiding_160_ori
+	rdf:type                      gwsw:Leidingorientatie ;
+	gwsw:hasPart                  _:BeginpuntLeiding_161 .
+_:BeginpuntLeiding_161
+	rdf:type                      gwsw:BeginpuntLeiding .
+:Persleiding_160_ori
+	gwsw:hasPart                  _:EindpuntLeiding_162 .
+_:EindpuntLeiding_162
+	rdf:type                      gwsw:EindpuntLeiding .
+:Persleiding_160_ori
+	gwsw:hasAspect                _:Lijn_163 .
+_:Lijn_163
+	rdf:type                      gwsw:Lijn ;
+	gwsw:hasValue                 "<gml:LineString xmlns:gml=\"http://www.opengis.net/gml\"><gml:posList srsDimension=\"3\">168421.53 442757.75 -1.00 168420.59 442733.53 23.20</gml:posList></gml:LineString>"^^geo:gmlLiteral .
+_:EindpuntLeiding_162
+	gwsw:hasConnection            :Verbindingsstuk_85_ori .
+:Persleiding_160
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:LengteLeiding ;
+	gwsw:hasValue                 24.24 ] .
+:Afwateringsgebied_Dfd
+	gwsw:hasPart                  :Persleiding_160 .
+
+#==========================================================================================================================
+# Voorbeeld perceelaansluiting: bevat vier aansluitleidingen verbonden met een inlaat/T-stuk/ontstoppingsstuk
+#==========================================================================================================================
+
+:GemengdStelsel_2
+	gwsw:hasPart                  :Aansluiting_191 . # Stelsel heeft als deel de aansluiting (en daarmee ook alle aansluiting-onderdelen)
+:Aansluiting_191
+	rdf:type                      gwsw:Perceelaansluiting ;
+	rdfs:label                    "Aansluiting perceel" ;
+	gwsw:hasPart                  :InlaatLeiding_190 ;
+	gwsw:hasPart                  :Aansluitleiding_182 ;
+	gwsw:hasPart                  :Aansluitleiding_186 ;
+	gwsw:hasPart                  :Aansluitleiding_197 ;
+	gwsw:hasPart                  :Aansluitleiding_201 ;
+	gwsw:hasPart                  :T_stuk_92 ;
+	gwsw:hasPart                  :Ontstoppingsstuk_104 ;
+	gwsw:hasAspect                [
+	  rdf:type                    gwsw:Aanlegdiepte ; # Vanaf GWSW 1.6
+	  gwsw:hasValue               0.80 ] .
+
+# Inlaat is deel van de perceelaansluiting "Aansluiting perceel" en/of van het hoofdriool
+
+:GemengdRiool_151
+	gwsw:hasPart                  :InlaatLeiding_190 .
+:InlaatLeiding_190
+	rdf:type                      gwsw:InlaatLeiding .
+:InlaatLeiding_190
+	gwsw:hasAspect                :InlaatLeiding_190_ori ;
+	rdfs:label                    "I-190" .
+:InlaatLeiding_190_ori
+	rdf:type                      gwsw:Hulpstukorientatie ;
+	gwsw:hasAspect                [
+    rdf:type                    gwsw:Punt ;
+    gwsw:hasValue               "<gml:Point xmlns:gml=\"http://www.opengis.net/gml\"><gml:pos>168494.47 442699.09</gml:pos></gml:Point>"^^geo:gmlLiteral ] .
+
+# Aansluitleiding "186" op de inlaat
+
+:Aansluitleiding_186
+	rdf:type                      gwsw:GemengdePerceelaansluitleiding ; # 20220405/mv: type aangepast, was "Aansluitleiding"
+	rdfs:label                    "186" .
+:Aansluitleiding_186
+	gwsw:hasAspect                :Aansluitleiding_186_ori .
+:Aansluitleiding_186_ori
+	rdf:type                      gwsw:Leidingorientatie ;
+	gwsw:hasPart                  _:BeginpuntLeiding_187 .
+_:BeginpuntLeiding_187
+	rdf:type                      gwsw:BeginpuntLeiding ;
+	gwsw:hasConnection            :InlaatLeiding_190_ori .
+:Aansluitleiding_186_ori
+	gwsw:hasPart                  _:EindpuntLeiding_188 .
+_:EindpuntLeiding_188
+	rdf:type                      gwsw:EindpuntLeiding ;
+	gwsw:hasConnection            :T_stuk_92_ori .
+:Aansluitleiding_186_ori
+	gwsw:hasAspect                [
+	  rdf:type                    gwsw:Lijn ;
+	  gwsw:hasValue               "<gml:LineString xmlns:gml=\"http://www.opengis.net/gml\"><gml:posList srsDimension=\"3\">168494.47 442699.09 23.04 168497.03 442689.94 23.09</gml:posList></gml:LineString>"^^geo:gmlLiteral ] .
+:Aansluitleiding_186
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:Begindatum ;
+	gwsw:hasValue                 "2019-03-16"^^xsd:date ] .
+:Aansluitleiding_186
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:LengteLeiding ;
+	gwsw:hasValue                 10 ] .
+:Aansluitleiding_186
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:MateriaalLeiding ;
+	gwsw:hasReference             gwsw:PVC ] .
+:Aansluitleiding_186
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:BreedteLeiding ;
+	gwsw:hasValue                 160 ] .
+:Aansluitleiding_186
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:VormLeiding ;
+	gwsw:hasReference             gwsw:Rond ] .
+
+# Aansluitleiding verbonden via T-stuk
+
+:Aansluitleiding_182
+	rdf:type                      gwsw:Perceelaansluitleiding ;
+	rdfs:label                    "182" .
+:Aansluitleiding_182
+	gwsw:hasAspect                :Aansluitleiding_182_ori .
+:Aansluitleiding_182_ori
+	rdf:type                      gwsw:Leidingorientatie ;
+	gwsw:hasPart                  _:BeginpuntLeiding_182 .
+_:BeginpuntLeiding_182
+	rdf:type                      gwsw:BeginpuntLeiding ;
+	gwsw:hasConnection            :T_stuk_92_ori .
+:Aansluitleiding_182_ori
+	gwsw:hasPart                  _:EindpuntLeiding_182 .
+_:EindpuntLeiding_182
+	rdf:type                      gwsw:EindpuntLeiding .
+:Aansluitleiding_182_ori
+	gwsw:hasAspect                _:Lijn_185 .
+_:Lijn_185
+	rdf:type                      gwsw:Lijn ;
+	gwsw:hasValue                 "<gml:LineString xmlns:gml=\"http://www.opengis.net/gml\"><gml:posList srsDimension=\"3\">168497.03 442689.94 23.09 168498.52 442683.66 23.09</gml:posList></gml:LineString>"^^geo:gmlLiteral .
+:Aansluitleiding_182
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:LengteLeiding ;
+	gwsw:hasValue                 6.45 ] .
+:Aansluitleiding_182
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:MateriaalLeiding ;
+	gwsw:hasReference             gwsw:PVC ] .
+:Aansluitleiding_182
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:BreedteLeiding ;
+	gwsw:hasValue                 110 ] .
+:Aansluitleiding_182
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:HoogteLeiding ;
+	gwsw:hasValue                 110 ] .
+:Aansluitleiding_182
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:VormLeiding ;
+	gwsw:hasReference             gwsw:Rond ] .
+:Aansluitleiding_182
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:Begindatum ;
+	gwsw:hasValue                 "2019-03-16"^^xsd:date ] .
+
+# Aansluitleiding verbonden via T-stuk
+
+:Aansluitleiding_197
+	rdf:type                      gwsw:Perceelaansluitleiding ; # Globaal supertype (soort afvalwater niet gedefinieerd)
+	rdfs:label                    "197" .
+:Aansluitleiding_197
+	gwsw:hasAspect                :Aansluitleiding_197_ori .
+:Aansluitleiding_197_ori
+	rdf:type                      gwsw:Leidingorientatie ;
+	gwsw:hasPart                  _:BeginpuntLeiding_197 .
+_:BeginpuntLeiding_197
+	rdf:type                      gwsw:BeginpuntLeiding ;
+ 	gwsw:hasConnection            :T_stuk_92_ori .
+:Aansluitleiding_197_ori
+	gwsw:hasPart                  _:EindpuntLeiding_197 .
+_:EindpuntLeiding_197
+	rdf:type                      gwsw:EindpuntLeiding .
+:Aansluitleiding_197_ori
+	gwsw:hasAspect                _:Lijn_200 .
+_:Lijn_200
+	rdf:type                      gwsw:Lijn ;
+	gwsw:hasValue                 "<gml:LineString xmlns:gml=\"http://www.opengis.net/gml\"><gml:posList srsDimension=\"3\">168497.03 442689.94 23.09 168503.10 442691.17 23.09 168503.50 442689.41 23.09</gml:posList></gml:LineString>"^^geo:gmlLiteral .
+_:BeginpuntLeiding_197
+	gwsw:hasConnection            :T_stuk_92_ori .
+_:EindpuntLeiding_197
+	gwsw:hasConnection            :Ontstoppingsstuk_104_ori .
+:Aansluitleiding_197
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:LengteLeiding ;
+	gwsw:hasValue                 8.00 ] .
+:Aansluitleiding_197
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:MateriaalLeiding ;
+	gwsw:hasReference             gwsw:PVC ] .
+:Aansluitleiding_197
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:BreedteLeiding ;
+	gwsw:hasValue                 110 ] .
+:Aansluitleiding_197
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:HoogteLeiding ;
+	gwsw:hasValue                 110 ] .
+:Aansluitleiding_197
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:VormLeiding ;
+	gwsw:hasReference             gwsw:Rond ] .
+:Aansluitleiding_197
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:Begindatum ;
+	gwsw:hasValue                 "2019-03-16"^^xsd:date ] .
+
+# Aansluitleiding verbonden via ontstoppingsstuk
+
+:Aansluitleiding_201
+	rdf:type                      gwsw:HwaPerceelaansluitleiding ; # Soort afvalwater gespecificeerd
+	rdfs:label                    "201" .
+:Aansluitleiding_201
+	gwsw:hasAspect                :Aansluitleiding_201_ori .
+:Aansluitleiding_201_ori
+	rdf:type                      gwsw:Leidingorientatie ;
+	gwsw:hasPart                  _:BeginpuntLeiding_202 .
+_:BeginpuntLeiding_202
+	rdf:type                      gwsw:BeginpuntLeiding .
+:Aansluitleiding_201_ori
+	gwsw:hasPart                  _:EindpuntLeiding_203 .
+_:EindpuntLeiding_203
+	rdf:type                      gwsw:EindpuntLeiding .
+:Aansluitleiding_201_ori
+	gwsw:hasAspect                _:Lijn_204 .
+_:Lijn_204
+	rdf:type                      gwsw:Lijn ;
+	gwsw:hasValue                 "<gml:LineString xmlns:gml=\"http://www.opengis.net/gml\"><gml:posList srsDimension=\"3\">168503.50 442689.41 23.09 168504.53 442685.16 23.09</gml:posList></gml:LineString>"^^geo:gmlLiteral .
+_:BeginpuntLeiding_202
+	gwsw:hasConnection            :Ontstoppingsstuk_104_ori .
+:Aansluitleiding_201
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:LengteLeiding ;
+	gwsw:hasValue                 4.37 ] .
+:Aansluitleiding_201
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:MateriaalLeiding ;
+	gwsw:hasReference             gwsw:PVC ] .
+:Aansluitleiding_201
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:BreedteLeiding ;
+	gwsw:hasValue                 110 ] .
+:Aansluitleiding_201
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:HoogteLeiding ;
+	gwsw:hasValue                 110 ] .
+:Aansluitleiding_201
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:VormLeiding ;
+	gwsw:hasReference             gwsw:Rond ] .
+:Aansluitleiding_201
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:Begindatum ;
+	gwsw:hasValue                 "1970-01-01"^^xsd:date ] .
+
+# Het T-stuk
+
+:T_stuk_92
+	rdf:type				              gwsw:T_stuk ;
+	rdfs:label                    "T-92" ;
+	gwsw:hasAspect   							:T_stuk_92_ori .
+:T_stuk_92_ori
+	rdf:type                      gwsw:Hulpstukorientatie ;
+	gwsw:hasAspect                [
+	  rdf:type                    gwsw:Punt ;
+	  gwsw:hasValue               "<gml:Point xmlns:gml=\"http://www.opengis.net/gml\"><gml:pos>168497.03 442689.94</gml:pos></gml:Point>"^^geo:gmlLiteral ] .
+
+# Het ontstoppingsstuk
+
+:Ontstoppingsstuk_104
+	rdf:type				              gwsw:Ontstoppingsstuk ;
+	rdfs:label                    "O-104" ;
+	gwsw:hasAspect   							:Ontstoppingsstuk_104_ori .
+:Ontstoppingsstuk_104_ori
+	rdf:type                      gwsw:Hulpstukorientatie ;
+	gwsw:hasAspect                [
+	  rdf:type                    gwsw:Punt ;
+	  gwsw:hasValue               "<gml:Point xmlns:gml=\"http://www.opengis.net/gml\"><gml:pos>168503.50 442689.41</gml:pos></gml:Point>"^^geo:gmlLiteral ] .
+
+#==============================================================================================
+# Voorbeeld Kolkaansluiting: bevat een kolkaansluitleiding, een goot en een kolk
+#==============================================================================================
+
+:GemengdStelsel_2
+	gwsw:hasPart                  :Aansluiting_2 .
+:Straat_JS_vrh_2_fun_1
+	gwsw:hasPart                  :Aansluiting_2 . # Koppel een straat(naam) aan de aansluiting
+:Aansluiting_2
+	rdf:type                      gwsw:Kolkaansluiting ;
+	rdfs:label                    "Aansluiting kolk" ;
+	gwsw:hasPart                  :Aansluitleiding_123 .
+:Aansluitleiding_123
+	rdf:type                      gwsw:Kolkaansluitleiding ;
+	rdfs:label                    "123" .
+:Aansluitleiding_123
+	gwsw:hasAspect                :Aansluitleiding_123_ori .
+:Aansluitleiding_123_ori
+	rdf:type                      gwsw:Leidingorientatie ;
+	gwsw:hasPart                  _:BeginpuntLeiding_124 .
+_:BeginpuntLeiding_124
+	rdf:type                      gwsw:BeginpuntLeiding ;
+	gwsw:hasAspect                [
+	  rdf:type                    gwsw:BobBeginpuntLeiding ;
+	  gwsw:hasValue               22.83 ] .
+:Aansluitleiding_123_ori
+	gwsw:hasPart                  _:EindpuntLeiding_125 .
+_:EindpuntLeiding_125
+	  rdf:type                    gwsw:EindpuntLeiding ;
+	  gwsw:hasAspect              [
+	rdf:type                      gwsw:BobEindpuntLeiding ;
+	gwsw:hasValue                 22.89 ] .
+:Aansluitleiding_123_ori
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:Lijn ;
+	gwsw:hasValue                 "<gml:LineString xmlns:gml=\"http://www.opengis.net/gml\"><gml:posList srsDimension=\"3\">168503.00 442701.30 22.83 168501 442709 22.89</gml:posList></gml:LineString>"^^geo:gmlLiteral ] .
+_:BeginpuntLeiding_124
+	gwsw:hasConnection            :Inspectieput_20_ori .
+_:EindpuntLeiding_125
+	gwsw:hasConnection            :Kolk_75_ori .
+:Aansluitleiding_123
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:LengteLeiding ;
+	gwsw:hasValue                 9 ] .
+:Aansluitleiding_123
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:MateriaalLeiding ;
+	gwsw:hasReference             gwsw:PVC ] .
+:Aansluitleiding_123
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:BreedteLeiding ;
+	gwsw:hasValue                 200 ] .
+:Aansluitleiding_123
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:HoogteLeiding ;
+	gwsw:hasValue                 200 ] .
+:Aansluitleiding_123
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:VormLeiding ;
+	gwsw:hasReference             gwsw:Rond ] .
+:Aansluitleiding_123
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:Begindatum ;
+	gwsw:hasValue                 "1970-01-01"^^xsd:date ] .
+
+# De goot in de aansluiting
+
+:Aansluiting_2
+	gwsw:hasPart                  :Goot_156 .
+:Goot_156
+	rdf:type                      gwsw:Goot ;
+	rdfs:label                    "156" .
+:Goot_156
+	gwsw:hasAspect                :Goot_156_ori .
+:Goot_156_ori
+	rdf:type                      gwsw:Leidingorientatie ;
+	gwsw:hasPart                  _:BeginpuntLeiding_157 . # Het beginpunt van de goot heeft geen verbinding met een knooppunt
+_:BeginpuntLeiding_157
+	rdf:type                      gwsw:BeginpuntLeiding ;
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:BobBeginpuntLeiding ;
+	gwsw:hasValue                 24.10 ] .
+:Goot_156_ori
+	gwsw:hasPart                  _:EindpuntLeiding_158 .
+_:EindpuntLeiding_158
+	rdf:type                      gwsw:EindpuntLeiding ;
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:BobEindpuntLeiding ;
+	gwsw:hasValue                 24.00 ] .
+:Goot_156_ori
+	gwsw:hasAspect                _:Lijn_159 .
+_:Lijn_159
+	rdf:type                      gwsw:Lijn ;
+	gwsw:hasValue                 "<gml:LineString xmlns:gml=\"http://www.opengis.net/gml\"><gml:posList srsDimension=\"3\">168511 442713 24.10 168501 442709 24.00</gml:posList></gml:LineString>"^^geo:gmlLiteral .
+_:EindpuntLeiding_158
+	gwsw:hasConnection            :Kolk_75_ori .
+:Goot_156
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:LengteLeiding ;
+	gwsw:hasValue                 11 ] .
+:Goot_156
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:MateriaalLeiding ;
+	gwsw:hasReference             gwsw:Beton ] .
+:Goot_156
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:BreedteLeiding ;
+	gwsw:hasValue                 500 ] .
+:Goot_156
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:HoogteLeiding ;
+	gwsw:hasValue                 100 ] .
+:Goot_156
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:VormLeiding ;
+	gwsw:hasReference             gwsw:Trapezium ] .
+
+# De kolk in de aansluiting
+
+:Aansluiting_2
+	gwsw:hasPart                  :Kolk_75 .
+:Kolk_75
+	rdf:type                      gwsw:Kolk ;
+	rdfs:label                    "75" .
+:Kolk_75
+	gwsw:hasAspect                :Kolk_75_ori .
+:Kolk_75_ori
+	rdf:type                      gwsw:Putorientatie ;
+	gwsw:hasAspect                [
+  	rdf:type                      gwsw:Punt ;
+	  gwsw:hasValue                 "<gml:Point xmlns:gml=\"http://www.opengis.net/gml\"><gml:pos>168501 442709 22.89</gml:pos></gml:Point>"^^geo:gmlLiteral ] .
+:Kolk_75
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:BreedtePut ;
+	gwsw:hasValue                 500 ] .
+:Kolk_75
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:LengtePut ;
+	gwsw:hasValue                 500 ] .
+:Kolk_75
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:HoogtePut ;
+	gwsw:hasValue                 1310 ] .
+:Kolk_75
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:MateriaalPut ;
+	gwsw:hasReference             gwsw:Beton ] .
+:Kolk_75
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:GeslotenVerhardOppervlakVlak ;
+	gwsw:hasValue                 1003 ] .
+:Kolk_75
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:Begindatum ;
+	gwsw:hasValue                 "1970-01-01"^^xsd:date ] .
+:Kolk_75_ori
+	gwsw:hasConnection            _:Maaiveldorientatie_77 .
+_:Maaiveldorientatie_77
+	rdf:type                      gwsw:Maaiveldorientatie ;
+	gwsw:hasAspect                [
+	rdf:type                      gwsw:Maaiveldhoogte ;
+	gwsw:hasValue                 24.20 ] .

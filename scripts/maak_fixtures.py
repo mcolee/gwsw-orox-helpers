@@ -1,26 +1,62 @@
 #!/usr/bin/env python
-"""Schrijft de TTL-fixtures onder tests/fixtures/ttl.
+"""Schrijft de TTL-fixtures onder tests/fixtures/ttl (1.6) en tests/fixtures/ttl17 (1.7).
 
 Elke fixture bevat precies een ingebouwd defect, met bovenaan in een DEFECT-regel
 wat dat defect is. De prelude met de klassenhierarchie is voor alle fixtures gelijk;
 die staat hier een keer in plaats van dertien keer in de bestanden.
 
-Vier van de zeventien fixtures in tests/fixtures/ttl zijn handwerk en staan hier niet:
-`codering_cp850.ttl` (niet-UTF-8), `net001_bouwwerk_eindknoop.ttl`, `schoon.ttl` en
-`top001_losliggende_put.ttl`.
+De enige plek waar een GWSW-versie in de gegenereerde tekst staat is de `gwsw:`-prefix
+in de prelude (`http://data.gwsw.nl/<versie>/totaal/`); de fixtures zelf spellen alles
+met die prefix. De generator schrijft per versie een eigen set met dezelfde bestandsnamen:
+1.6 in tests/fixtures/ttl, 1.7 in tests/fixtures/ttl17. `--versie 1.6|1.7` beperkt de run;
+zonder vlag draait hij beide. De 1.6-set is de regressie-baseline en blijft byte-voor-byte
+gelijk.
 
-Gebruik:  uv run python scripts/maak_fixtures.py
+Geen van de gegenereerde fixtures gebruikt een concept dat in 1.7 hernoemd is
+(`Infiltratiereservoir` -> `Infiltratiekoffer`/`Infiltratiekrat`, `Leidingomhulling` ->
+`Omhulling`): de prelude en de fixtures noemen alleen ongewijzigde klassen (o.a.
+`Infiltratieriool`). Een versie-afhankelijke naamtabel is daarom niet nodig -- en zou de
+splitsing `Infiltratiereservoir` -> twee klassen sowieso niet mechanisch kunnen doen. Komt
+er ooit een fixture bij die zo'n concept wel noemt, dan hoort de 1.7-uitvoer via zo'n tabel
+te worden aangepast.
+
+Zes van de twintig fixtures in tests/fixtures/ttl zijn handwerk en staan hier niet:
+`codering_cp850.ttl` (niet-UTF-8), `net001_bouwwerk_eindknoop.ttl`, `schoon.ttl`,
+`top001_losliggende_put.ttl`, `mini_orox.ttl` en `juinen_voorbeeld_v1_6.ttl`. Die laatste
+is het publieke GWSW-Voorbeeld van Stichting RIONED, byte-exact overgenomen: de
+round-trip-tests plakken er tekst uit, dus er mag niets aan veranderen -- ook niet door
+deze generator. Die handgeschreven fixtures krijgen dus geen 1.7-tegenhanger.
+
+Gebruik:  uv run python scripts/maak_fixtures.py [--versie 1.6|1.7]
 """
 
+from collections.abc import Iterable
 from pathlib import Path
+from typing import Any
 
-DOEL = Path(__file__).resolve().parents[1] / "tests" / "fixtures" / "ttl"
+VERSIES: tuple[str, ...] = ("1.6", "1.7")
 
-PRELUDE = """@prefix rdf:  <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
+_FIXTUREWORTEL = Path(__file__).resolve().parents[1] / "tests" / "fixtures"
+DOELEN: dict[str, Path] = {
+    "1.6": _FIXTUREWORTEL / "ttl",
+    "1.7": _FIXTUREWORTEL / "ttl17",
+}
+
+
+def doel_voor(versie: str) -> Path:
+    """De map waarin de fixtures van deze GWSW-versie op schijf staan."""
+    return DOELEN[versie]
+
+
+def _gwsw_basis(versie: str) -> str:
+    return f"http://data.gwsw.nl/{versie}/totaal/"
+
+
+PRELUDE_SJABLOON = """@prefix rdf:  <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
 @prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
 @prefix xsd:  <http://www.w3.org/2001/XMLSchema#> .
 @prefix geo:  <http://www.opengis.net/ont/geosparql#> .
-@prefix gwsw: <http://data.gwsw.nl/1.6/totaal/> .
+@prefix gwsw: <{basis}> .
 @prefix :     <http://example.org/toets#> .
 
 # Minimale klassenhierarchie, zodat de fixture zonder de volle ontologie werkt.
@@ -52,6 +88,11 @@ gwsw:Zinker rdfs:subClassOf gwsw:VrijvervalRioolleiding .
 gwsw:Drain rdfs:subClassOf gwsw:VrijvervalRioolleiding .
 gwsw:Sloot rdfs:subClassOf gwsw:Oppervlaktewater .
 """
+
+
+def _prelude(versie: str) -> str:
+    """De prelude met de `gwsw:`-prefix van de gevraagde GWSW-versie."""
+    return PRELUDE_SJABLOON.format(basis=_gwsw_basis(versie))
 
 
 def put(
@@ -143,7 +184,7 @@ def leiding(
 '''
 
 
-def kenmerken(naam: str, **waarden) -> str:
+def kenmerken(naam: str, **waarden: object) -> str:
     """Hangt kenmerken aan een object; `_ref`-suffix maakt er een hasReference van."""
     regels = []
     for sleutel, waarde in waarden.items():
@@ -238,20 +279,33 @@ def stelsel(naam: str, label: str, klasse: str, leden: list[str]) -> str:
     return f':{naam} rdf:type gwsw:{klasse} ; rdfs:label "{label}" ;\n    gwsw:hasPart {delen} .\n'
 
 
-STANDAARDPUT = dict(BreedtePut=1000, LengtePut=1000, MateriaalPut_ref="Beton", HoogtePut=1500)
+STANDAARDPUT: dict[str, object] = dict(
+    BreedtePut=1000, LengtePut=1000, MateriaalPut_ref="Beton", HoogtePut=1500
+)
 
 
 def nette_put(
-    naam: str, label: str, x: float, y: float, mv: float = 10.0, **extra_kenmerken
+    naam: str, label: str, x: float, y: float, mv: float = 10.0, **extra_kenmerken: object
 ) -> str:
     """Een put met maatvoering, materiaal en maaiveldhoogte."""
     waarden = {**STANDAARDPUT, **extra_kenmerken}
     return put(naam, label, x, y, extra=kenmerken(naam, **waarden)) + maaiveld(naam, mv)
 
 
-def nette_leiding(naam: str, label: str, punten, begin, eind, **extra) -> str:
+def nette_leiding(
+    naam: str,
+    label: str,
+    punten: list[tuple[float, float]],
+    begin: str | None,
+    eind: str | None,
+    # `Any` en niet `object`: `extra` is een heterogeen doorgeefluik naar `leiding`
+    # (`klasse: str`, `bob: tuple[float, float]`, `literal: str | None`) waaruit vooraf een
+    # `velden`-dict gevist wordt. Eén elementtype dat die vier tegelijk dekt en toch aan
+    # `leiding` toewijsbaar blijft bestaat niet.
+    **extra: Any,
+) -> str:
     """Een leiding met materiaal, maatvoering, lengte en begindatum."""
-    velden = {
+    velden: dict[str, object] = {
         "BreedteLeiding": 300,
         "HoogteLeiding": 300,
         "MateriaalLeiding_ref": "Beton",
@@ -264,15 +318,23 @@ def nette_leiding(naam: str, label: str, punten, begin, eind, **extra) -> str:
 
 
 def hoogteput(
-    naam, label, punt, mv=10.0, dek=10.0, hoogte=1500, mv_wijze=None, dek_wijze=None, **extra
-):
+    naam: str,
+    label: str,
+    punt: tuple[float, float],
+    mv: float = 10.0,
+    dek: float | None = 10.0,
+    hoogte: float = 1500,
+    mv_wijze: str | None = None,
+    dek_wijze: str | None = None,
+    **extra: object,
+) -> str:
     """Een put met maaiveld, putdeksel en puthoogte.
 
     Met `dek=None` krijgt de put geen putdeksel. Zo ziet de De Wolden en Hoogeveen-export eruit:
     daarin komt `Putdekselniveau` geen enkele keer voor, zodat de hoogtechecks op de
     maaiveldhoogte terugvallen.
     """
-    waarden = {**STANDAARDPUT, "HoogtePut": hoogte}
+    waarden: dict[str, object] = {**STANDAARDPUT, "HoogtePut": hoogte}
     waarden.update(extra)
     return (
         put(naam, label, punt[0], punt[1], extra=kenmerken(naam, **waarden))
@@ -281,9 +343,17 @@ def hoogteput(
     )
 
 
-def hoogteleiding(naam, label, punten, begin, eind, bob, **velden):
+def hoogteleiding(
+    naam: str,
+    label: str,
+    punten: list[tuple[float, float]],
+    begin: str | None,
+    eind: str | None,
+    bob: tuple[float, float],
+    **velden: object,
+) -> str:
     """Een leiding met BOB's en standaardmaatvoering."""
-    basis = {
+    basis: dict[str, object] = {
         "BreedteLeiding": 300,
         "HoogteLeiding": 300,
         "MateriaalLeiding_ref": "Beton",
@@ -691,23 +761,144 @@ FIXTURES["dataset_meervoudig_objecttype.ttl"] = (
     + ":Uitlaat1 rdf:type gwsw:Bouwwerk .\n",
 )
 
+# ---------------------------------------------------------------------------
+# De overslag- en omwegtakken van de lezers (issue #16). Elk van de zeven vormen
+# hieronder komt in geen enkele andere fixture voor, en `inlezen.py` heeft er een
+# tak voor: een kenmerk met een sub-aspect dat geen Inwinning is, een kenmerk van
+# de juiste klasse zonder waarde, een geometrie-aspect zonder literaal, een
+# putdekselniveau langs de twee omwegen, en een object met twee orientaties.
+#
+# **Geen van de zeven is een defect, en ze zijn ook niet allemaal ontologisch
+# conform.** Ze zijn *tolerantievormen*: vormen die exports in de praktijk schrijven
+# en die de lezer moet verdragen. De twee dekselomwegen zijn daar het duidelijkste
+# voorbeeld van -- GWSW 1.6 hangt de `hasAspect`-restrictie van `Putdekselniveau`
+# aan de `Dekselorientatie` en niet aan de put of aan het `Putdeksel`-onderdeel --
+# en `inlezen._deksel_kenmerk` volgt ze desondanks met opzet. De klassenamen zelf
+# zijn wel alle uit GWSW 1.6. Zonder deze fixture blijft een refactor die een van
+# die zeven takken stilzet groen.
+# ---------------------------------------------------------------------------
 
-def render(defect: str, inhoud: str) -> str:
+# Put A: het kenmerk Begindatum draagt een sub-aspect dat geen Inwinning is.
+# `_read_inwinning` loopt de sub-aspecten van elk kenmerk af en moet deze overslaan
+# in plaats van hem als herkomst te lezen. `gwsw:Opmerking` is een echte 1.6-klasse
+# (een `Kenmerk`, met `rdfs:comment "[is aspect]"`).
+KENMERK_MET_VREEMD_SUBASPECT = """
+:PutA gwsw:hasAspect :PutA_bd .
+:PutA_bd rdf:type gwsw:Begindatum ; gwsw:hasValue "1980-01-01"^^xsd:date ;
+    gwsw:hasAspect [ rdf:type gwsw:Opmerking ; gwsw:hasValue "geschat" ] .
+"""
+
+# Put B: een maaiveldorientatie met een Maaiveldhoogte zonder `hasValue`. Een
+# kenmerk zonder waarde is geen meting; het telt als afwezig.
+MAAIVELDHOOGTE_ZONDER_WAARDE = """
+:PutB_ori gwsw:hasConnection :PutB_maa .
+:PutB_maa rdf:type gwsw:Maaiveldorientatie ;
+    gwsw:hasAspect [ rdf:type gwsw:Maaiveldhoogte ] .
+"""
+
+# Put C: het putdekselniveau hangt rechtstreeks aan de put, zonder Putdeksel-onderdeel
+# en zonder Dekselorientatie. Dat is de eerste van de twee omwegen in `_deksel_kenmerk`.
+DEKSELNIVEAU_AAN_DE_PUT = """
+:PutC gwsw:hasAspect [ rdf:type gwsw:Putdekselniveau ; gwsw:hasValue 9.80 ] .
+"""
+
+# Put D: het putdeksel is er wel, maar het niveau hangt aan het onderdeel zelf en niet
+# aan een Dekselorientatie. Dat is de tweede omweg.
+DEKSELNIVEAU_AAN_HET_ONDERDEEL = """
+:PutD gwsw:hasPart :PutD_dek .
+:PutD_dek rdf:type gwsw:Putdeksel ;
+    gwsw:hasAspect [ rdf:type gwsw:Putdekselniveau ; gwsw:hasValue 9.70 ] .
+"""
+
+# Put E: de orientatie draagt wel een Punt-aspect maar geen literaal. De put blijft een
+# knoop -- haar orientatie is een Putorientatie -- alleen zonder geometrie.
+PUNT_ZONDER_LITERAAL = """:PutE rdf:type gwsw:Inspectieput ; rdfs:label "E" ;
+    gwsw:hasAspect :PutE_ori .
+:PutE_ori rdf:type gwsw:Putorientatie ;
+    gwsw:hasAspect [ rdf:type gwsw:Punt ] .
+"""
+
+# Put F en streng 1 dragen elk twee orientaties. Het GWSW verbiedt dat niet, en een
+# export die het doet mag geen dubbele knoop of dubbele streng opleveren.
+TWEEDE_PUTORIENTATIE = """
+:PutF gwsw:hasAspect :PutF_ori2 .
+:PutF_ori2 rdf:type gwsw:Putorientatie ;
+    gwsw:hasAspect [ rdf:type gwsw:Punt ;
+        gwsw:hasValue "<gml:Point xmlns:gml=\\"http://www.opengis.net/gml\\"><gml:pos>1200.0 2005.0</gml:pos></gml:Point>"^^geo:gmlLiteral ] .
+"""
+
+TWEEDE_LEIDINGORIENTATIE = """
+:L1 gwsw:hasAspect :L1_ori2 .
+:L1_ori2 rdf:type gwsw:Leidingorientatie ;
+    gwsw:hasPart :L1_b2 , :L1_e2 ;
+    gwsw:hasAspect [ rdf:type gwsw:Lijn ;
+        gwsw:hasValue "<gml:LineString xmlns:gml=\\"http://www.opengis.net/gml\\"><gml:posList srsDimension=\\"2\\">1000.0 2001.0 1050.0 2001.0</gml:posList></gml:LineString>"^^geo:gmlLiteral ] .
+:L1_b2 rdf:type gwsw:BeginpuntLeiding .
+:L1_e2 rdf:type gwsw:EindpuntLeiding .
+"""
+
+FIXTURES["dataset_rommelige_export.ttl"] = (
+    "geen; zeven tolerantievormen die exports schrijven en die de lezers moeten "
+    "overslaan of langs een tweede weg moeten vinden (issue #16)",
+    put("PutA", "A", 1000.0, 2000.0)
+    + KENMERK_MET_VREEMD_SUBASPECT
+    + put("PutB", "B", 1050.0, 2000.0)
+    + MAAIVELDHOOGTE_ZONDER_WAARDE
+    + put("PutC", "C", 1100.0, 2000.0)
+    + DEKSELNIVEAU_AAN_DE_PUT
+    + put("PutD", "D", 1150.0, 2000.0)
+    + DEKSELNIVEAU_AAN_HET_ONDERDEEL
+    + PUNT_ZONDER_LITERAAL
+    + put("PutF", "F", 1200.0, 2000.0)
+    + TWEEDE_PUTORIENTATIE
+    + leiding("L1", "1", [(1000.0, 2000.0), (1050.0, 2000.0)], "PutA", "PutB")
+    + TWEEDE_LEIDINGORIENTATIE,
+)
+
+# De inwinningsdatum, het enige veld van `Inwinning` dat geen enkele fixture droeg
+# (issue #16). Put A draagt een volledige inwinning op haar dekselniveau, put B alleen
+# een datum -- die tweede is de tegenproef dat `Inwinning.__bool__` ook zonder wijze
+# waar is en de herkomst dus niet stilletjes wegvalt.
+FIXTURES["dataset_inwinningsdatum.ttl"] = (
+    "geen; het putdekselniveau van put A draagt wijze en datum van inwinning, dat van "
+    "put B alleen een datum",
+    put("PutA", "A", *A)
+    + deksel("PutA", 9.85, wijze="Inmeting", datum="2019-05-17")
+    + put("PutB", "B", *B)
+    + deksel("PutB", 9.75, datum="2020-11-02"),
+)
+
+
+def render(defect: str, inhoud: str, versie: str = "1.6") -> str:
     """De volledige tekst van een fixture: de prelude, de DEFECT-regel en de inhoud.
 
     Staat apart van `main` zodat `tests/test_fixtures.py` dezelfde regel gebruikt om te
     bewaken dat de bestanden op schijf nog bij dit script passen. Zou de test de opmaak
-    overschrijven, dan bewaakte hij zijn eigen kopie.
+    overschrijven, dan bewaakte hij zijn eigen kopie. `versie` kiest de `gwsw:`-basis;
+    1.6 is de default zodat de bestaande (1.6-)aanroep ongewijzigd blijft werken.
     """
-    return f"{PRELUDE}\n# DEFECT: {defect}\n\n{inhoud}"
+    return f"{_prelude(versie)}\n# DEFECT: {defect}\n\n{inhoud}"
 
 
-def main() -> None:
-    DOEL.mkdir(parents=True, exist_ok=True)
-    for naam, (defect, inhoud) in FIXTURES.items():
-        (DOEL / naam).write_text(render(defect, inhoud), encoding="utf-8")
-        print(naam)
+def main(versies: Iterable[str] = VERSIES) -> None:
+    for versie in versies:
+        doel = doel_voor(versie)
+        doel.mkdir(parents=True, exist_ok=True)
+        for naam, (defect, inhoud) in FIXTURES.items():
+            (doel / naam).write_text(render(defect, inhoud, versie), encoding="utf-8")
+            print(f"{versie}: {naam}")
 
 
 if __name__ == "__main__":
-    main()
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Schrijf de TTL-fixtures per GWSW-versie.")
+    parser.add_argument(
+        "--versie",
+        choices=VERSIES,
+        action="append",
+        dest="versies",
+        help="beperk tot deze versie (herhaalbaar); zonder vlag draaien alle versies",
+    )
+    args = parser.parse_args()
+    main(args.versies or VERSIES)

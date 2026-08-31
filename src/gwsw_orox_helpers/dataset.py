@@ -3,13 +3,18 @@
 Dit is het gezicht van de leeslaag: `load_dataset` leest bestand en ontologie in,
 `GwswDataset` beantwoordt de vragen die de checks erover stellen en `markeer_vulwaarden`
 zet een hoogtekenmerk binnen de vulwaardeband op "niet geregistreerd". Wat eronder ligt
-is in vier modules verdeeld, elk met een eigen vraag:
+is in zes modules verdeeld, elk met een eigen vraag:
 
 - `domein` -- de waardeobjecten (`Node`, `Conduit`, `Aspect`, ...), zonder graaf;
-- `inlezen` -- alles wat de graaf aanraakt om die objecten te vullen, inclusief het
-  parsen zelf en de twee schrijfrichtingen van hasPart en hasAspect;
+- `bestand` -- van een TTL-bestand naar een gevulde `GraafIndex`: het parsen zelf, de
+  codering en de GC eromheen (sinds issue #26 los van `inlezen`);
+- `inlezen` -- alles wat die gevulde graaf bevraagt om de objecten te vullen, inclusief
+  de twee schrijfrichtingen van hasPart en hasAspect;
 - `klassen` -- de subklasse-afsluiting en de woordenboeken die daaruit volgen;
-- `codering` -- UTF-8 met terugval, gedeeld met de schrijflaag.
+- `codering` -- UTF-8 met terugval, gedeeld met de schrijflaag;
+- `netwerk` -- de wandeling langs hasPart omhoog en de tekenrichting van een streng,
+  als vrije functies op `nodes` en een typepredicaat (sinds issue #27 los van deze
+  module; de drie methoden hieronder zijn er doorgeefluiken naartoe).
 
 Die verdeling is intern. **Het oppervlak blijft hier**: elke naam die nlriochecker uit
 `gwsw_orox_helpers.dataset` importeert, komt hier ook naar buiten -- de klassen, de
@@ -19,15 +24,24 @@ IRI-constanten en de graafhulpen -- met dezelfde handtekening en hetzelfde gedra
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 
-from rdflib import RDF, RDFS, BNode, URIRef
+from rdflib import RDFS, BNode, URIRef
 from rdflib.term import Node as RdfNode
-from shapely.geometry import LineString, Point
 
-from gwsw_orox_helpers.bronnen import gebundelde_ontologie
+# Als module en niet als losse namen (issue #27): de drie doorgeefluiken hieronder heten
+# net zo als de vrije functies waar ze naartoe wijzen, en `netwerk.klim_naar_knoop(...)`
+# in een methode `klim_naar_knoop` laat geen twijfel over waar de aanroep heen gaat.
+from gwsw_orox_helpers import netwerk
+from gwsw_orox_helpers.bestand import _gc_uit, _parse
+from gwsw_orox_helpers.bronnen import (
+    GEBUNDELDE_VERSIES,
+    gebundelde_ontologie,
+    gebundelde_ontologie_voor,
+)
 from gwsw_orox_helpers.codering import DecodeFallback
 from gwsw_orox_helpers.domein import (
     ISO_DATUM,
@@ -39,15 +53,21 @@ from gwsw_orox_helpers.domein import (
     Node,
     Vulwaarde,
 )
-from gwsw_orox_helpers.errors import DatasetError
+from gwsw_orox_helpers.errors import InhoudError
 from gwsw_orox_helpers.geometry import (
     GeometryError,
     is_multipart_literal,
     parse_gml,
     parse_gml_z,
 )
-from gwsw_orox_helpers.graaf import GraafIndex
+from gwsw_orox_helpers.graaf import GraafIndex, _uriref_snel
 from gwsw_orox_helpers.inlezen import (
+    # `RDF.type` is geen attribuut maar een `__getattr__` op rdflib's `DefinedNamespace`
+    # en kost bijna een microseconde per keer; `inlezen` leest hem daarom een keer. Hier
+    # geleend en niet nog eens neergezet: de `URIRef`-vorm van een GWSW-IRI woont in
+    # `inlezen` (zie `docs/architectuur.md`), en twee exemplaren van dezelfde term zouden
+    # bij een wijziging uit elkaar kunnen lopen.
+    _RDF_TYPE,
     FANTOOM_STAART,
     HAS_ASPECT,
     HAS_CONNECTION,
@@ -70,8 +90,6 @@ from gwsw_orox_helpers.inlezen import (
     KLASSE_WIJZE_VAN_INWINNING,
     KLASSEN_BEGINPUNT,
     KLASSEN_EINDPUNT,
-    _gc_uit,
-    _parse,
     _read_aspects,
     _read_conduits,
     _read_nodes,
@@ -91,12 +109,12 @@ from gwsw_orox_helpers.klassen import (
     _bruikbare_afsluiting,
     _kenmerk_properties,
     _klassefuncties,
-    _short,
     _subclass_closure,
-    _uri,
 )
-from gwsw_orox_helpers.namen import GWSW
+from gwsw_orox_helpers.namen import GWSW, _short, _uri, basis_uit_iri, versie_van_basis
 from gwsw_orox_helpers.voortgang import NUL_VOORTGANG, Voortgang
+
+_logger = logging.getLogger(__name__)
 
 # De lijst is het oppervlak, niet een keuze van deze module: alles wat ooit uit
 # `gwsw_orox_helpers.dataset` te importeren was, staat erin -- ook de namen die na de
@@ -148,6 +166,7 @@ __all__ = [
     "aspect_holders_of",
     "aspects_of",
     "is_multipart_literal",
+    "lees_ontologie",
     "load_dataset",
     "markeer_vulwaarden",
     "ontologiepaden",
@@ -192,9 +211,63 @@ class GwswDataset:
     # resolven dan de volle export (de wandeling ziet minder knopen), en een via
     # `replace()` gedeelde dict zou antwoorden tussen de twee laten lekken.
     # `cache._schrijf` slaat dit veld bij het picklen over.
-    _resolved_nodes: dict[tuple[str, tuple[str, ...]], str | None] = field(
+    #
+    # De wandeling zelf woont sinds issue #27 in `netwerk` en de memo *niet*: die hoort
+    # bij de dataset waarop geklommen wordt, precies om de reden hierboven. Het
+    # doorgeefluik geeft hem als argument mee; de vorm staat als `netwerk.Knoopmemo`
+    # één keer opgeschreven.
+    _resolved_nodes: netwerk.Knoopmemo = field(
         default_factory=dict, init=False, repr=False, compare=False
     )
+    # Memo voor `types_of`, volgens hetzelfde patroon als `_resolved_nodes` hierboven;
+    # waarom hij er is, staat bij die methode. Ook hier `init=False`, zodat een
+    # `replace()`-afgeleide (`subset`, `markeer_vulwaarden`, het cachepad) met een lege
+    # memo begint: die afgeleiden hebben andere `nodes`/`conduits`, dus een gedeelde memo
+    # zou typen melden voor een knoop die er niet meer in staat -- en `cache._schrijf`
+    # houdt het veld daardoor net zo goed buiten de pickle.
+    # Hij groeit met het aantal *bevraagde* URI's en niet met `len(nodes) +
+    # len(conduits)`: `graph_types_of` voert er ook URI's doorheen die alleen in de graaf
+    # staan, en die missers worden net zo goed onthouden. Dat is bedoeld -- ze zijn de
+    # hele run een misser -- maar het is de grens van wat hij aan geheugen kost.
+    _types_memo: dict[str, frozenset[str]] = field(
+        default_factory=dict, init=False, repr=False, compare=False
+    )
+    # De gedetecteerde GWSW-basis van deze dataset (issue #32), gememoiseerd. Hij hoort bij
+    # de gepinde `dataset.GWSW`-constante géén tweede *veld* op `GwswDataset` te worden: de
+    # dataclass-handtekening en de veldenlijst staan in `tests/test_publieke_api.py` letterlijk
+    # vast, en een init-veld erbij zou die breken. Daarom een `init=False`-memo, net als
+    # `_types_memo`: hij telt niet mee in de handtekening en wordt niet gepickeld. `closure`
+    # en `is_connection_class` lezen hem in plaats van uit `self.graph` -- dat laatste zou op
+    # het luie cachepad (`cache.LuieGraaf`) de graafpickle van schijf trekken voor een run die
+    # de graaf verder niet aanraakt. De basis komt daarom uit de typen van de knopen en
+    # strengen, die al in het geheugen staan en dezelfde versie dragen als de graaf.
+    _gwsw_basis_memo: list[str] = field(default_factory=list, init=False, repr=False, compare=False)
+
+    @property
+    def _basis(self) -> str:
+        """De GWSW-basis van deze dataset, afgeleid uit de typen van haar objecten.
+
+        Gememoiseerd, en bewust niet uit `self.graph.gwsw_basis`: op een cachetreffer is
+        `self.graph` een `cache.LuieGraaf` en zou die attribuuttoegang de graafpickle laden.
+        De typen van de knopen en strengen staan al in het geheugen en dragen dezelfde basis;
+        de eerste GWSW-getypeerde daarvan levert haar. Zonder zo'n type (een dataset zonder
+        enkele GWSW-klasse) valt hij terug op de gepinde 1.6-basis.
+        """
+        if not self._gwsw_basis_memo:
+            gevonden = GWSW
+            for objecten in (self.nodes.values(), self.conduits.values()):
+                for obj in objecten:
+                    treffer = next(
+                        (b for typ in obj.types if (b := basis_uit_iri(typ)) is not None), None
+                    )
+                    if treffer is not None:
+                        gevonden = treffer
+                        break
+                else:
+                    continue
+                break
+            self._gwsw_basis_memo.append(gevonden)
+        return self._gwsw_basis_memo[0]
 
     def is_a(self, uri: str, root: str) -> bool:
         """Geeft aan of dit domeinobject van het type `root` of een subklasse is.
@@ -215,9 +288,15 @@ class GwswDataset:
         strengobject waaraan zij hangt. En hij spaart de
         graafopvraging van `graph_types_of()` uit, die op elke wandeling over De Wolden en Hoogeveen
         meetelt.
+
+        `isdisjoint` en niet `bool(... & ...)`: die doorsnede was een wegwerp-verzameling
+        waar alleen de leegheid van gevraagd werd, en dit predicaat wordt ruim een miljoen
+        keer per run gesteld (issue #12, doorgevoerd bij #23). Het antwoord is aan beide
+        kanten hetzelfde -- ook met een lege typenverzameling en met een wortel die de
+        hierarchie niet kent, waar `closure` op de wortel zelf blijft steken.
         """
         object_types = self.types_of(uri)
-        return bool(object_types & self.closure(root))
+        return not object_types.isdisjoint(self.closure(root))
 
     def types_of(self, uri: str) -> frozenset[str]:
         """De typen van een object, inclusief die van zijn orientatie.
@@ -229,13 +308,28 @@ class GwswDataset:
 
         Alleen knopen en strengen: een onderdeel dat via hasPart aan een put hangt
         levert hier een lege verzameling op. Daarvoor is `graph_types_of()`.
+
+        Gememoiseerd per URI (`_types_memo`), om dezelfde reden als
+        `resolve_network_node`: `is_a` stelt deze vraag ruim een miljoen keer per run en
+        voor een knoop kostte dat elke keer een verse unie. Ook een lege uitkomst wordt
+        onthouden -- een URI die geen knoop en geen streng is, is dat de hele run.
+        De memo neemt aan dat `nodes` en `conduits` na het aanmaken van de dataset niet
+        meer wijzigen; een `replace()`-afgeleide begint met een lege memo (zie het veld).
         """
+        # `.get()` en niet `in`: dat scheelt op dit pad de tweede opzoeking, en een
+        # opgeslagen waarde is nooit `None` -- ook de lege uitkomst is een frozenset.
+        onthouden = self._types_memo.get(uri)
+        if onthouden is not None:
+            return onthouden
         if uri in self.nodes:
             node = self.nodes[uri]
-            return node.types | node.orientation_types
-        if uri in self.conduits:
-            return self.conduits[uri].types
-        return frozenset()
+            typen = node.types | node.orientation_types
+        elif uri in self.conduits:
+            typen = self.conduits[uri].types
+        else:
+            typen = frozenset()
+        self._types_memo[uri] = typen
+        return typen
 
     def graph_types_of(self, uri: str) -> frozenset[str]:
         """De typen van een willekeurige URI, ook als hij geen knoop of streng is.
@@ -246,13 +340,23 @@ class GwswDataset:
         `types_of()` niet te herkennen. Hier komt het type rechtstreeks uit de graaf,
         met de typen uit het domeinmodel erbij, zodat een orientatieklasse als
         Lozingspunt vindbaar blijft.
+
+        De twee termen komen kant-en-klaar: het subject via `graaf._uriref_snel` (de tekst
+        is al een geldige graafsleutel, dus rdflib's validatieregex kost hier alleen tijd)
+        en het predicaat als eenmalig gelezen `_RDF_TYPE`. Allebei zijn het dezelfde term
+        als voorheen -- `tests/test_graaf.py` houdt het snelpad tegen `URIRef()` op elke
+        IRI van de gebundelde ontologie -- dus het antwoord verandert niet (issue #23).
         """
-        uit_graaf = {str(soort) for soort in self.graph.objects(URIRef(uri), RDF.type)}
+        uit_graaf = {str(soort) for soort in self.graph.objects(_uriref_snel(uri), _RDF_TYPE)}
         return self.types_of(uri) | uit_graaf
 
     def graph_is_a(self, uri: str, root: str) -> bool:
-        """Als `is_a`, maar ook voor onderdelen die alleen in de graaf staan."""
-        return bool(self.graph_types_of(uri) & self.closure(root))
+        """Als `is_a`, maar ook voor onderdelen die alleen in de graaf staan.
+
+        Dezelfde formulering als `is_a` en om dezelfde reden (issue #23): één predicaat
+        hoort er in deze klasse niet in twee gedaanten te staan.
+        """
+        return not self.graph_types_of(uri).isdisjoint(self.closure(root))
 
     def beheerobjecttype(self, uri: str) -> str:
         """De korte naam van het beheerobjecttype van een object.
@@ -304,61 +408,38 @@ class GwswDataset:
         horen in de sleutel -- in de praktijk zijn ze constant binnen een run, maar
         een memo die dat stilzwijgend aanneemt zou bij een afwijkende aanroep het
         verkeerde antwoord teruggeven.
+
+        Doorgeefluik naar `netwerk.resolve_network_node`, met de memo van *deze*
+        instantie erbij: `_resolved_nodes` blijft op de dataclass staan (zie het veld),
+        zodat een `replace()`-afgeleide met een lege memo begint.
         """
-        if uri is None:
-            return None
-        sleutel = (uri, tuple(roots))
-        if sleutel not in self._resolved_nodes:
-            self._resolved_nodes[sleutel] = self.klim_naar_knoop(uri, roots)[0]
-        return self._resolved_nodes[sleutel]
+        return netwerk.resolve_network_node(uri, roots, self.nodes, self.is_a, self._resolved_nodes)
 
     def klim_naar_knoop(
         self, uri: str | None, roots: list[str]
     ) -> tuple[str | None, frozenset[str]]:
         """De knoop boven dit object, plus de knopen die de wandeling erheen tegenkwam.
 
-        In de breedte en niet langs een enkel pad: een onderdeel kan meer dan een
-        houder hebben (`Node.parents`), en de eerste die rdflib oplevert hoeft niet
-        de houder te zijn die op een knoop uitkomt. Een enkelpadswandeling zou dan
-        leeg teruggeven terwijl er wel degelijk een put boven hangt, en welke houder
-        "de eerste" is hangt af van de schrijfvolgorde van de export.
-        `nulbevinding._Joiner` loopt om diezelfde reden al in de breedte omhoog.
-
-        Bij gelijke diepte wint de kleinste URI: willekeurig maar deterministisch,
-        en dat is wat telt -- twee runs op dezelfde bestanden moeten dezelfde
-        meldingen opleveren.
-
-        De tweede uitkomst is de verzameling bezochte schakels die zelf in `nodes`
-        staan; `afbakening` heeft die nodig om ze in de analyseset te houden, anders
-        loopt dezelfde wandeling op de uitgedunde dataset dood. Bewust ruimer dan het
-        gevonden pad: het zijn alle bezochte knopen, dus ook broers op de laag waar de
-        knoop gevonden werd en takken die doodliepen. Met enkelvoudige houders vallen
-        de twee samen; met meervoudige houders is dit een superset. Dat is de veilige
-        kant -- de lezer gebruikt hem om de wandeling herhaalbaar te houden op een
-        uitgedunde dataset, en een schakel te veel bewaren kost hoogstens ruimte,
-        terwijl er een te weinig de wandeling laat doodlopen.
+        Doorgeefluik naar `netwerk.klim_naar_knoop`, dat de wandeling zelf beschrijft:
+        in de breedte, deterministisch bij gelijke diepte, en met de bezochte schakels
+        als tweede uitkomst. Wat de wandeling nodig heeft gaat hier mee -- de knopen en
+        het typepredicaat -- en verder niets.
         """
-        if uri is None:
-            return None, frozenset()
-        gezien = {uri}
-        laag = [uri]
-        while laag:
-            for huidig in laag:
-                if any(self.is_a(huidig, root) for root in roots):
-                    return huidig, self._schakels(gezien)
-            hoger: set[str] = set()
-            for huidig in laag:
-                node = self.nodes.get(huidig)
-                if node is not None:
-                    hoger.update(node.parents)
-            volgende = sorted(hoger - gezien)
-            gezien.update(volgende)
-            laag = volgende
-        return None, self._schakels(gezien)
+        return netwerk.klim_naar_knoop(uri, roots, self.nodes, self.is_a)
 
     def _schakels(self, bezocht: set[str]) -> frozenset[str]:
-        """De bezochte URI's die een knoop zijn; de rest hoort niet in een analyseset."""
-        return frozenset(uri for uri in bezocht if uri in self.nodes)
+        """De bezochte URI's die een knoop zijn; de rest hoort niet in een analyseset.
+
+        Doorgeefluik naar `netwerk._schakels`, en het enige van de vier dat binnen deze
+        package door niemand meer aangeroepen wordt: `klim_naar_knoop` roept sinds issue
+        #27 de vrije vorm aan. Hij blijft staan omdat #27 een *additieve* wijziging is en
+        een methode weghalen een aftrekkende -- niet omdat een afnemer hem zou kunnen
+        aanroepen, want een naam met een underscore is geen belofte (zie
+        `docs/architectuur.md`) en nlriochecker roept hem nergens aan. Schrappen is
+        daarmee een auteursbeslissing van één regel: de bewaker
+        `test_de_netwerksnit_ligt_vast` slaat een methode die er niet meer is over.
+        """
+        return netwerk._schakels(bezocht, self.nodes)
 
     def richting_van_geometrie(
         self, conduit: Conduit, roots: list[str]
@@ -371,29 +452,18 @@ class GwswDataset:
         putten, of putten zonder punt. TOP-020 en de kaartlaag met richtingspijlen
         lezen allebei deze methode, zodat het kaartbeeld en de bevinding niet uit
         elkaar kunnen lopen.
+
+        Doorgeefluik naar `netwerk.richting_van_geometrie`, met dezelfde memo als
+        `resolve_network_node` hierboven: de twee koppelingen van de streng worden er
+        net zo goed langs herleid en horen dezelfde antwoorden te krijgen.
         """
-        if conduit.line is None or conduit.line.is_empty:
-            return None
-        if not isinstance(conduit.line, LineString):
-            # Een GML-literaal in de leidinggeometrie hoeft geen lijn te zijn (zie
-            # TOP-016 en `checks.meetkunde.coords_of`); zonder lijn is er geen
-            # tekenrichting om te vergelijken.
-            return None
-        begin = self.nodes.get(self.resolve_network_node(conduit.start_node, roots) or "")
-        eind = self.nodes.get(self.resolve_network_node(conduit.end_node, roots) or "")
-        if begin is None or eind is None or begin.point is None or eind.point is None:
-            return None
-        if begin.uri == eind.uri:
-            return None
-        punten = list(conduit.line.coords)
-        eerste, laatste = Point(punten[0][:2]), Point(punten[-1][:2])
-        juist = eerste.distance(begin.point) + laatste.distance(eind.point)
-        omgekeerd = eerste.distance(eind.point) + laatste.distance(begin.point)
-        return omgekeerd < juist, begin, eind
+        return netwerk.richting_van_geometrie(
+            conduit, roots, self.nodes, self.is_a, self._resolved_nodes
+        )
 
     def closure(self, root: str) -> frozenset[str]:
         """De klasse zelf plus al haar subklassen, als volledige URI's."""
-        return _afsluiting(self.subclasses, root)
+        return _afsluiting(self.subclasses, root, self._basis)
 
     @property
     def klassenhierarchie_bekend(self) -> bool:
@@ -418,7 +488,7 @@ class GwswDataset:
         De vraag is wat de graaf over klassen weet, niet waar die kennis vandaan komt.
         """
         return all(
-            _bruikbare_afsluiting(self.subclasses, wortel) is not None
+            _bruikbare_afsluiting(self.subclasses, wortel, self._basis) is not None
             for wortel in WORTELS_VOOR_HERKENNING
         )
 
@@ -436,7 +506,7 @@ class GwswDataset:
         Zonder ontologie is de afsluiting alleen `Verbinding` zelf, dus dan wordt
         alleen die naam herkend.
         """
-        return _uri(root) in self.closure("Verbinding")
+        return _uri(root, self._basis) in self.closure("Verbinding")
 
     def of_class(self, root: str) -> list[str]:
         """De URI's van alle knooppunten en strengen van dit type.
@@ -447,7 +517,7 @@ class GwswDataset:
         geconfigureerde rol is dat daarom een harde fout.
         """
         if self.is_connection_class(root):
-            raise DatasetError(
+            raise InhoudError(
                 f"{root} is een verbindingsklasse en kan als rol nooit een object opleveren: "
                 f"die klassen staan op de orientatie van een streng, en het domeinmodel "
                 f"draagt de orientatietypen van een streng niet. Configureer de klasse van "
@@ -461,10 +531,14 @@ class GwswDataset:
 
         Onderdelen als een overstortdrempel hebben geen punt- of lijngeometrie en
         komen daarom niet in `nodes` of `conduits` voor; die zijn hier wel te vinden.
+
+        De termen komen langs hetzelfde snelpad als bij `graph_types_of` (issue #23): de
+        klassen uit een afsluiting zijn al geldige graafsleutels, dus rdflib's
+        validatieregex kost hier alleen tijd. Dezelfde term, dus dezelfde treffers.
         """
         gevonden: list[RdfNode] = []
         for klasse in self.closure(root):
-            gevonden.extend(self.graph.subjects(RDF.type, URIRef(klasse)))
+            gevonden.extend(self.graph.subjects(_RDF_TYPE, _uriref_snel(klasse)))
         return gevonden
 
     def onderdelen(self, uri: str, wortel: str | None = None) -> list[str]:
@@ -478,9 +552,10 @@ class GwswDataset:
         leunen veranderen.
 
         Voorbehoud: het wortelfilter loopt via `graph_types_of`, dat zijn subject nog
-        met een vaste `URIRef(uri)` opzoekt -- een BNode-onderdeel valt daar dus uit
-        het gefilterde antwoord, terwijl de ongefilterde lijst (en `onderdeel_label`/
-        `onderdeel_aspecten`, via `_subject_term`) hem wel ziet.
+        altijd als URIRef opzoekt (sinds issue #23 met `graaf._uriref_snel`, dezelfde
+        term) -- een BNode-onderdeel valt daar dus uit het gefilterde antwoord, terwijl
+        de ongefilterde lijst (en `onderdeel_label`/`onderdeel_aspecten`, via
+        `_subject_term`) hem wel ziet.
         """
         delen = [str(deel) for deel in parts_of(self.graph, self._subject_term(uri))]
         if wortel is None:
@@ -549,6 +624,13 @@ class GwswDataset:
         onderdelen opzoeken, en hem meesnijden zou stilzwijgend gegevens weglaten.
         Alleen `subjects_of_class()` loopt daardoor nog over de volledige export;
         dat zijn de drempels in NET-007 en RVZ, en dat staat in het rapport.
+
+        `geometry_errors` gaat sinds issue #36 met zijn object mee: de lezer sleutelt
+        elke melding op de knoop- of streng-URI, dus dit filter houdt precies de fouten
+        van de behouden objecten -- `subset([*nodes, *conduits])` geeft dezelfde
+        `geometry_errors` als de bron. Eén uitzondering, uit voorzorg: een kapotte
+        *wees-orientatie* zonder enkele houder is op de orientatie-URI gesleuteld, en die
+        hoort bij geen enkel object; zo'n melding valt dus altijd uit elke subset.
         """
         behouden = frozenset(uris)
         return replace(
@@ -580,6 +662,107 @@ def ontologiepaden(ontology_paths: list[Path] | None) -> list[Path]:
     return [Path(pad) for pad in ontology_paths]
 
 
+def _gebundelde_paden_voor_basis(basis: str) -> list[Path]:
+    """De gebundelde ontologie die bij een gedetecteerde dataset-basis hoort (issue #32).
+
+    `load_dataset` roept dit aan wanneer de afnemer geen ontologie opgaf: dan kiest de lader
+    de gebundelde ontologie op de versie die hij uit de dataset detecteerde, zodat een
+    1.7-dataset de 1.7-hierarchie krijgt en niet stil op de 1.6-bundel terugvalt. Is de
+    gedetecteerde versie niet gebundeld (een 1.8-bron, of een onherkenbare basis), dan valt
+    hij terug op de 1.6-bundel -- met een melding, want de termenset volgt dan nog wel de
+    gedetecteerde basis en de hierarchie kan niet meer matchen (`klassenhierarchie_bekend`
+    meldt dat eerlijk als terugval op geometrie).
+    """
+    versie = versie_van_basis(basis)
+    if versie in GEBUNDELDE_VERSIES:
+        return [gebundelde_ontologie_voor(versie)]
+    _logger.warning(
+        "De dataset draagt GWSW-basis %r, maar daar is geen ontologie voor gebundeld "
+        "(gebundeld zijn %s); de lezing valt terug op de 1.6-ontologie. De klassenhierarchie "
+        "kan dan niet matchen en het lezen leunt op geometrie.",
+        basis,
+        ", ".join(GEBUNDELDE_VERSIES),
+    )
+    return [gebundelde_ontologie()]
+
+
+def _stapel_ontologie(
+    paden: Sequence[Path], fallback_encoding: str | None, voortgang: Voortgang
+) -> GraafIndex:
+    """Parseert de ontologiebestanden op volgorde in één index, met een stap per bestand.
+
+    **Zonder eigen fase, en dat is de hele reden dat deze functie bestaat.** `load_dataset`
+    en `lees_ontologie` moeten hetzelfde parseerpad delen -- één plek die weet dat
+    meerdere ontologiebestanden in dezelfde `GraafIndex` stapelen -- maar ze melden hun
+    voortgang anders: `load_dataset` telt de ontologiebestanden mee in zijn eigen fase
+    "TTL laden" (`1 + len(paden)` stappen, met de dataset als eerste), `lees_ontologie`
+    opent er zijn eigen fase "Ontologie laden" voor. Zou het delen op het niveau van de
+    fase gebeuren, dan zou `load_dataset` er een tweede fase bij krijgen en dus een
+    andere voortgang tonen dan voorheen -- en die is bevroren (`CLAUDE.md`, Harde
+    regels). Wat hier staat is precies de lus die `load_dataset` altijd al had: per
+    bestand een `bestand._parse` in de gedeelde index en daarna een `stap` met de
+    bestandsnaam.
+
+    Ook de GC blijft buiten deze functie: allebei de aanroepers zetten hem zelf stil
+    (`bestand._gc_uit`), `load_dataset` om zijn hele leesblok en `lees_ontologie` om deze
+    lus.
+    """
+    ontology = GraafIndex()
+    for pad in paden:
+        _parse(pad, fallback_encoding, index=ontology)
+        voortgang.stap(label=pad.name)
+    return ontology
+
+
+def lees_ontologie(
+    paden: list[Path] | None = None,
+    terugvalcodering: str | None = None,
+    *,
+    voortgang: Voortgang = NUL_VOORTGANG,
+) -> GraafIndex:
+    """Leest de ontologiebestanden in tot de `GraafIndex` waarop de lezers werken.
+
+    Dit is de index die `load_dataset` intern als `restrictiebron` opbouwt en daarna
+    weggooit: `GwswDataset.graph` is de *dataset*graaf en `GwswDataset.ontologies` draagt
+    alleen de paden. Wie de ontologische lezers van `gwsw_orox_helpers.ontologie` op een
+    geladen dataset wil gebruiken -- `facetbereik`, `datatype_van_kenmerk`,
+    `kenmerkbereik`, `verwachte_property`, `functie_van_klasse` -- haalt de bron ervoor
+    hier op, langs precies dezelfde weg als de lader (issue #33, vervolg op #19).
+
+    De padkeuze is die van `ontologiepaden` en dus dezelfde als bij `load_dataset`:
+    `None` betekent de gebundelde GWSW-ontologie, een lege lijst is de expliciete keuze
+    om zonder ontologie te lezen (en levert een lege index op), en een opgegeven lijst
+    wordt in volgorde in één index gestapeld. De terugvalcodering betekent hetzelfde als
+    daar; zie `codering.decodeer`. De parameters heten Nederlands (`paden`,
+    `terugvalcodering`) zoals `CLAUDE.md` vraagt, en dus anders dan de bevroren
+    `ontology_paths`/`fallback_encoding` van `load_dataset` -- een auteursbeslissing bij
+    issue #33; `paden` en niet `ontologiepaden`, omdat dat de naam van de padkeuzefunctie
+    hierboven is.
+
+    De voortgang gaat per bestand, in een eigen fase "Ontologie laden" met één stap per
+    bestand. Dat is een andere fase dan de "TTL laden" van `load_dataset` -- die telt de
+    ontologie bij de dataset in één fase, en dat blijft zo.
+
+    **Ook met een lege lijst is er precies één fase**, dan met totaal nul en zonder
+    stappen. Dat is een keuze en geen restje: een aanroeper die de fasen meetelt (een
+    balk per fase, een teller in een log) hoort de fase-indeling niet van de *inhoud* van
+    zijn argument te zien afhangen -- "soms een fase, soms geen" is het lastigere
+    contract om tegenaan te programmeren. `Voortgang.start_fase` neemt `totaal` als
+    `int | None` en nul is daar een geldige waarde.
+
+    Hetzelfde neveneffect als bij `load_dataset`, en om dezelfde reden: tijdens het lezen
+    ligt de cyclische garbage collector van het hele proces stil en komt hij daarna terug,
+    ook na een fout (zie `bestand._gc_uit`).
+    """
+    ontologie_paden = ontologiepaden(paden)
+    voortgang.start_fase("Ontologie laden", len(ontologie_paden))
+    with _gc_uit():
+        try:
+            return _stapel_ontologie(ontologie_paden, terugvalcodering, voortgang)
+        finally:
+            voortgang.einde_fase()
+
+
 def load_dataset(
     dataset_path: Path,
     ontology_paths: list[Path] | None = None,
@@ -604,48 +787,64 @@ def load_dataset(
 
     Eén neveneffect om te weten: tijdens de lezing ligt de cyclische garbage collector van
     het hele proces stil en komt hij daarna terug, ook na een fout -- de referentietelling
-    blijft aan, dus wat vrijkomt gaat nog altijd meteen weg (zie `inlezen._gc_uit`).
+    blijft aan, dus wat vrijkomt gaat nog altijd meteen weg (zie `bestand._gc_uit`).
     """
     dataset_path = Path(dataset_path)
+    expliciet = ontology_paths is not None
     ontologie_paden = ontologiepaden(ontology_paths)
     voortgang.start_fase("TTL laden", 1 + len(ontologie_paden))
-    # Om het hele leesblok en niet alleen om het vullen van de index (`_parse`): ook de
-    # objectopbouw hieronder maakt miljoenen dicts, tuples en dataclasses aan, en bij elke
-    # paar duizend daarvan zou de GC opnieuw door de al gevulde index lopen. Er ontstaat
-    # per constructie geen kringetje -- de index, de termen en de waardeobjecten wijzen
-    # alleen naar beneden. De binnenste `_gc_uit` in `_parse` blijft staan en is
-    # neveneffectvrij: die kijkt naar `gc.isenabled()` en laat deze stand met rust.
+    # Om het hele leesblok en niet alleen om het vullen van de index (`bestand._parse`):
+    # ook de objectopbouw hieronder maakt miljoenen dicts, tuples en dataclasses aan, en
+    # bij elke paar duizend daarvan zou de GC opnieuw door de al gevulde index lopen. Er
+    # ontstaat per constructie geen kringetje -- de index, de termen en de waardeobjecten
+    # wijzen alleen naar beneden. De binnenste `_gc_uit` in `bestand._parse` blijft staan
+    # en is neveneffectvrij: die kijkt naar `gc.isenabled()` en laat deze stand met rust.
     with _gc_uit():
         try:
             graph, fallback = _parse(dataset_path, fallback_encoding)
             voortgang.stap(label=dataset_path.name)
 
-            ontology = GraafIndex()
-            for pad in ontologie_paden:
-                _parse(pad, fallback_encoding, index=ontology)
-                voortgang.stap(label=pad.name)
+            # Zonder opgegeven ontologie kiest de lader de gebundelde ontologie op de versie
+            # die hij zojuist uit de dataset detecteerde (issue #32): de dataset wordt dus
+            # éérst geparst, dan de bijpassende ontologie gestapeld. Een expliciet opgegeven
+            # `ontology_paths` blijft leidend. Het aantal paden -- en dus de fasetelling
+            # hierboven -- verandert niet: `ontologiepaden(None)` en de versiekeuze leveren
+            # allebei één gebundeld bestand.
+            if not expliciet:
+                ontologie_paden = _gebundelde_paden_voor_basis(graph.gwsw_basis)
+
+            # Dezelfde lus als voorheen, nu gedeeld met `lees_ontologie`; hij meldt zijn
+            # stappen in de fase die hierboven al loopt en opent er geen eigen (zie
+            # `_stapel_ontologie`).
+            ontology = _stapel_ontologie(ontologie_paden, fallback_encoding, voortgang)
         finally:
             voortgang.einde_fase()
 
+        # De basis van de dataset (voor het lezen van de graaf) en die van de restrictiebron
+        # (voor het lezen van de ontologie) kunnen verschillen wanneer de afnemer expliciet
+        # een ontologie van een andere versie opgeeft. De closures die de dataset bevragen
+        # gebruiken de datasetbasis; de afgeleiden uit de restrictiebron haar eigen basis.
+        data_basis = graph.gwsw_basis
         restrictiebron = ontology if len(ontology) else graph
+        onto_basis = restrictiebron.gwsw_basis
         subclasses = _subclass_closure(restrictiebron)
-        kenmerk_property = _kenmerk_properties(restrictiebron, subclasses)
-        functie_per_klasse = _klassefuncties(restrictiebron, subclasses)
+        kenmerk_property = _kenmerk_properties(restrictiebron, subclasses, onto_basis)
+        functie_per_klasse = _klassefuncties(restrictiebron, subclasses, onto_basis)
         geometry_errors: dict[str, str] = {}
         # Dezelfde twee vragen die `GwswDataset.klassenhierarchie_bekend` stelt, met
         # dezelfde functie: `None` hier betekent terugval op geometrie, en dat is precies
         # wat het voorbehoud in de uitvoer zegt.
-        knooppunt = _bruikbare_afsluiting(subclasses, WORTEL_KNOOPPUNT)
-        verbinding = _bruikbare_afsluiting(subclasses, WORTEL_VERBINDING)
+        knooppunt = _bruikbare_afsluiting(subclasses, WORTEL_KNOOPPUNT, data_basis)
+        verbinding = _bruikbare_afsluiting(subclasses, WORTEL_VERBINDING, data_basis)
         # De afsluiting, niet de kale klasse: zie `inlezen._deksel_kenmerk`. Zonder
         # klassenkennis blijft het bij Putdeksel zelf, net als bij elke andere `closure()`.
-        deksel = _afsluiting(subclasses, "Putdeksel")
-        hulpstuk = _afsluiting(subclasses, WORTEL_HULPSTUKORIENTATIE)
+        deksel = _afsluiting(subclasses, "Putdeksel", data_basis)
+        hulpstuk = _afsluiting(subclasses, WORTEL_HULPSTUKORIENTATIE, data_basis)
         nodes = _read_nodes(graph, geometry_errors, knooppunt, deksel)
         conduits, herstel = _read_conduits(graph, nodes, geometry_errors, verbinding, hulpstuk)
 
     if not nodes and not conduits:
-        raise DatasetError(
+        raise InhoudError(
             f"{dataset_path}: geen knooppunten of strengen aangetroffen. Is dit een "
             f"GWSW-OroX-dataset?"
         )

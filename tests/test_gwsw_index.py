@@ -1,4 +1,4 @@
-"""De gebundelde index is exact wat de generator uit de gebundelde ontologie maakt."""
+"""Elke gebundelde index is exact wat de generator uit haar eigen ontologie maakt."""
 
 import importlib.util
 import json
@@ -7,7 +7,9 @@ import sys
 from pathlib import Path
 from types import ModuleType
 
-from gwsw_orox_helpers.bronnen import gebundelde_ontologie, vocabulaire_index_pad
+import pytest
+
+from gwsw_orox_helpers.bronnen import gebundelde_ontologie_voor, vocabulaire_index_pad_voor
 
 WORTEL = Path(__file__).resolve().parents[1]
 INDEXSCRIPT = WORTEL / "scripts" / "maak_gwsw_index.py"
@@ -28,57 +30,67 @@ def _generator() -> ModuleType:
     return module
 
 
-def test_index_volgt_de_ontologie() -> None:
-    """De gebundelde index is bij tot en met de ontologie die ernaast ligt.
+def _bundels() -> list:
+    """De bundels zoals de generator ze kent (16 en 17)."""
+    return list(_generator().BUNDELS)
 
-    Dit is de test die voorkomt dat de index stil veroudert zodra de auteur GWSW 1.7
-    neerzet. De hele bestandstekst wordt vergeleken en niet alleen de termen, zodat
-    ook de meegedragen `owl:versionInfo` en de opmaak niet uit de pas kunnen lopen.
-    Beide bestanden reizen met de package mee, dus deze test draait ook op CI.
+
+@pytest.mark.parametrize("versie", ["1.6", "1.7"])
+def test_index_volgt_de_ontologie(versie: str) -> None:
+    """Elke gebundelde index is bij tot en met de ontologie die ernaast ligt.
+
+    Dit is de test die voorkomt dat een index stil veroudert zodra de auteur een nieuwe
+    GWSW-versie neerzet -- per versie, want elke index volgt zijn eigen bundel. De hele
+    bestandstekst wordt vergeleken en niet alleen de termen, zodat ook de meegedragen
+    `owl:versionInfo`, de basis en de opmaak niet uit de pas kunnen lopen. Beide
+    bestanden reizen met de package mee, dus deze test draait ook op CI.
     """
     generator = _generator()
+    (bundel,) = [b for b in generator.BUNDELS if b.versie == versie]
 
-    assert generator.DOEL.read_text(encoding="utf-8") == generator.documenttekst(
-        generator.ONTOLOGIE
-    ), (
-        f"{generator.DOEL.relative_to(WORTEL)} loopt achter op "
-        f"{generator.ONTOLOGIE.relative_to(WORTEL)}.\n"
+    assert bundel.doel.read_text(encoding="utf-8") == generator.documenttekst(bundel.ontologie), (
+        f"{bundel.doel.relative_to(WORTEL)} loopt achter op "
+        f"{bundel.ontologie.relative_to(WORTEL)}.\n"
         "Draai: uv run python scripts/maak_gwsw_index.py"
     )
 
 
 def test_de_generator_schrijft_de_gebundelde_bestanden() -> None:
-    """Het script wijst naar dezelfde bestanden als `bronnen`.
+    """Het script wijst per versie naar dezelfde bestanden als `bronnen`.
 
-    Zonder deze test kan de generator ongemerkt een ander paar bestanden bijwerken dan
-    de package uitlevert, en dan bewaakt de drifttest hierboven een index die niemand
+    Zonder deze test kan de generator ongemerkt een ander stel bestanden bijwerken dan
+    de package uitlevert, en dan bewaakt de drifttest hierboven indexen die niemand
     leest.
     """
-    generator = _generator()
+    bundels = {bundel.versie: bundel for bundel in _bundels()}
 
-    assert generator.ONTOLOGIE == gebundelde_ontologie()
-    assert generator.DOEL == vocabulaire_index_pad()
+    assert set(bundels) == {"1.6", "1.7"}
+    for versie, bundel in bundels.items():
+        assert bundel.ontologie == gebundelde_ontologie_voor(versie)
+        assert bundel.doel == vocabulaire_index_pad_voor(versie)
 
 
-def test_indexversie_staat_in_claude_md() -> None:
-    """De index en `CLAUDE.md` dragen dezelfde GWSW-versie.
+@pytest.mark.parametrize("versie", ["1.6", "1.7"])
+def test_indexversie_staat_in_claude_md(versie: str) -> None:
+    """Elke index en `CLAUDE.md` dragen dezelfde GWSW-versie -- per versie.
 
     De drifttest hierboven bewaakt maar één richting: `CLAUDE.md` bijwerken zonder het
-    script te draaien valt om. De omgekeerde richting -- het script draaien op 1.7
-    terwijl `CLAUDE.md` nog 1.6 zegt -- merkt niemand, en dan is `CLAUDE.md` niet langer
-    "de enige plek waar hij staat".
+    script te draaien valt om. De omgekeerde richting -- het script draaien terwijl
+    `CLAUDE.md` de versie nog niet noemt -- merkt niemand, en dan is `CLAUDE.md` niet
+    langer "de enige plek waar hij staat". Elke gebundelde index bindt daarom zijn
+    eigen `versie=`-regel aan `CLAUDE.md`.
 
     Alleen het `versie=X.Y`-deel wordt vergeleken en niet de hele regel: de
     conversiedatum erachter hoort bij de ontologie en niet bij de projectafspraak. De
     versieregel komt uit de index, die hem letterlijk uit de `owl:versionInfo` van de
     gebundelde ontologie overneemt (`versie_uit_graaf`).
     """
-    versieregel = json.loads(vocabulaire_index_pad().read_text(encoding="utf-8"))["gwsw_versie"]
-    gevonden = re.search(r"versie=[0-9]+(?:\.[0-9]+)*", versieregel)
+    index = json.loads(vocabulaire_index_pad_voor(versie).read_text(encoding="utf-8"))
+    gevonden = re.search(r"versie=[0-9]+(?:\.[0-9]+)*", index["gwsw_versie"])
 
-    assert gevonden is not None, f"geen versie= in {versieregel!r}"
+    assert gevonden is not None, f"geen versie= in {index['gwsw_versie']!r}"
     assert gevonden.group() in (WORTEL / "CLAUDE.md").read_text(encoding="utf-8"), (
-        f"{vocabulaire_index_pad().name} draagt {gevonden.group()}, maar CLAUDE.md noemt die "
-        "versie niet. CLAUDE.md is de gezaghebbende plek; werk de regel over de leidende "
-        "GWSW-versie bij."
+        f"{vocabulaire_index_pad_voor(versie).name} draagt {gevonden.group()}, maar CLAUDE.md "
+        "noemt die versie niet. CLAUDE.md is de gezaghebbende plek; werk de regel over de "
+        "gebundelde GWSW-versies bij."
     )

@@ -1,4 +1,4 @@
-"""Elke gegenereerde fixture op schijf is exact wat de generator maakt."""
+"""Elke gegenereerde fixture op schijf is exact wat de generator maakt, per versie."""
 
 import importlib.util
 from pathlib import Path
@@ -6,7 +6,6 @@ from pathlib import Path
 import pytest
 
 WORTEL = Path(__file__).resolve().parents[1]
-TTL_DIR = Path(__file__).parent / "fixtures" / "ttl"
 
 
 def _generator():
@@ -21,8 +20,13 @@ def _generator():
 
 GENERATOR = _generator()
 
+# Elke versie krijgt haar eigen fixtureset (1.6 in ttl/, 1.7 in ttl17/). De drift wordt
+# per versie tegen de generator gehouden, zodat de 1.7-set net zo bewaakt is als de 1.6-set.
+GEVALLEN = [(versie, naam) for versie in GENERATOR.VERSIES for naam in sorted(GENERATOR.FIXTURES)]
 
-@pytest.mark.parametrize("naam", sorted(GENERATOR.FIXTURES))
-def test_fixture_volgt_de_generator(naam: str) -> None:
+
+@pytest.mark.parametrize(("versie", "naam"), GEVALLEN)
+def test_fixture_volgt_de_generator(versie: str, naam: str) -> None:
     defect, inhoud = GENERATOR.FIXTURES[naam]
-    assert (TTL_DIR / naam).read_text(encoding="utf-8") == GENERATOR.render(defect, inhoud)
+    doel = GENERATOR.doel_voor(versie)
+    assert (doel / naam).read_text(encoding="utf-8") == GENERATOR.render(defect, inhoud, versie)

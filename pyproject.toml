@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "gwsw-orox-helpers"
-version = "0.2.0"
+version = "0.2.1"
 description = "Lezen (en later schrijven en clippen) van GWSW-OroX (TTL) rioleringsdatasets: grafmodel, geometrie, klassenhierarchie en cache."
 readme = "README.md"
 license = "MIT"
@@ -13,15 +13,27 @@ requires-python = ">=3.12"
 dependencies = [
     # pyoxigraph levert de Rust-parser die het OroX-TTL ordegrootten sneller inleest dan
     # rdflib's pure-Python notation3.
-    "pyoxigraph>=0.5",
-    "rdflib>=7.0",
-    "shapely>=2.0",
+    #
+    # Bovengrenzen, want een verse install bij een afnemer mag niet stil een incompatibele
+    # major/minor trekken:
+    # - pyoxigraph is pre-1.0; 0.5 -> 0.6 mag de parse-signatuur breken.
+    # - `_literal_string_snel` in `src/gwsw_orox_helpers/graaf.py` zet vier rdflib-INTERNE
+    #   velden rechtstreeks (`_language`, `_datatype`, `_value`, `_ill_typed`), gebonden
+    #   aan 7.x; rdflib 8 mag die hernoemen.
+    # - shapely<3 is precautionair: geen bekend knelpunt, wel dezelfde major-risico's.
+    "pyoxigraph>=0.5,<0.6",
+    "rdflib>=7.0,<8",
+    "shapely>=2.0,<3",
 ]
 
 [dependency-groups]
 dev = [
     "mypy>=1.11",
     "pytest>=8.2",
+    # De dekkingsstap van de poort. Staat hier (en dus in `uv.lock`) in plaats van als
+    # `uv run --with pytest-cov ...`: dat haalde elke run een ongepinde versie van PyPI,
+    # buiten de gelockte set om.
+    "pytest-cov>=5.0",
     "ruff>=0.6",
 ]
 
@@ -42,9 +54,33 @@ select = ["E", "F", "I", "UP", "B", "N"]
 
 [tool.mypy]
 python_version = "3.12"
-files = ["src/gwsw_orox_helpers"]
-# rdflib en shapely leveren geen bruikbare stubs.
+# `tests/typecheck` staat erbij en is geen gewone testmap: die modules draaien niet, ze
+# zijn er om door mypy gelezen te worden. `graaflezer.py` bewijst dat `rdflib.Graph` en
+# `graaf.GraafIndex` het `GraafLezer`-protocol allebei structureel vervullen -- een
+# belofte die met een `assert` niet te toetsen is. De rest van `tests/` blijft erbuiten.
+# `scripts` staat erbij sinds issue #20: de artefactgeneratoren (`maak_fixtures.py`,
+# `maak_gwsw_index.py`) schrijven bestanden die in de repo gecommit staan en door
+# drifttests bewaakt worden, en de benchmarks leunen op de publieke API. Ongecontroleerd
+# gelaten drift daar valt pas op als een gegenereerd bestand al fout is. De rest van
+# `tests/` blijft erbuiten: die is met de soepelste stand (`disallow_untyped_defs` uit)
+# nog altijd 21 fouten van groen, vooral doordat pyoxigraph- en shapely-termen in
+# testasserties versmald moeten worden. Dat is eigen werk, geen bijvangst van deze poort.
+files = ["src/gwsw_orox_helpers", "tests/typecheck", "scripts"]
+# shapely levert geen `py.typed` (2.1.2), dus zijn namen komen als `Any` binnen: een
+# annotatie als `Point | LineString | Polygon` documenteert daar wel maar toetst niet.
+# rdflib draagt sinds 7.x wél een `py.typed` en wordt dus gewoon meegecontroleerd.
 ignore_missing_imports = true
+# Elke functie draagt haar handtekening, in `src/`, in `tests/typecheck` en in `scripts/`.
+# Zonder deze vlag glipt een ongeannoteerde def er ongemerkt door: mypy leest haar dan als
+# `Any -> Any` en controleert noch het lichaam noch de aanroepen. Vier functies in `src/`
+# stonden zo (issue #20).
+disallow_untyped_defs = true
+# De negatieve helft van dat bewijs: `# type: ignore[arg-type]` op een object dat het
+# protocol *niet* vervult. Wordt zo'n regel ooit geldig -- omdat het protocol te breed
+# werd of omdat `Graph` zijn typen kwijtraakt en `Any` wordt -- dan is de ignore
+# ongebruikt en valt mypy alsnog om. `src/` draagt geen enkele `# type: ignore`, dus deze
+# vlag kost daar niets en bewaakt hem meteen.
+warn_unused_ignores = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

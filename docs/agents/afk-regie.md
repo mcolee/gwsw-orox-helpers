@@ -65,7 +65,7 @@ Eén issue = één sessie-eenheid: commit + push + CI groen + comment + close v�
    > - Voeg een regel toe onder `## [Unreleased]` in `CHANGELOG.md`.
    > - Draai de **volledige mechanische poort op de voorgrond** en plak de uitvoer letterlijk:
    >   `uv run ruff check`, `uv run ruff format --check .`, `uv run mypy`, `uv run pytest -q`,
-   >   `uv run --with pytest-cov pytest --cov=gwsw_orox_helpers --cov-fail-under=95`.
+   >   `uv run pytest --cov=gwsw_orox_helpers --cov-fail-under=95`.
    > - **Niet pushen.** Rapporteer terug: gewijzigde bestanden, de geplakte poort-uitvoer, en
    >   open aannames.
 

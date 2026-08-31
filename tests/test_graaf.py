@@ -291,6 +291,35 @@ def test_uriref_snel_geeft_dezelfde_term_voor_elke_iri_in_de_gebundelde_ontologi
     assert afwijkend == []
 
 
+# Het aantal unieke IRI's in de eigen naamruimte van de gebundelde GWSW 1.7-ontologie
+# (`http://data.gwsw.nl/1.7/...`), naast `AANTAL_IRIS_GWSW16` (issue #32). Bewust op de
+# 1.7-naamruimte gefilterd en niet op alle IRI's: dat maakt het getal meteen het bewijs
+# dat de bundel de nieuwe basis draagt en geen enkele term meer in de 1.6-naamruimte zet.
+# Schuift bij een 1.7-upgrade net zo mee als het 1.6-getal.
+AANTAL_IRIS_GWSW17_EIGEN_NAAMRUIMTE = 3_485
+
+
+def test_de_17_bundel_zet_zijn_iris_in_de_eigen_naamruimte() -> None:
+    """De 1.7-bundel telt zijn eigen IRI's en draagt er geen in de 1.6-naamruimte (issue #32).
+
+    Deel b baseline: puur de IRI-tekst uit de motor, zonder de klasse-afgeleiden die
+    de versiedetectie van deel c nodig hebben. De 1.6-teller ernaast blijft ongemoeid.
+    """
+    from gwsw_orox_helpers import rdfmotor
+    from gwsw_orox_helpers.bronnen import gebundelde_ontologie_voor
+
+    iris = {
+        term.value
+        for quad in rdfmotor.ontleed_turtle_bestand(gebundelde_ontologie_voor("1.7"))
+        for term in (quad.subject, quad.predicate, quad.object)
+        if isinstance(term, pyoxigraph.NamedNode)
+    }
+
+    eigen = {iri for iri in iris if iri.startswith("http://data.gwsw.nl/1.7/")}
+    assert len(eigen) == AANTAL_IRIS_GWSW17_EIGEN_NAAMRUIMTE
+    assert not any(iri.startswith("http://data.gwsw.nl/1.6/") for iri in iris)
+
+
 def _slots(klasse: type) -> tuple[str, ...]:
     """Alle `__slots__` van een klasse en haar bovenklassen, zonder duplicaten."""
     gevonden: dict[str, None] = {}

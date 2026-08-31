@@ -19,7 +19,7 @@ from rdflib.collection import Collection
 
 from gwsw_orox_helpers import ontologie
 from gwsw_orox_helpers.bestand import _parse
-from gwsw_orox_helpers.bronnen import gebundelde_ontologie
+from gwsw_orox_helpers.bronnen import gebundelde_ontologie, gebundelde_ontologie_voor
 from gwsw_orox_helpers.dataset import GWSW, lees_ontologie
 from gwsw_orox_helpers.graaf import GraafIndex, GraafLezer
 from gwsw_orox_helpers.klassen import _afsluiting, _subclass_closure
@@ -321,6 +321,40 @@ def test_de_restrictielezers_zijn_op_beide_graafvormen_gelijk_over_alle_klassen(
     assert {klasse: functie_van_klasse(echte_graaf, klasse) for klasse in klassen} == {
         klasse: functie_van_klasse(echte_index, klasse) for klasse in klassen
     }
+
+
+# --- De 1.7-baseline naast de 1.6-aantallen (issue #32) -------------------------------
+
+# Het aantal `owl:Class`-declaraties in de gebundelde GWSW 1.7-ontologie, naast
+# `AANTAL_KLASSEN` (2087 voor 1.6). Gemeten via de package-API op de klassenlijst; schuift
+# bij een 1.7-upgrade net zo mee als de 1.6-aantallen.
+AANTAL_KLASSEN_GWSW17 = 2167
+BASIS_17 = "http://data.gwsw.nl/1.7/totaal/"
+
+
+def test_de_17_ontologie_draagt_de_hernoemde_klassen_en_rev() -> None:
+    """De 1.7-klassenlijst via `lees_ontologie`: REV erbij, de hernoemde concepten omgewisseld.
+
+    **Deel b baseline (issue #32).** `lees_ontologie` op de 1.7-bundel levert een
+    `GraafIndex`, en de klassenlijst komt uit de `rdf:type owl:Class`-tripels -- meetbaar
+    zonder de versiedetectie die pas in **deel c** landt. Wat deel c aanvult zijn de
+    klasse-afgeleiden (`_afsluiting`, de 39 datatypes en 709 kenmerkklassen hierboven):
+    die spellen nog met de 1.6-basis en werken pas als de lezers de gedetecteerde
+    termenset gebruiken. De 1.6-aantallen blijven ongemoeid ernaast.
+    """
+    index = lees_ontologie(paden=[gebundelde_ontologie_voor("1.7")])
+    klassen = {
+        str(term) for term in index.subjects(RDF.type, OWL.Class) if isinstance(term, URIRef)
+    }
+    assert len(klassen) == AANTAL_KLASSEN_GWSW17
+
+    # De REV-CoF is nieuw in 1.7 en ontbreekt in 1.6.
+    assert BASIS_17 + "Revisieproject" in klassen
+    # De hernoemde concepten: de nieuwe namen staan er, de oude niet meer.
+    assert BASIS_17 + "Infiltratiekoffer" in klassen
+    assert BASIS_17 + "Omhulling" in klassen
+    assert BASIS_17 + "Infiltratiereservoir" not in klassen
+    assert BASIS_17 + "Leidingomhulling" not in klassen
 
 
 # --- De collectiewandeling zelf, tegen `rdflib.collection.Collection` gehouden --------

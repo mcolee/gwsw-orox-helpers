@@ -14,6 +14,7 @@ from rdflib import RDF, URIRef
 from rdflib.term import Node as RdfNode
 
 from gwsw_orox_helpers import dataset as dataset_module
+from gwsw_orox_helpers.bronnen import gebundelde_ontologie_voor
 from gwsw_orox_helpers.dataset import (
     GWSW,
     GwswDataset,
@@ -1184,6 +1185,26 @@ def test_lees_ontologie_levert_de_restrictiebron_van_load_dataset(
 
     assert len(los) == len(restrictiebron) == AANTAL_TRIPELS_GWSW16
     assert _tripels(los) == _tripels(restrictiebron)
+
+
+# Het tripelaantal van de gebundelde GWSW 1.7-ontologie, naast `AANTAL_TRIPELS_GWSW16`
+# (issue #32). Gemeten via de echte package-API: `lees_ontologie` parseert de 1.7-bundel
+# tot precies dezelfde `GraafIndex`-vorm. Het parseerpad is versie-agnostisch, dus dit
+# getal is nu al hard te meten -- de klasse-afgeleiden (subklasse-afsluiting, de 709
+# kenmerkklassen) spellen nog met de 1.6-basis en komen pas na de versiedetectie van
+# deel c aan bod. Schuift bij een 1.7-upgrade net zo mee als het 1.6-getal.
+AANTAL_TRIPELS_GWSW17 = 66_664
+
+
+def test_de_17_bundel_draagt_zijn_eigen_tripelaantal() -> None:
+    """De 1.7-bundel is via `lees_ontologie` te lezen en draagt zijn eigen ijkwaarde.
+
+    Deel b baseline: het parseerpad kent geen versie, dus het tripelaantal is meetbaar
+    zonder de detectie die deel c toevoegt. De 1.6-ijkwaarde blijft ongemoeid ernaast.
+    """
+    los = lees_ontologie(paden=[gebundelde_ontologie_voor("1.7")])
+    assert len(los) == AANTAL_TRIPELS_GWSW17
+    assert AANTAL_TRIPELS_GWSW17 != AANTAL_TRIPELS_GWSW16
 
 
 def test_lees_ontologie_meldt_een_eigen_fase_met_een_stap_per_bestand(tmp_path: Path) -> None:

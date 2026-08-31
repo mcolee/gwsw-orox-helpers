@@ -1,6 +1,28 @@
 # Changelog
 
 ## [Unreleased]
+- `inlezen._orientations_of_class` ordent zijn klassen met `sorted()` en levert daarmee een
+  reproduceerbare orientatievolgorde (issue #37, bug; **additief** — privé functie, geen
+  bevroren contract geraakt). De functie liep over een `frozenset[str]` (de subklasse-afsluiting
+  die `dataset.py` via `_bruikbare_afsluiting` aanlevert), en de iteratievolgorde van een
+  `frozenset[str]` is per proces gerandomiseerd (`PYTHONHASHSEED`). Draagt één object twee
+  orientaties van **verschillende** Knooppunt-subklassen, dan bepaalde die volgorde — via de
+  eerste-wint-ontdubbeling in `_read_nodes`/`_read_conduits` — welke orientatie de geometrie
+  levert; daardoor kon `node.point` (en sinds issue #36 ook `geometry_errors`) tussen twee runs
+  op hetzelfde bestand verschillen. Met `sorted(klassen)` is de volgorde de alfabetische van de
+  klassenaam: willekeurig maar reproduceerbaar, wat principe 1 van het manifest (herleidbaar naar
+  bron) vraagt. **Gecontroleerd, geen aanname**: de andere frozenset-lussen die de afsluitingen
+  gebruiken zijn volgorde-onafhankelijk en blijven ongewijzigd — `_deksel_kenmerk`'s
+  `deksel_klassen` en `_read_nodes`' `hulpstuk_klassen` gaan door een `any(...)`- respectievelijk
+  set-doorsnede-membershiptest, en de `_afsluiting`-lussen in `klassen.py` (`_kenmerk_properties`,
+  `_klassefuncties`) vullen dicts waarvan de enige precedentie-gevoelige stap al over
+  `sorted(...)` loopt. **Geen hete-lus-kost**: `sorted()` draait één keer per aanroep over een
+  handvol klassenamen, niet per orientatie. Vastgelegd met
+  `test_orientations_of_class_ordent_op_klassenaam_ongeacht_invoervolgorde` in
+  `tests/test_dataset.py` (geordende invoer, alfabetische uitvoer). **Cachesleutel**: `inlezen`
+  staat in `cache.LADERMODULES`, dus de sleutel roteert en bestaande caches worden één keer
+  opnieuw opgebouwd. De fixtures hebben het geval (twee orientaties van verschillende
+  Knooppunt-subklassen) niet, dus geen fixture-drift.
 - `GwswDataset.geometry_errors` sleutelt op het object en niet meer op de orientatie
   (issue #36, bug; **additief in de praktijk** — naam, type en handtekening van het veld
   én van `subset()` blijven gelijk, alleen wélke sleutels erin staan verandert). `subset()`

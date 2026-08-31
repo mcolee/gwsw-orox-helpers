@@ -472,10 +472,20 @@ def _parents(graph: GraafIndex, subject: RdfNode) -> tuple[str, ...]:
 
 
 def _orientations_of_class(graph: GraafIndex, klassen: frozenset[str]) -> Iterator[RdfNode]:
-    """De orientaties waarvan het type in deze verzameling klassen valt."""
+    """De orientaties waarvan het type in deze verzameling klassen valt.
+
+    `sorted(klassen)` en niet de kale `frozenset`-iteratie (issue #37): de iteratievolgorde
+    van een `frozenset[str]` is per proces gerandomiseerd (`PYTHONHASHSEED`). Draagt één
+    object twee orientaties van verschillende Knooppunt-subklassen, dan zou die volgorde --
+    via de eerste-wint-ontdubbeling in `_read_nodes`/`_read_conduits` -- bepalen welke
+    orientatie de geometrie levert, en dan verschilt `node.point` (en sinds issue #36
+    `geometry_errors`) tussen twee runs op hetzelfde bestand. De alfabetische volgorde van de
+    klassenaam is willekeurig maar reproduceerbaar, en dat is wat het manifest vraagt. Het is
+    geen hete-lus-kost: `sorted()` draait een keer per aanroep over een handvol klassenamen.
+    """
     return _uniek(
         orientation
-        for klasse in klassen
+        for klasse in sorted(klassen)
         for orientation in graph.subjects(_RDF_TYPE, URIRef(klasse))
     )
 

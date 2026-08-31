@@ -504,6 +504,39 @@ def test_uniek_ontdubbelt_op_het_eerste_voorkomen() -> None:
     assert gelezen == [1, 1, 2], "de 3 is niet opgehaald: de bron loopt niet vooruit"
 
 
+def test_orientations_of_class_ordent_op_klassenaam_ongeacht_invoervolgorde() -> None:
+    """De orientatievolgorde is de alfabetische van de klassenaam, niet de hashvolgorde (issue #37).
+
+    `_orientations_of_class` liep over een `frozenset[str]`, en de iteratievolgorde daarvan
+    is per proces gerandomiseerd (`PYTHONHASHSEED`). Draagt één object twee orientaties van
+    verschillende Knooppunt-subklassen, dan bepaalt die volgorde welke orientatie in
+    `_read_nodes` de eerste is en dus de geometrie levert -- waardoor `node.point` (en sinds
+    issue #36 `geometry_errors`) tussen twee runs op hetzelfde bestand kan verschillen.
+    `sorted(klassen)` maakt de uitkomst reproduceerbaar: de alfabetische van de klassenaam.
+
+    De invoer wordt hier als lijst en in niet-alfabetische volgorde aangeboden. Een
+    `frozenset` zou zijn eigen, onvoorspelbare volgorde opleggen en de assert per seed laten
+    wisselen; met een geordende invoer ligt vast wat de functie ermee doet -- zij laat die
+    volgorde niet door maar legt haar eigen, alfabetische volgorde op.
+    """
+    from gwsw_orox_helpers.inlezen import _orientations_of_class
+
+    graph = GraafIndex()
+    ori_alfa = URIRef(f"{TOETS}ori_alfa")
+    ori_beta = URIRef(f"{TOETS}ori_beta")
+    ori_gamma = URIRef(f"{TOETS}ori_gamma")
+    klasse_alfa = f"{GWSW}Knoop_Alfa"
+    klasse_beta = f"{GWSW}Knoop_Beta"
+    klasse_gamma = f"{GWSW}Knoop_Gamma"
+    graph.voeg_toe(ori_alfa, RDF.type, URIRef(klasse_alfa))
+    graph.voeg_toe(ori_beta, RDF.type, URIRef(klasse_beta))
+    graph.voeg_toe(ori_gamma, RDF.type, URIRef(klasse_gamma))
+
+    resultaat = list(_orientations_of_class(graph, [klasse_gamma, klasse_alfa, klasse_beta]))
+
+    assert resultaat == [ori_alfa, ori_beta, ori_gamma]
+
+
 def test_graph_types_of_geeft_dezelfde_typen_als_de_urirefweg(voorbeeld: GwswDataset) -> None:
     """Het snelpad verandert het antwoord niet, voor geen enkel subject in de export.
 

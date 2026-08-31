@@ -1,6 +1,35 @@
 # Changelog
 
 ## [Unreleased]
+- CI-triggerdiscipline in `.github/workflows/toets.yml` (issue #24, ci-hygiene;
+  **additief** — uitsluitend CI-configuratie, geen regel code aangeraakt). Drie
+  wijzigingen: (a) `push` heeft een `branches: [main, dev]`-filter, zodat een commit op
+  een feature-branch met open PR de poort niet meer tweemaal draait (push- én
+  `pull_request`-event) — `main` en `dev` blijven bij **élke** push toetsen, want de
+  regie pusht rechtstreeks naar `dev` zonder PR, en een feature-branch toetst via zijn
+  PR; (b) een `concurrency`-blok op `${{ github.workflow }}-${{ github.ref }}` met
+  `cancel-in-progress: true`, zodat een superseded run wordt afgebroken in plaats van
+  uitgedraaid; (c) `astral-sh/setup-uv` met `enable-cache: true` en
+  `cache-dependency-glob: "uv.lock"`, zodat de wheel-set niet elke run opnieuw wordt
+  opgehaald. Gedrag, niet gemeten in wall-clock: het aantal poort-runs per
+  feature-branch-commit halveert (2 → 1) en superseded runs stoppen meteen; de
+  dependency-cache slaat aan zodra `uv.lock` niet wijzigt.
+- De poort draait reproduceerbaar en op twee interpreters (issue #25, ci-hygiene;
+  **additief** — configuratie, CI en docs; geen regel productiecode aangeraakt). Vier
+  wijzigingen: (a) `pytest-cov>=5.0` staat in `[dependency-groups] dev` van
+  `pyproject.toml` en dus in `uv.lock` (pytest-cov 7.1.0, coverage 7.16.0), in plaats
+  van `uv run --with pytest-cov …`, dat elke run een ongepinde versie buiten de gelockte
+  set om van PyPI haalde; (b) de installatiestap in CI is `uv sync --locked`, zodat een
+  vergeten `uv lock` de run rood zet in plaats van stil te worden weggewerkt; (c) een
+  matrix over Python **3.12 en 3.13** (`fail-fast: false`), zodat de belofte
+  `requires-python = ">=3.12"` op de onder- én bovengrens getoetst wordt in plaats van
+  op een toevallige interpreter — dat kost 2x de runtime van één leg, wat het
+  annuleren van superseded runs en de cache uit #24 grotendeels terugbetalen; (d) de
+  vijf-staps-poortregel in `CLAUDE.md` (en het poortblok in `README.md` en
+  `docs/agents/afk-regie.md`) noemt stap vijf nu als `uv run pytest
+  --cov=gwsw_orox_helpers --cov-fail-under=95` — kaal, want uv synct de dev-groep
+  standaard mee, dus lokaal en CI draaien dezelfde stap. De poort blijft vijf stappen;
+  alleen de vorm van stap vijf verandert.
 - De veerkracht- en contracttakken van de leeslaag staan onder toets (issue #16,
   testbaarheid; **additief** — uitsluitend tests, fixtures en de fixturegenerator, geen
   regel productiecode aangeraakt). Dekking van `src/gwsw_orox_helpers/inlezen.py`:

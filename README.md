@@ -88,7 +88,7 @@ uv run ruff check
 uv run ruff format --check .
 uv run mypy                                             # over src/gwsw_orox_helpers
 uv run pytest                                           # `zwaar` niet; `-m zwaar` draait tegen een niet-getrackte export
-uv run --with pytest-cov pytest --cov=gwsw_orox_helpers --cov-fail-under=95
+uv run pytest --cov=gwsw_orox_helpers --cov-fail-under=95  # pytest-cov komt uit de dev-groep
 ```
 
 Dezelfde vijf stappen draaien in CI bij elke push naar `main` of `dev` (`.github/workflows/toets.yml`). De werkwijze

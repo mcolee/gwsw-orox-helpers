@@ -32,10 +32,14 @@ Eerste afnemer: nlriochecker. Nederlandse identifiers, GWSW-conform.
 
 ## Werkwijze
 - Python 3.12+, src-layout, uv; poort: ruff check, ruff format, mypy, pytest,
-  dekking >= 95% (`uv run --with pytest-cov pytest --cov=gwsw_orox_helpers`).
+  dekking >= 95% (`uv run pytest --cov=gwsw_orox_helpers`).
 - **De mechanische poort** is deze vijf stappen, in deze volgorde, op de voorgrond:
   `uv run ruff check`, `uv run ruff format --check .`, `uv run mypy`, `uv run pytest`,
-  en `uv run --with pytest-cov pytest --cov=gwsw_orox_helpers --cov-fail-under=95`.
+  en `uv run pytest --cov=gwsw_orox_helpers --cov-fail-under=95`. Stap vijf draait sinds
+  issue #25 **zonder `--with pytest-cov`**: pytest-cov staat in `[dependency-groups] dev`
+  van `pyproject.toml` en dus in `uv.lock`, en uv synct de dev-groep standaard mee — kaal
+  `uv run` volstaat, `--group dev` is niet nodig. Zo draait de dekkingsstap uit de
+  gelockte set in plaats van elke keer een ongepinde download.
   Dezelfde vijf staan in `.github/workflows/toets.yml`; wijkt de een af, dan wijken ze
   allebei af. Draai hem bij elke commit die `src/**.py` raakt en **lees de uitvoer** —
   "de tests draaiden" is geen bewijs, de geplakte uitvoer wel. Let op: `ruff format

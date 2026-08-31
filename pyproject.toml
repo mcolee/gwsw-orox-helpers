@@ -30,6 +30,10 @@ dependencies = [
 dev = [
     "mypy>=1.11",
     "pytest>=8.2",
+    # De dekkingsstap van de poort. Staat hier (en dus in `uv.lock`) in plaats van als
+    # `uv run --with pytest-cov ...`: dat haalde elke run een ongepinde versie van PyPI,
+    # buiten de gelockte set om.
+    "pytest-cov>=5.0",
     "ruff>=0.6",
 ]
 

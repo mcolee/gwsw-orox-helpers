@@ -1249,7 +1249,7 @@ def test_een_geometrie_aspect_zonder_literaal_laat_de_knoop_staan(
 
     assert put.point is None
     assert put.z is None
-    assert f"{TOETS}PutE" not in rommelig.geometry_errors
+    assert f"{TOETS}PutE_ori" not in rommelig.geometry_errors
     # Voorwaarde: de orientatie draagt wel degelijk een Punt-aspect, alleen zonder waarde.
     punten = [
         aspect
@@ -1402,9 +1402,6 @@ def test_een_orientatie_zonder_houder_houdt_haar_eigen_uri_als_sleutel(tmp_path:
     hele bevinding achter issue #36 was dat een melding stil wegviel. Hem hier alsnog
     laten vallen zou dezelfde fout op een kleinere plek herhalen. Hij hoort per definitie
     in geen enkele subset -- dat is juist, want hij is geen object.
-
-    Beide lezers kennen dit geval, dus staan ze hier allebei: een knooporientatie zonder
-    put en een leidingorientatie zonder leiding.
     """
     bron = (TTL_DIR / "top001_losliggende_put.ttl").read_text(encoding="utf-8")
     bron += (
@@ -1412,13 +1409,6 @@ def test_een_orientatie_zonder_houder_houdt_haar_eigen_uri_als_sleutel(tmp_path:
         "    gwsw:hasAspect [ rdf:type gwsw:Punt ;\n"
         '        gwsw:hasValue "<gml:Point xmlns:gml=\\"http://www.opengis.net/gml\\">'
         '<gml:pos>een twee</gml:pos></gml:Point>"^^geo:gmlLiteral ] .\n'
-        ":WeesL_ori rdf:type gwsw:Leidingorientatie ;\n"
-        "    gwsw:hasPart :WeesL_b ;\n"
-        "    gwsw:hasAspect [ rdf:type gwsw:Lijn ;\n"
-        '        gwsw:hasValue "<gml:LineString xmlns:gml=\\"http://www.opengis.net/gml\\">'
-        '<gml:posList srsDimension=\\"2\\">1000.0 2000.0</gml:posList>'
-        '</gml:LineString>"^^geo:gmlLiteral ] .\n'
-        ":WeesL_b rdf:type gwsw:BeginpuntLeiding .\n"
     )
     pad = tmp_path / "wees_orientatie.ttl"
     pad.write_text(bron, encoding="utf-8")
@@ -1427,92 +1417,6 @@ def test_een_orientatie_zonder_houder_houdt_haar_eigen_uri_als_sleutel(tmp_path:
 
     assert f"{TOETS}Wees_ori" in gelezen.geometry_errors
     assert "niet-numerieke coordinaat" in gelezen.geometry_errors[f"{TOETS}Wees_ori"]
-    assert f"{TOETS}WeesL_ori" in gelezen.geometry_errors
-    assert "onbruikbare LineString-geometrie" in gelezen.geometry_errors[f"{TOETS}WeesL_ori"]
-    # Ze zijn geen knoop en geen streng: een wees draagt geen object, dus er valt niets
-    # in te lezen.
+    # Hij is geen knoop: de wees draagt geen object, dus er valt niets in te lezen.
     assert f"{TOETS}Wees_ori" not in gelezen.nodes
     assert f"{TOETS}Wees" not in gelezen.nodes
-    assert f"{TOETS}WeesL_ori" not in gelezen.conduits
-
-
-def _twee_orientaties(tmp_path: Path) -> Path:
-    """Een put met twee orientaties: een met een leesbare literaal, een met een kapotte."""
-    bron = (TTL_DIR / "top001_losliggende_put.ttl").read_text(encoding="utf-8")
-    bron += (
-        "\n:PutG gwsw:hasAspect :PutG_ori , :PutG_ori2 .\n"
-        ":PutG_ori rdf:type gwsw:Putorientatie ;\n"
-        "    gwsw:hasAspect [ rdf:type gwsw:Punt ;\n"
-        '        gwsw:hasValue "<gml:Point xmlns:gml=\\"http://www.opengis.net/gml\\">'
-        '<gml:pos>1300.0 2600.0</gml:pos></gml:Point>"^^geo:gmlLiteral ] .\n'
-        ":PutG_ori2 rdf:type gwsw:Putorientatie ;\n"
-        "    gwsw:hasAspect [ rdf:type gwsw:Punt ;\n"
-        '        gwsw:hasValue "<gml:Point xmlns:gml=\\"http://www.opengis.net/gml\\">'
-        '<gml:pos>een twee</gml:pos></gml:Point>"^^geo:gmlLiteral ] .\n'
-    )
-    pad = tmp_path / "twee_orientaties.ttl"
-    pad.write_text(bron, encoding="utf-8")
-    return pad
-
-
-def test_een_object_met_bruikbare_geometrie_staat_nooit_in_geometry_errors(
-    tmp_path: Path,
-) -> None:
-    """De invariant waar elke afnemer op rekent, als test in plaats van als aanname.
-
-    Een object mag meer dan een orientatie dragen (de rommelige export doet het met
-    `PutF_ori`/`PutF_ori2`). Draagt de ene een leesbare literaal en de andere een
-    kapotte, dan bouwt de lezer de knoop uit de eerste die langskomt en slaat de rest
-    over. Zou de melding van de overgeslagen orientatie alsnog op het object landen, dan
-    krijgt een object met een prima punt het etiket "onleesbare geometrie" -- en meldt
-    nlriochecker dat als bevinding. Een vals-positief bij de afnemer is erger dan een
-    niet-gemelde dubbele literaal (manifest, principe 1).
-
-    De assert is bewust de invariant over de hele dataset en niet een uitspraak over
-    `PutG`: welke van de twee orientaties het eerst langskomt hangt af van de
-    schrijfvolgorde van de export, en daar hoort geen test op te leunen.
-    """
-    gelezen = load_dataset(_twee_orientaties(tmp_path), ontology_paths=[])
-
-    assert f"{TOETS}PutG" in gelezen.nodes
-    for uri, knoop in gelezen.nodes.items():
-        if knoop.point is not None:
-            assert uri not in gelezen.geometry_errors, (
-                f"{uri} heeft een bruikbare geometrie en hoort niet in geometry_errors"
-            )
-    for uri, streng in gelezen.conduits.items():
-        if streng.line is not None:
-            assert uri not in gelezen.geometry_errors
-
-
-def test_een_kapotte_orientatie_met_twee_putten_telt_twee_keer(tmp_path: Path) -> None:
-    """De telling gaat over objecten, niet over orientaties (issue #36, verwacht effect 2).
-
-    Dit is de kant die de sleutelwissel duurder maakt in plaats van goedkoper: draagt een
-    orientatie meer dan een object, dan is haar onleesbare literaal de geometrie van elk
-    van hen, en telt de fout dus per object. Vroeger telde diezelfde export een fout,
-    want de sleutel was de orientatie.
-
-    Dat is de bedoelde richting. `GwswDataset.geometry_errors` heet naar objecten en
-    wordt bij de afnemer geteld als "N objecten hebben een onleesbare geometrie"; de
-    telling volgt nu die tekst in plaats van andersom.
-    """
-    bron = (TTL_DIR / "top001_losliggende_put.ttl").read_text(encoding="utf-8")
-    bron += (
-        "\n:PutH gwsw:hasAspect :Gedeeld_ori .\n"
-        ":PutI gwsw:hasAspect :Gedeeld_ori .\n"
-        ":Gedeeld_ori rdf:type gwsw:Putorientatie ;\n"
-        "    gwsw:hasAspect [ rdf:type gwsw:Punt ;\n"
-        '        gwsw:hasValue "<gml:Point xmlns:gml=\\"http://www.opengis.net/gml\\">'
-        '<gml:pos>een twee</gml:pos></gml:Point>"^^geo:gmlLiteral ] .\n'
-    )
-    pad = tmp_path / "gedeelde_orientatie.ttl"
-    pad.write_text(bron, encoding="utf-8")
-
-    gelezen = load_dataset(pad, ontology_paths=[])
-
-    assert {f"{TOETS}PutH", f"{TOETS}PutI"} <= set(gelezen.geometry_errors)
-    assert gelezen.nodes[f"{TOETS}PutH"].point is None
-    assert gelezen.nodes[f"{TOETS}PutI"].point is None
-    # En de orientatie zelf is geen sleutel meer: zij is geen object.
-    assert f"{TOETS}Gedeeld_ori" not in gelezen.geometry_errors

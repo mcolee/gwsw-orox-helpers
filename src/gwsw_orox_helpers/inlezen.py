@@ -367,21 +367,10 @@ def _geometry(
     zijn per contract dezelfde (`test_parse_gml_met_z_is_gelijkwaardig_aan_de_twee_losse_lezers`).
 
     Een onleesbare literaal levert `None, [], "<melding>"` op. De melding wordt hier
-    teruggegeven en niet weggeschreven (issue #36). Twee redenen, en ze bepalen allebei
-    waar de aanroeper haar wegschrijft:
-
-    De sleutel hoort het **object** te zijn en niet de orientatie. `geometry_errors`
-    wordt bij de afnemer geteld als "objecten met een onleesbare geometrie", en
-    `GwswDataset.subset()` filtert op knoop- en streng-URI's; zolang de sleutel de
-    orientatie was, waren die twee verzamelingen per constructie disjunct en kwam elke
-    subset zonder geometriefouten terug. Welke objecten deze orientatie dragen is hier
-    nog niet bekend.
-
-    En de melding hoort bij het object **zoals de lezer het bouwde**. Een object mag meer
-    dan een orientatie dragen; de lezer bouwt het uit de eerste die langskomt en slaat de
-    rest over. Landt de melding van een overgeslagen orientatie er alsnog op, dan draagt
-    een object met een prima geometrie het etiket "onleesbaar". De aanroepers schrijven
-    haar daarom weg op het moment dat ze het object aanmaken, en niet per houder.
+    teruggegeven en niet weggeschreven (issue #36): de objecten die deze orientatie
+    dragen zijn op dit punt nog niet bekend, en juist die zijn de sleutel waaronder de
+    fout thuishoort. `_meld_geometriefout` doet dat verderop, zodra de houders bekend
+    zijn.
     """
     for aspect in aspects_of(graph, orientation):
         if (aspect, _RDF_TYPE, klasse) not in graph:
@@ -395,6 +384,29 @@ def _geometry(
         except GeometryError as error:
             return None, [], str(error)
     return None, [], None
+
+
+def _meld_geometriefout(
+    errors: dict[str, str], fout: str | None, orientation: RdfNode, houders: list[str]
+) -> None:
+    """Schrijft de geometriefout van een orientatie weg op de objecten die haar dragen.
+
+    Op het object en niet op de orientatie (issue #36). Dat is waar de afnemer hem
+    zoekt: `GwswDataset.geometry_errors` wordt geteld als "objecten met een onleesbare
+    geometrie", en `GwswDataset.subset()` filtert op knoop- en streng-URI's. Zolang de
+    sleutel de orientatie was, waren die twee verzamelingen disjunct en viel elke fout
+    bij het snijden weg -- ook bij een subset die alles behield.
+
+    Draagt een orientatie meer dan een object, dan krijgt elk van hen de melding: de
+    literaal die niet te lezen was, is voor allebei de geometrie. Draagt ze er geen
+    enkele, dan blijft haar eigen URI de sleutel. Zo'n wees hoort in geen enkele subset
+    thuis, maar hem hier laten vallen zou de melding stil laten verdwijnen, en dat is
+    precies wat deze sleutelkeuze moest verhelpen.
+    """
+    if fout is None:
+        return
+    for uri in houders or [str(orientation)]:
+        errors[uri] = fout
 
 
 def _read_nodes(
@@ -425,14 +437,12 @@ def _read_nodes(
         point, z_waarden, fout = _geometry(graph, orientation, KLASSE_PUNT)
         maaiveld, maaiveld_inwinning = _maaiveld_kenmerk(graph, orientation)
         multipart = _is_multipart(graph, orientation, KLASSE_PUNT)
-        gedragen = False
+        houders: list[str] = []
         for subject in aspect_holders_of(graph, orientation):
             uri = str(subject)
-            gedragen = True
+            houders.append(uri)
             if uri in nodes:
                 continue
-            if fout is not None:
-                errors[uri] = fout
             deksel, deksel_inwinning = _deksel_kenmerk(graph, subject, deksel_termen)
             nodes[uri] = Node(
                 uri=uri,
@@ -450,11 +460,7 @@ def _read_nodes(
                 deksel_inwinning=deksel_inwinning,
                 multipart=multipart,
             )
-        if fout is not None and not gedragen:
-            # Een wees: geen object om de melding aan te hangen, dus haar eigen URI. Hem
-            # laten vallen zou de fout stil laten verdwijnen, en dat is precies wat deze
-            # sleutelkeuze moest verhelpen.
-            errors[str(orientation)] = fout
+        _meld_geometriefout(errors, fout, orientation, houders)
 
     return nodes
 
@@ -533,14 +539,12 @@ def _read_conduits(
         begin = _endpoint(graph, orientation, KLASSEN_BEGINPUNT)
         eind = _endpoint(graph, orientation, KLASSEN_EINDPUNT)
 
-        gedragen = False
+        houders: list[str] = []
         for subject in aspect_holders_of(graph, orientation):
             uri = str(subject)
-            gedragen = True
+            houders.append(uri)
             if uri in conduits:
                 continue
-            if fout is not None:
-                errors[uri] = fout
             # Draagt één orientatie twee leidingen, dan telt hetzelfde herstelde eind
             # twee keer in `koppelingen`; `hulpstukken` klopt wel, want dat gaat via een
             # set. Het referentievoorbeeld heeft nul van zulke orientaties.
@@ -559,9 +563,7 @@ def _read_conduits(
                 multipart=multipart,
                 z_values=tuple(z_waarden),
             )
-        if fout is not None and not gedragen:
-            # Zie `_read_nodes`: een orientatie zonder houder houdt haar eigen URI.
-            errors[str(orientation)] = fout
+        _meld_geometriefout(errors, fout, orientation, houders)
 
     return conduits, Koppelingsherstel(len(hersteld), len(set(hersteld)))
 

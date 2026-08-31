@@ -109,7 +109,11 @@ NETWERK_MAG_IMPORTEREN = frozenset({"domein"})
 # alleen op deze bladeren leunt, en hij weet dus niets van de lezers, van `dataset` of van
 # `cache`. Tussen `bestand` en `inlezen` loopt géén rand: die volgorde is een
 # rangschikking en geen afhankelijkheid (zie `docs/architectuur.md`, "De lagen").
-BESTAND_MAG_IMPORTEREN = frozenset({"codering", "errors", "graaf", "rdfmotor"})
+# `namen` kwam er bij issue #32 bij: `_parse` detecteert de GWSW-basis van de bron
+# (`gwsw:`-prefix, met de predicaat-IRI's als terugval) en zet die op `index.gwsw_basis`.
+# `namen` is een blad (alleen tekst, geen pakketimport), dus dat blijft een schone
+# neerwaartse rand; de detectie zelf spelt geen enkele IRI zelf.
+BESTAND_MAG_IMPORTEREN = frozenset({"codering", "errors", "graaf", "namen", "rdfmotor"})
 
 # De enige modules van de package die de cliplaag mag importeren. `dataset`, `graaf`,
 # `inlezen`, `klassen`, `ontologie` en `cache` staan er nadrukkelijk niet bij: de clip heeft

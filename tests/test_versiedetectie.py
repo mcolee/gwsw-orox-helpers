@@ -9,10 +9,19 @@ over de IRI's). De doortrekking in de lees- en cliplaag zelf staat in `test_data
 
 from __future__ import annotations
 
+import logging
+from pathlib import Path
+
+import pytest
+
 from gwsw_orox_helpers import namen
+from gwsw_orox_helpers.bestand import _parse
 
 BASIS_16 = "http://data.gwsw.nl/1.6/totaal/"
 BASIS_17 = "http://data.gwsw.nl/1.7/totaal/"
+
+TTL16 = Path(__file__).parent / "fixtures" / "ttl" / "dataset_voorbeeld.ttl"
+TTL17 = Path(__file__).parent / "fixtures" / "ttl17" / "dataset_voorbeeld.ttl"
 
 
 def test_de_gepinde_constanten_blijven_16() -> None:
@@ -70,3 +79,34 @@ def test_basis_uit_iri_herkent_predicaat_en_klasse() -> None:
     assert namen.basis_uit_iri(f"{BASIS_17}hasAspect") == BASIS_17
     assert namen.basis_uit_iri(f"{BASIS_16}Knooppunt") == BASIS_16
     assert namen.basis_uit_iri("http://www.w3.org/2000/01/rdf-schema#label") is None
+
+
+def test_parse_leest_de_basis_uit_de_gwsw_prefix() -> None:
+    """Een gebundelde fixture draagt zijn versie in de `gwsw:`-prefix; `_parse` leest die."""
+    index16, _ = _parse(TTL16, None)
+    index17, _ = _parse(TTL17, None)
+    assert index16.gwsw_basis == BASIS_16
+    assert index17.gwsw_basis == BASIS_17
+
+
+def test_parse_valt_terug_op_de_iri_scan_zonder_gwsw_prefix(tmp_path: Path) -> None:
+    """Een export zonder `gwsw:`-prefixdeclaratie is geldig Turtle; de IRI's dragen de versie."""
+    bron = tmp_path / "zonder_prefix.ttl"
+    bron.write_text(
+        f"<http://x/S> <{BASIS_17}hasAspect> <http://x/O> .\n",
+        encoding="utf-8",
+    )
+    index, _ = _parse(bron, None)
+    assert index.gwsw_basis == BASIS_17
+
+
+def test_parse_zonder_herkenbare_versie_valt_terug_op_16_met_waarschuwing(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Geen `gwsw:`-prefix en geen GWSW-IRI: terugval op 1.6, maar nooit stil."""
+    bron = tmp_path / "geen_gwsw.ttl"
+    bron.write_text("<http://x/S> <http://x/p> <http://x/O> .\n", encoding="utf-8")
+    with caplog.at_level(logging.WARNING, logger="gwsw_orox_helpers.bestand"):
+        index, _ = _parse(bron, None)
+    assert index.gwsw_basis == BASIS_16
+    assert "geen herkenbare GWSW-versie" in caplog.text

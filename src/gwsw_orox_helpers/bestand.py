@@ -36,10 +36,12 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
 
-from gwsw_orox_helpers import rdfmotor
+from gwsw_orox_helpers import namen, rdfmotor
 from gwsw_orox_helpers.codering import DecodeFallback, decodeer, terugvalverslag
 from gwsw_orox_helpers.errors import BestandError, TurtleError
 from gwsw_orox_helpers.graaf import GraafIndex
+
+_logger = logging.getLogger(__name__)
 
 
 @contextmanager
@@ -127,6 +129,32 @@ def _parse(
             index.vul_uit(quads)
     except Exception as error:  # pyoxigraph gooit uiteenlopende parsefouten
         raise TurtleError(f"{path}: geen geldige Turtle ({error}).") from error
+    # De gedetecteerde GWSW-basis van dit bestand (issue #32), hier gezet zodat de lezers
+    # van `inlezen` hun predicaten en klasse-IRI's uit de bron afleiden in plaats van uit de
+    # vaste 1.6-string. Twee wegen, in deze volgorde. De `gwsw:`-prefix van de bron is de
+    # goedkope eerste: na `vul_uit` is `quads` uitgeput en zijn de prefixdeclaraties gelezen.
+    # Ontbreekt die -- een export zonder de declaratie is geldig Turtle -- dan volgt een scan
+    # over de predicaat-IRI's van de graaf (een OroX draagt `gwsw:hasAspect` en verwanten);
+    # `index._pos` is de predicaatverzameling, klein en met de basis in de IRI zelf. Levert
+    # ook dat niets op, dan valt de lezing terug op 1.6, nooit stil maar met een melding,
+    # zodat een bron met een onherkenbare versie zichtbaar wordt in plaats van leeg gelezen.
+    # Bij het stapelen van meerdere ontologiebestanden in dezelfde index wint de basis van
+    # het laatst gelezen bestand -- die zijn in de praktijk allemaal van één versie.
+    basis = namen.basis_uit_prefixen(quads.prefixes)
+    if basis is None:
+        basis = next(
+            (b for term in index._pos if (b := namen.basis_uit_iri(str(term))) is not None),
+            None,
+        )
+    if basis is None:
+        _logger.warning(
+            "%s: geen herkenbare GWSW-versie in de prefixen of de IRI's; de lezing valt terug "
+            "op de gebundelde 1.6-termenset. Een bron op een andere versie wordt daarmee "
+            "mogelijk leeg gelezen.",
+            path,
+        )
+        basis = namen.GWSW
+    index.gwsw_basis = basis
     return index, fallback
 
 

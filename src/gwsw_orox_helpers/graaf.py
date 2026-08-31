@@ -67,7 +67,7 @@ import pyoxigraph
 from rdflib import BNode, Literal, URIRef
 from rdflib.term import Node as RdfNode
 
-from gwsw_orox_helpers.namen import XSD_STRING
+from gwsw_orox_helpers.namen import GWSW, XSD_STRING
 
 
 def _uriref_snel(value: str) -> URIRef:
@@ -215,6 +215,15 @@ class GraafIndex:
     """
 
     def __init__(self) -> None:
+        # De gedetecteerde GWSW-basis van de graaf (issue #32), additief naast de indexen.
+        # `bestand._parse` overschrijft hem na het vullen met de basis die het uit de bron
+        # afleidt; blijft de detectie leeg, dan is dit de gepinde 1.6-terugval. De lezers
+        # van `inlezen` leiden hun predicaten en klasse-IRI's hieruit af, zodat een 1.7-graaf
+        # met 1.7-predicaten gelezen wordt in plaats van met de vaste 1.6-string. Een gewoon
+        # attribuut en geen constructorparameter: `GraafIndex()` blijft parameterloos (de
+        # handtekening is gepind in `tests/test_publieke_api.py`), en de waarde reist als
+        # gewone staat mee in de pickle van de cache.
+        self.gwsw_basis: str = GWSW
         # De objecten per (s, p) zijn een insertie-geordende dict met None-waarden,
         # geen lijst: het duplicaatfilter bij het vullen en de membership-test zijn
         # daarmee O(1). Met een lijst kostte de dedupescan op de De Wolden en

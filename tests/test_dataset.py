@@ -786,7 +786,7 @@ def test_verschil_met_de_structurele_herkenning_wordt_gemeld(voorbeeld: GwswData
 
 
 def test_ontologie_wordt_vastgelegd(voorbeeld: GwswDataset) -> None:
-    assert [pad.name for pad in voorbeeld.ontologies] == ["Ontologie_GWSW_Totaal.ttl"]
+    assert [pad.name for pad in voorbeeld.ontologies] == ["gwsw_ontologie_totaal_16.ttl"]
 
 
 def test_beheerobjecttype_negeert_de_orientatie() -> None:

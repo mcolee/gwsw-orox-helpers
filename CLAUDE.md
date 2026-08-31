@@ -7,15 +7,27 @@ Leeslaag voor GWSW-OroX (TTL): grafmodel, geometrie, klassenhierarchie, cache.
 Eerste afnemer: nlriochecker. Nederlandse identifiers, GWSW-conform.
 
 ## Harde regels
-- **Leidende GWSW-versie: 1.6**, uit de gebundelde
-  `src/gwsw_orox_helpers/data/Ontologie_GWSW_Totaal.ttl` (`owl:versionInfo`:
-  *"Deelmodel Totaal, filter op CoFs BAS DMO EN HYD LDR MDS NLCS PLI RRB TOP,
-  versie=1.6 (2025-11-18T14:53:33)"*). Dit is de enige plek waar het nummer als
-  projectafspraak staat; `test_indexversie_staat_in_claude_md` leest het `versie=`-deel
-  hier terug. Upgraden is handwerk van de auteur: hij levert een nieuw ontologiebestand
-  en dan trekt de package bij. Draai daarbij `uv run python scripts/maak_gwsw_index.py`
-  (herschrijft de gebundelde index) en werk deze regel bij; de drifttests bewaken
-  beide richtingen.
+- **Twee gebundelde GWSW-versies, 1.6 (default/leidend) en 1.7.** Beide reizen
+  versie-benoemd met de package mee:
+  - **1.6** uit `src/gwsw_orox_helpers/data/gwsw_ontologie_totaal_16.ttl` (`owl:versionInfo`:
+    *"Deelmodel Totaal, filter op CoFs BAS DMO EN HYD LDR MDS NLCS PLI RRB TOP,
+    versie=1.6 (2025-11-18T14:53:33)"*).
+  - **1.7** uit `src/gwsw_orox_helpers/data/gwsw_ontologie_totaal_17.ttl` (`owl:versionInfo`:
+    *"Deelmodel Totaal, filter op CoFs BAS DMO EN HYD LDR MDS NLCS PLI REV RRB TOP,
+    versie=1.7 (2026-08-25T17:09:23)"*).
+
+  **1.6 is de default en de leidende versie**: `bronnen.gebundelde_ontologie()` en
+  `bronnen.vocabulaire_index_pad()` leveren de 1.6-bestanden, en zonder dataset-context
+  leest de package 1.6. De runtime-detectie die op een 1.7-bron de 1.7-set kiest, volgt in
+  een later deel van issue #32; tot dan blijft de default onvoorwaardelijk 1.6.
+
+  Dit is de enige plek waar de versienummers als projectafspraak staan;
+  `test_indexversie_staat_in_claude_md` leest per gebundelde index het `versie=`-deel hier
+  terug (beide versies). Upgraden is handwerk van de auteur: hij levert een nieuw
+  ontologiebestand en dan trekt de package bij. Draai daarbij
+  `uv run python scripts/maak_gwsw_index.py` (herschrijft **beide** gebundelde indexen,
+  `gwsw-vocabulaire-index-16.json` / `-17.json`) en werk deze regel bij; de drifttests
+  bewaken beide richtingen, per versie.
 - De publieke API is wat nlriochecker importeert; breken mag tot 1.0 maar alleen
   met een CHANGELOG-regel en een versiebump.
 - **nlriochecker mag nooit breken.** Dat "breken mag tot 1.0" hierboven is de vrijheid

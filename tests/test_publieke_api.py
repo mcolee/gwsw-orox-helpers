@@ -377,6 +377,8 @@ HANDTEKENINGEN: dict[str, str] = {
     # Gebundelde bronnen.
     "bronnen.gebundelde_ontologie": "() -> pathlib.Path",
     "bronnen.vocabulaire_index_pad": "() -> pathlib.Path",
+    "bronnen.gebundelde_ontologie_voor": "(versie: str) -> pathlib.Path",
+    "bronnen.vocabulaire_index_pad_voor": "(versie: str) -> pathlib.Path",
 }
 
 VELDEN: dict[str, tuple[str, ...]] = {

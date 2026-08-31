@@ -24,6 +24,7 @@ IRI-constanten en de graafhulpen -- met dezelfde handtekening en hetzelfde gedra
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, field, replace
 from pathlib import Path
@@ -36,7 +37,11 @@ from rdflib.term import Node as RdfNode
 # in een methode `klim_naar_knoop` laat geen twijfel over waar de aanroep heen gaat.
 from gwsw_orox_helpers import netwerk
 from gwsw_orox_helpers.bestand import _gc_uit, _parse
-from gwsw_orox_helpers.bronnen import gebundelde_ontologie
+from gwsw_orox_helpers.bronnen import (
+    GEBUNDELDE_VERSIES,
+    gebundelde_ontologie,
+    gebundelde_ontologie_voor,
+)
 from gwsw_orox_helpers.codering import DecodeFallback
 from gwsw_orox_helpers.domein import (
     ISO_DATUM,
@@ -106,8 +111,10 @@ from gwsw_orox_helpers.klassen import (
     _klassefuncties,
     _subclass_closure,
 )
-from gwsw_orox_helpers.namen import GWSW, _short, _uri
+from gwsw_orox_helpers.namen import GWSW, _short, _uri, basis_uit_iri, versie_van_basis
 from gwsw_orox_helpers.voortgang import NUL_VOORTGANG, Voortgang
+
+_logger = logging.getLogger(__name__)
 
 # De lijst is het oppervlak, niet een keuze van deze module: alles wat ooit uit
 # `gwsw_orox_helpers.dataset` te importeren was, staat erin -- ook de namen die na de
@@ -225,6 +232,42 @@ class GwswDataset:
     _types_memo: dict[str, frozenset[str]] = field(
         default_factory=dict, init=False, repr=False, compare=False
     )
+    # De gedetecteerde GWSW-basis van deze dataset (issue #32), gememoiseerd. Hij hoort bij
+    # de gepinde `dataset.GWSW`-constante géén tweede *veld* op `GwswDataset` te worden: de
+    # dataclass-handtekening en de veldenlijst staan in `tests/test_publieke_api.py` letterlijk
+    # vast, en een init-veld erbij zou die breken. Daarom een `init=False`-memo, net als
+    # `_types_memo`: hij telt niet mee in de handtekening en wordt niet gepickeld. `closure`
+    # en `is_connection_class` lezen hem in plaats van uit `self.graph` -- dat laatste zou op
+    # het luie cachepad (`cache.LuieGraaf`) de graafpickle van schijf trekken voor een run die
+    # de graaf verder niet aanraakt. De basis komt daarom uit de typen van de knopen en
+    # strengen, die al in het geheugen staan en dezelfde versie dragen als de graaf.
+    _gwsw_basis_memo: list[str] = field(default_factory=list, init=False, repr=False, compare=False)
+
+    @property
+    def _basis(self) -> str:
+        """De GWSW-basis van deze dataset, afgeleid uit de typen van haar objecten.
+
+        Gememoiseerd, en bewust niet uit `self.graph.gwsw_basis`: op een cachetreffer is
+        `self.graph` een `cache.LuieGraaf` en zou die attribuuttoegang de graafpickle laden.
+        De typen van de knopen en strengen staan al in het geheugen en dragen dezelfde basis;
+        de eerste GWSW-getypeerde daarvan levert haar. Zonder zo'n type (een dataset zonder
+        enkele GWSW-klasse) valt hij terug op de gepinde 1.6-basis.
+        """
+        if not self._gwsw_basis_memo:
+            gevonden = GWSW
+            for objecten in (self.nodes.values(), self.conduits.values()):
+                for obj in objecten:
+                    treffer = next(
+                        (b for typ in obj.types if (b := basis_uit_iri(typ)) is not None), None
+                    )
+                    if treffer is not None:
+                        gevonden = treffer
+                        break
+                else:
+                    continue
+                break
+            self._gwsw_basis_memo.append(gevonden)
+        return self._gwsw_basis_memo[0]
 
     def is_a(self, uri: str, root: str) -> bool:
         """Geeft aan of dit domeinobject van het type `root` of een subklasse is.
@@ -420,7 +463,7 @@ class GwswDataset:
 
     def closure(self, root: str) -> frozenset[str]:
         """De klasse zelf plus al haar subklassen, als volledige URI's."""
-        return _afsluiting(self.subclasses, root)
+        return _afsluiting(self.subclasses, root, self._basis)
 
     @property
     def klassenhierarchie_bekend(self) -> bool:
@@ -445,7 +488,7 @@ class GwswDataset:
         De vraag is wat de graaf over klassen weet, niet waar die kennis vandaan komt.
         """
         return all(
-            _bruikbare_afsluiting(self.subclasses, wortel) is not None
+            _bruikbare_afsluiting(self.subclasses, wortel, self._basis) is not None
             for wortel in WORTELS_VOOR_HERKENNING
         )
 
@@ -463,7 +506,7 @@ class GwswDataset:
         Zonder ontologie is de afsluiting alleen `Verbinding` zelf, dus dan wordt
         alleen die naam herkend.
         """
-        return _uri(root) in self.closure("Verbinding")
+        return _uri(root, self._basis) in self.closure("Verbinding")
 
     def of_class(self, root: str) -> list[str]:
         """De URI's van alle knooppunten en strengen van dit type.
@@ -619,6 +662,30 @@ def ontologiepaden(ontology_paths: list[Path] | None) -> list[Path]:
     return [Path(pad) for pad in ontology_paths]
 
 
+def _gebundelde_paden_voor_basis(basis: str) -> list[Path]:
+    """De gebundelde ontologie die bij een gedetecteerde dataset-basis hoort (issue #32).
+
+    `load_dataset` roept dit aan wanneer de afnemer geen ontologie opgaf: dan kiest de lader
+    de gebundelde ontologie op de versie die hij uit de dataset detecteerde, zodat een
+    1.7-dataset de 1.7-hierarchie krijgt en niet stil op de 1.6-bundel terugvalt. Is de
+    gedetecteerde versie niet gebundeld (een 1.8-bron, of een onherkenbare basis), dan valt
+    hij terug op de 1.6-bundel -- met een melding, want de termenset volgt dan nog wel de
+    gedetecteerde basis en de hierarchie kan niet meer matchen (`klassenhierarchie_bekend`
+    meldt dat eerlijk als terugval op geometrie).
+    """
+    versie = versie_van_basis(basis)
+    if versie in GEBUNDELDE_VERSIES:
+        return [gebundelde_ontologie_voor(versie)]
+    _logger.warning(
+        "De dataset draagt GWSW-basis %r, maar daar is geen ontologie voor gebundeld "
+        "(gebundeld zijn %s); de lezing valt terug op de 1.6-ontologie. De klassenhierarchie "
+        "kan dan niet matchen en het lezen leunt op geometrie.",
+        basis,
+        ", ".join(GEBUNDELDE_VERSIES),
+    )
+    return [gebundelde_ontologie()]
+
+
 def _stapel_ontologie(
     paden: Sequence[Path], fallback_encoding: str | None, voortgang: Voortgang
 ) -> GraafIndex:
@@ -723,6 +790,7 @@ def load_dataset(
     blijft aan, dus wat vrijkomt gaat nog altijd meteen weg (zie `bestand._gc_uit`).
     """
     dataset_path = Path(dataset_path)
+    expliciet = ontology_paths is not None
     ontologie_paden = ontologiepaden(ontology_paths)
     voortgang.start_fase("TTL laden", 1 + len(ontologie_paden))
     # Om het hele leesblok en niet alleen om het vullen van de index (`bestand._parse`):
@@ -736,6 +804,15 @@ def load_dataset(
             graph, fallback = _parse(dataset_path, fallback_encoding)
             voortgang.stap(label=dataset_path.name)
 
+            # Zonder opgegeven ontologie kiest de lader de gebundelde ontologie op de versie
+            # die hij zojuist uit de dataset detecteerde (issue #32): de dataset wordt dus
+            # éérst geparst, dan de bijpassende ontologie gestapeld. Een expliciet opgegeven
+            # `ontology_paths` blijft leidend. Het aantal paden -- en dus de fasetelling
+            # hierboven -- verandert niet: `ontologiepaden(None)` en de versiekeuze leveren
+            # allebei één gebundeld bestand.
+            if not expliciet:
+                ontologie_paden = _gebundelde_paden_voor_basis(graph.gwsw_basis)
+
             # Dezelfde lus als voorheen, nu gedeeld met `lees_ontologie`; hij meldt zijn
             # stappen in de fase die hierboven al loopt en opent er geen eigen (zie
             # `_stapel_ontologie`).
@@ -743,20 +820,26 @@ def load_dataset(
         finally:
             voortgang.einde_fase()
 
+        # De basis van de dataset (voor het lezen van de graaf) en die van de restrictiebron
+        # (voor het lezen van de ontologie) kunnen verschillen wanneer de afnemer expliciet
+        # een ontologie van een andere versie opgeeft. De closures die de dataset bevragen
+        # gebruiken de datasetbasis; de afgeleiden uit de restrictiebron haar eigen basis.
+        data_basis = graph.gwsw_basis
         restrictiebron = ontology if len(ontology) else graph
+        onto_basis = restrictiebron.gwsw_basis
         subclasses = _subclass_closure(restrictiebron)
-        kenmerk_property = _kenmerk_properties(restrictiebron, subclasses)
-        functie_per_klasse = _klassefuncties(restrictiebron, subclasses)
+        kenmerk_property = _kenmerk_properties(restrictiebron, subclasses, onto_basis)
+        functie_per_klasse = _klassefuncties(restrictiebron, subclasses, onto_basis)
         geometry_errors: dict[str, str] = {}
         # Dezelfde twee vragen die `GwswDataset.klassenhierarchie_bekend` stelt, met
         # dezelfde functie: `None` hier betekent terugval op geometrie, en dat is precies
         # wat het voorbehoud in de uitvoer zegt.
-        knooppunt = _bruikbare_afsluiting(subclasses, WORTEL_KNOOPPUNT)
-        verbinding = _bruikbare_afsluiting(subclasses, WORTEL_VERBINDING)
+        knooppunt = _bruikbare_afsluiting(subclasses, WORTEL_KNOOPPUNT, data_basis)
+        verbinding = _bruikbare_afsluiting(subclasses, WORTEL_VERBINDING, data_basis)
         # De afsluiting, niet de kale klasse: zie `inlezen._deksel_kenmerk`. Zonder
         # klassenkennis blijft het bij Putdeksel zelf, net als bij elke andere `closure()`.
-        deksel = _afsluiting(subclasses, "Putdeksel")
-        hulpstuk = _afsluiting(subclasses, WORTEL_HULPSTUKORIENTATIE)
+        deksel = _afsluiting(subclasses, "Putdeksel", data_basis)
+        hulpstuk = _afsluiting(subclasses, WORTEL_HULPSTUKORIENTATIE, data_basis)
         nodes = _read_nodes(graph, geometry_errors, knooppunt, deksel)
         conduits, herstel = _read_conduits(graph, nodes, geometry_errors, verbinding, hulpstuk)
 

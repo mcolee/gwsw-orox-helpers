@@ -146,32 +146,36 @@ def facetbereik(graph: GraafLezer, datatype: URIRef) -> Facetbereik | None:
     return Facetbereik(datatype=naam, minimum=minimum, maximum=maximum)
 
 
-def datatype_van_kenmerk(graph: GraafLezer, kenmerk: URIRef) -> URIRef | None:
+def datatype_van_kenmerk(graph: GraafLezer, kenmerk: URIRef, basis: str = GWSW) -> URIRef | None:
     """Vindt het `Dt_X`-datatype van een kenmerk via zijn `hasValue`-restrictie.
 
     De ontologie hangt onder een kenmerk een `owl:Restriction` op `gwsw:hasValue` met
     `owl:allValuesFrom gwsw:Dt_X`. Een kenmerk dat naar een kaal `xsd:integer` verwijst
     (dan is er geen `Dt_`-datatype met facetten) levert `None`.
+
+    `basis` (issue #32) is de GWSW-basis van de graaf: default 1.6, zodat de bestaande
+    aanroep ongewijzigd blijft; op een 1.7-ontologie geeft de aanroeper de 1.7-basis mee,
+    zodat `hasValue` en `Dt_` in de goede versie gespeld worden.
     """
-    has_value = URIRef(GWSW + "hasValue")
+    has_value = URIRef(basis + "hasValue")
     for restrictie in graph.objects(kenmerk, RDFS.subClassOf):
         if graph.value(restrictie, OWL.onProperty) != has_value:
             continue
         doel = graph.value(restrictie, OWL.allValuesFrom)
-        if isinstance(doel, URIRef) and doel.startswith(GWSW + "Dt_"):
+        if isinstance(doel, URIRef) and doel.startswith(basis + "Dt_"):
             return doel
     return None
 
 
-def kenmerkbereik(graph: GraafLezer, kenmerk: URIRef) -> Facetbereik | None:
+def kenmerkbereik(graph: GraafLezer, kenmerk: URIRef, basis: str = GWSW) -> Facetbereik | None:
     """De hele keten: van een kenmerk naar het bereik van zijn datatype."""
-    datatype = datatype_van_kenmerk(graph, kenmerk)
+    datatype = datatype_van_kenmerk(graph, kenmerk, basis)
     if datatype is None:
         return None
     return facetbereik(graph, datatype)
 
 
-def verwachte_property(graph: GraafLezer, kenmerk: URIRef) -> str | None:
+def verwachte_property(graph: GraafLezer, kenmerk: URIRef, basis: str = GWSW) -> str | None:
     """De property die de ontologie voor de waarde van een kenmerk voorschrijft.
 
     De ontologie hangt onder een kenmerk een `owl:Restriction` die de waarde aan een
@@ -185,9 +189,11 @@ def verwachte_property(graph: GraafLezer, kenmerk: URIRef) -> str | None:
     ATTR-014 nodig heeft om te zien dat een export `hasValue` schrijft waar de
     ontologie `hasReference` eist; de SHACL-nulmeting mist die fout per constructie
     (issue #37).
+
+    `basis` (issue #32) is de GWSW-basis van de graaf; default 1.6.
     """
-    has_value = URIRef(GWSW + "hasValue")
-    has_reference = URIRef(GWSW + "hasReference")
+    has_value = URIRef(basis + "hasValue")
+    has_reference = URIRef(basis + "hasReference")
     waarde: str | None = None
     for restrictie in graph.objects(kenmerk, RDFS.subClassOf):
         op = graph.value(restrictie, OWL.onProperty)
@@ -198,7 +204,7 @@ def verwachte_property(graph: GraafLezer, kenmerk: URIRef) -> str | None:
     return waarde
 
 
-def functie_van_klasse(graph: GraafLezer, klasse: URIRef) -> str | None:
+def functie_van_klasse(graph: GraafLezer, klasse: URIRef, basis: str = GWSW) -> str | None:
     """De functiewaarde die de ontologie aan een klasse bindt, als korte naam, of None.
 
     Het GWSW zegt wat een hulpstuk doet via een `owl:Restriction` op `gwsw:functie`
@@ -211,13 +217,15 @@ def functie_van_klasse(graph: GraafLezer, klasse: URIRef) -> str | None:
     `LeidingaansluitingVerstevigen` en `VerstevigenAansluiting`). De volgorde waarin de
     graaf ze oplevert ligt niet vast, dus dit geeft de alfabetisch eerste terug: een
     willekeurige keuze zou dezelfde dataset tussen twee runs anders kunnen toetsen.
+
+    `basis` (issue #32) is de GWSW-basis van de graaf; default 1.6.
     """
-    functie = URIRef(GWSW + "functie")
+    functie = URIRef(basis + "functie")
     waarden = set()
     for restrictie in graph.objects(klasse, RDFS.subClassOf):
         if graph.value(restrictie, OWL.onProperty) != functie:
             continue
         waarde = graph.value(restrictie, OWL.hasValue)
         if waarde is not None:
-            waarden.add(str(waarde).removeprefix(GWSW))
+            waarden.add(str(waarde).removeprefix(basis))
     return min(waarden) if waarden else None

@@ -21,7 +21,9 @@ die ze leest, niet bij de tekstmodule die ze spelt.
 
 from __future__ import annotations
 
+import functools
 from collections.abc import Iterable, Iterator
+from dataclasses import dataclass
 from datetime import date
 
 from rdflib import RDF, RDFS, URIRef
@@ -96,6 +98,80 @@ FANTOOM_STAART = "_put"
 
 
 # --------------------------------------------------------------------------------------
+# De versie-afgeleide termen (issue #32)
+# --------------------------------------------------------------------------------------
+#
+# De module-constanten hierboven blijven letterlijk 1.6: `dataset` her-exporteert ze en
+# `tests/test_publieke_api.py` pint hun waarde. Wat hier bij komt is dezelfde verzameling
+# `URIRef`-en *per gedetecteerde basis*, zodat de lezers hun predicaten en klasse-IRI's uit
+# `graph.gwsw_basis` afleiden in plaats van uit de vaste 1.6-string. De 1.6-termenset is per
+# constructie gelijk aan de constanten hierboven.
+
+
+@dataclass(frozen=True)
+class _Leestermen:
+    """De predicaat- en klasse-`URIRef`-en van één GWSW-basis, voor de lezers hieronder."""
+
+    has_aspect: URIRef
+    has_part: URIRef
+    is_aspect_of: URIRef
+    is_part_of: URIRef
+    has_connection: URIRef
+    has_value: URIRef
+    has_reference: URIRef
+    klasse_inwinning: URIRef
+    klasse_wijze_van_inwinning: URIRef
+    klasse_datum_inwinning: URIRef
+    klasse_maaiveldorientatie: URIRef
+    klasse_maaiveldhoogte: URIRef
+    klasse_putdekselniveau: URIRef
+    klasse_punt: URIRef
+    klasse_lijn: URIRef
+    klassen_beginpunt: tuple[URIRef, ...]
+    klassen_eindpunt: tuple[URIRef, ...]
+    klasse_bob_begin: URIRef
+    klasse_bob_eind: URIRef
+
+
+@functools.cache
+def _leestermen(basis: str) -> _Leestermen:
+    """De termen van een basis, gebouwd en gedeeld: er zijn er in de praktijk maar twee.
+
+    `@functools.cache` op de basis-string: de lezers vragen deze verzameling per aanroep op
+    (`_leestermen(graph.gwsw_basis)`), en zonder de cache zou elke aanroep de handvol
+    `URIRef`-en opnieuw bouwen. De sleutel is een van twee gebundelde bases; de cache blijft
+    dus klein. De 1.6-uitkomst is per veld gelijk aan de module-constanten hierboven.
+    """
+    return _Leestermen(
+        has_aspect=URIRef(f"{basis}hasAspect"),
+        has_part=URIRef(f"{basis}hasPart"),
+        is_aspect_of=URIRef(f"{basis}isAspectOf"),
+        is_part_of=URIRef(f"{basis}isPartOf"),
+        has_connection=URIRef(f"{basis}hasConnection"),
+        has_value=URIRef(f"{basis}hasValue"),
+        has_reference=URIRef(f"{basis}hasReference"),
+        klasse_inwinning=URIRef(f"{basis}Inwinning"),
+        klasse_wijze_van_inwinning=URIRef(f"{basis}WijzeVanInwinning"),
+        klasse_datum_inwinning=URIRef(f"{basis}DatumInwinning"),
+        klasse_maaiveldorientatie=URIRef(f"{basis}Maaiveldorientatie"),
+        klasse_maaiveldhoogte=URIRef(f"{basis}Maaiveldhoogte"),
+        klasse_putdekselniveau=URIRef(f"{basis}Putdekselniveau"),
+        klasse_punt=URIRef(f"{basis}Punt"),
+        klasse_lijn=URIRef(f"{basis}Lijn"),
+        klassen_beginpunt=tuple(
+            URIRef(f"{basis}{naam}")
+            for naam in ("BeginpuntLeiding", "BeginpuntOnderdeel", "BeginpuntAfvoerrelatie")
+        ),
+        klassen_eindpunt=tuple(
+            URIRef(f"{basis}{naam}")
+            for naam in ("EindpuntLeiding", "EindpuntOnderdeel", "EindpuntAfvoerrelatie")
+        ),
+        klasse_bob_begin=URIRef(f"{basis}BobBeginpuntLeiding"),
+        klasse_bob_eind=URIRef(f"{basis}BobEindpuntLeiding"),
+    )
+
+
+# --------------------------------------------------------------------------------------
 # De gedeelde ontdubbelaar
 # --------------------------------------------------------------------------------------
 
@@ -157,32 +233,41 @@ def _beide_richtingen(
 
 def parts_of(graph: GraafIndex, subject: RdfNode) -> Iterator[RdfNode]:
     """De onderdelen van een object, in beide schrijfrichtingen van hasPart."""
-    return _beide_richtingen(graph.objects(subject, HAS_PART), graph.subjects(IS_PART_OF, subject))
+    t = _leestermen(graph.gwsw_basis)
+    return _beide_richtingen(
+        graph.objects(subject, t.has_part), graph.subjects(t.is_part_of, subject)
+    )
 
 
 def part_holders_of(graph: GraafIndex, subject: RdfNode) -> Iterator[RdfNode]:
     """De objecten die dit object als onderdeel bevatten, in beide schrijfrichtingen."""
-    return _beide_richtingen(graph.subjects(HAS_PART, subject), graph.objects(subject, IS_PART_OF))
+    t = _leestermen(graph.gwsw_basis)
+    return _beide_richtingen(
+        graph.subjects(t.has_part, subject), graph.objects(subject, t.is_part_of)
+    )
 
 
 def aspects_of(graph: GraafIndex, subject: RdfNode) -> Iterator[RdfNode]:
     """De aspecten van een object, in beide schrijfrichtingen van hasAspect."""
+    t = _leestermen(graph.gwsw_basis)
     return _beide_richtingen(
-        graph.objects(subject, HAS_ASPECT), graph.subjects(IS_ASPECT_OF, subject)
+        graph.objects(subject, t.has_aspect), graph.subjects(t.is_aspect_of, subject)
     )
 
 
 def aspect_holders_of(graph: GraafIndex, subject: RdfNode) -> Iterator[RdfNode]:
     """De objecten die dit object als aspect dragen, in beide schrijfrichtingen."""
+    t = _leestermen(graph.gwsw_basis)
     return _beide_richtingen(
-        graph.subjects(HAS_ASPECT, subject), graph.objects(subject, IS_ASPECT_OF)
+        graph.subjects(t.has_aspect, subject), graph.objects(subject, t.is_aspect_of)
     )
 
 
 def _connections(graph: GraafIndex, subject: RdfNode) -> Iterator[RdfNode]:
     """De hasConnection-buren van een object, in beide schrijfrichtingen."""
-    yield from graph.objects(subject, HAS_CONNECTION)
-    yield from graph.subjects(HAS_CONNECTION, subject)
+    t = _leestermen(graph.gwsw_basis)
+    yield from graph.objects(subject, t.has_connection)
+    yield from graph.subjects(t.has_connection, subject)
 
 
 # --------------------------------------------------------------------------------------
@@ -196,10 +281,11 @@ def _read_aspects(graph: GraafIndex, subject: RdfNode) -> tuple[Aspect, ...]:
     Aspecten zonder waarde en zonder verwijzing zijn geen kenmerken maar
     orientaties en geometrieen; die horen hier niet thuis en vallen af.
     """
+    t = _leestermen(graph.gwsw_basis)
     gevonden: list[Aspect] = []
     for aspect in aspects_of(graph, subject):
-        waarde = graph.value(aspect, HAS_VALUE)
-        referentie = graph.value(aspect, HAS_REFERENCE)
+        waarde = graph.value(aspect, t.has_value)
+        referentie = graph.value(aspect, t.has_reference)
         if waarde is None and referentie is None:
             continue
         inwinning = _read_inwinning(graph, aspect)
@@ -217,17 +303,18 @@ def _read_aspects(graph: GraafIndex, subject: RdfNode) -> tuple[Aspect, ...]:
 
 def _read_inwinning(graph: GraafIndex, subject: RdfNode) -> Inwinning | None:
     """Leest de inwinningsmetagegevens die aan een kenmerk hangen."""
+    t = _leestermen(graph.gwsw_basis)
     for aspect in aspects_of(graph, subject):
-        if (aspect, _RDF_TYPE, KLASSE_INWINNING) not in graph:
+        if (aspect, _RDF_TYPE, t.klasse_inwinning) not in graph:
             continue
         wijze: str | None = None
         datum: date | None = None
         for deel in aspects_of(graph, aspect):
-            if (deel, _RDF_TYPE, KLASSE_WIJZE_VAN_INWINNING) in graph:
-                referentie = graph.value(deel, HAS_REFERENCE)
+            if (deel, _RDF_TYPE, t.klasse_wijze_van_inwinning) in graph:
+                referentie = graph.value(deel, t.has_reference)
                 wijze = _short(str(referentie)) if referentie is not None else None
-            elif (deel, _RDF_TYPE, KLASSE_DATUM_INWINNING) in graph:
-                waarde = graph.value(deel, HAS_VALUE)
+            elif (deel, _RDF_TYPE, t.klasse_datum_inwinning) in graph:
+                waarde = graph.value(deel, t.has_value)
                 datum = _as_date(str(waarde)) if waarde is not None else None
         gevonden = Inwinning(wijze=wijze, datum=datum)
         if gevonden:
@@ -237,10 +324,11 @@ def _read_inwinning(graph: GraafIndex, subject: RdfNode) -> Inwinning | None:
 
 def _aspect_van_klasse(graph: GraafIndex, subject: RdfNode, klasse: URIRef) -> Aspect | None:
     """Het kenmerk van deze klasse dat direct aan het object hangt."""
+    t = _leestermen(graph.gwsw_basis)
     for aspect in aspects_of(graph, subject):
         if (aspect, _RDF_TYPE, klasse) not in graph:
             continue
-        waarde = graph.value(aspect, HAS_VALUE)
+        waarde = graph.value(aspect, t.has_value)
         if waarde is None:
             continue
         return Aspect(
@@ -259,10 +347,11 @@ def _maaiveld_kenmerk(
     Het GWSW hangt het maaiveld niet aan de put zelf maar aan een aparte
     maaiveldorientatie, die via hasConnection aan de putorientatie hangt.
     """
+    t = _leestermen(graph.gwsw_basis)
     for buur in _connections(graph, orientation):
-        if (buur, _RDF_TYPE, KLASSE_MAAIVELDORIENTATIE) not in graph:
+        if (buur, _RDF_TYPE, t.klasse_maaiveldorientatie) not in graph:
             continue
-        aspect = _aspect_van_klasse(graph, buur, KLASSE_MAAIVELDHOOGTE)
+        aspect = _aspect_van_klasse(graph, buur, t.klasse_maaiveldhoogte)
         if aspect is not None:
             return aspect, _herkomst(graph, buur, aspect)
     return None, None
@@ -279,7 +368,7 @@ def _herkomst(graph: GraafIndex, orientation: RdfNode, aspect: Aspect) -> Inwinn
     """
     if aspect.inwinning is not None:
         return aspect.inwinning
-    punt = _aspect_van_klasse(graph, orientation, KLASSE_PUNT)
+    punt = _aspect_van_klasse(graph, orientation, _leestermen(graph.gwsw_basis).klasse_punt)
     return punt.inwinning if punt is not None else None
 
 
@@ -316,7 +405,8 @@ def _deksel_kenmerk(
     putdekselniveau? -- en die ligt bij de auteur, niet hier. Zie het rapport bij
     issue #36.
     """
-    direct = _aspect_van_klasse(graph, subject, KLASSE_PUTDEKSELNIVEAU)
+    putdekselniveau = _leestermen(graph.gwsw_basis).klasse_putdekselniveau
+    direct = _aspect_van_klasse(graph, subject, putdekselniveau)
     if direct is not None:
         return direct, _herkomst(graph, subject, direct)
 
@@ -324,10 +414,10 @@ def _deksel_kenmerk(
         if not any((deel, _RDF_TYPE, klasse) in graph for klasse in deksel_klassen):
             continue
         for orientatie in aspects_of(graph, deel):
-            aspect = _aspect_van_klasse(graph, orientatie, KLASSE_PUTDEKSELNIVEAU)
+            aspect = _aspect_van_klasse(graph, orientatie, putdekselniveau)
             if aspect is not None:
                 return aspect, _herkomst(graph, orientatie, aspect)
-        aspect = _aspect_van_klasse(graph, deel, KLASSE_PUTDEKSELNIVEAU)
+        aspect = _aspect_van_klasse(graph, deel, putdekselniveau)
         if aspect is not None:
             return aspect, _herkomst(graph, deel, aspect)
     return None, None
@@ -371,10 +461,11 @@ def _geometry(
     in `errors`: `_read_nodes` en `_read_conduits` sleutelen haar op de knoop- of
     streng-URI, zodat `GwswDataset.subset` haar met haar object mee kan filteren.
     """
+    has_value = _leestermen(graph.gwsw_basis).has_value
     for aspect in aspects_of(graph, orientation):
         if (aspect, _RDF_TYPE, klasse) not in graph:
             continue
-        literal = graph.value(aspect, HAS_VALUE)
+        literal = graph.value(aspect, has_value)
         if literal is None:
             continue
         try:
@@ -398,8 +489,9 @@ def _read_nodes(
     valt de lader terug op de structurele herkenning (een orientatie met een
     puntgeometrie), zodat een dataset ook zonder ontologie leesbaar blijft.
     """
+    t = _leestermen(graph.gwsw_basis)
     nodes: dict[str, Node] = {}
-    deksel_klassen = deksel_klassen or _afsluiting({}, "Putdeksel")
+    deksel_klassen = deksel_klassen or _afsluiting({}, "Putdeksel", graph.gwsw_basis)
     # Een keer, buiten de lus: `_deksel_kenmerk` toetst deze handvol klassen per put en
     # per onderdeel daarvan, en bouwde ze tot issue #23 elke keer opnieuw uit tekst op.
     deksel_termen = frozenset(_uriref_snel(klasse) for klasse in deksel_klassen)
@@ -407,12 +499,12 @@ def _read_nodes(
     if knooppunt_klassen:
         bron = _orientations_of_class(graph, knooppunt_klassen)
     else:
-        bron = _orientations_with(graph, KLASSE_PUNT)
+        bron = _orientations_with(graph, t.klasse_punt)
 
     for orientation in bron:
-        point, z_waarden, geometriefout = _geometry(graph, orientation, KLASSE_PUNT)
+        point, z_waarden, geometriefout = _geometry(graph, orientation, t.klasse_punt)
         maaiveld, maaiveld_inwinning = _maaiveld_kenmerk(graph, orientation)
-        multipart = _is_multipart(graph, orientation, KLASSE_PUNT)
+        multipart = _is_multipart(graph, orientation, t.klasse_punt)
         houder_gezien = False
         for subject in aspect_holders_of(graph, orientation):
             uri = str(subject)
@@ -514,6 +606,7 @@ def _read_conduits(
 
     Geeft naast de verbindingen het herstel van de fantoomkoppeling terug (issue #60).
     """
+    t = _leestermen(graph.gwsw_basis)
     orientation_to_node = {
         node.orientation: uri for uri, node in nodes.items() if node.orientation is not None
     }
@@ -529,10 +622,10 @@ def _read_conduits(
         else _leiding_orientations(graph)
     )
     for orientation in bron:
-        line, z_waarden, geometriefout = _geometry(graph, orientation, KLASSE_LIJN)
-        multipart = _is_multipart(graph, orientation, KLASSE_LIJN)
-        begin = _endpoint(graph, orientation, KLASSEN_BEGINPUNT)
-        eind = _endpoint(graph, orientation, KLASSEN_EINDPUNT)
+        line, z_waarden, geometriefout = _geometry(graph, orientation, t.klasse_lijn)
+        multipart = _is_multipart(graph, orientation, t.klasse_lijn)
+        begin = _endpoint(graph, orientation, t.klassen_beginpunt)
+        eind = _endpoint(graph, orientation, t.klassen_eindpunt)
 
         houder_gezien = False
         for subject in aspect_holders_of(graph, orientation):
@@ -556,8 +649,8 @@ def _read_conduits(
                     graph, begin, orientation_to_node, hulpstukken, hersteld
                 ),
                 end_node=_connected_node(graph, eind, orientation_to_node, hulpstukken, hersteld),
-                bob_start_aspect=_bob(graph, begin, KLASSE_BOB_BEGIN),
-                bob_end_aspect=_bob(graph, eind, KLASSE_BOB_EIND),
+                bob_start_aspect=_bob(graph, begin, t.klasse_bob_begin),
+                bob_end_aspect=_bob(graph, eind, t.klasse_bob_eind),
                 aspects=_read_aspects(graph, subject),
                 multipart=multipart,
                 z_values=tuple(z_waarden),
@@ -576,10 +669,11 @@ def _is_multipart(graph: GraafIndex, orientation: RdfNode, klasse: URIRef) -> bo
     Twee vormen tellen mee: een GML-literaal met een multi-geometrie erin, en meer
     dan een geometrie-aspect van dezelfde soort aan dezelfde orientatie.
     """
+    has_value = _leestermen(graph.gwsw_basis).has_value
     literalen = [
-        str(graph.value(aspect, HAS_VALUE))
+        str(graph.value(aspect, has_value))
         for aspect in aspects_of(graph, orientation)
-        if (aspect, _RDF_TYPE, klasse) in graph and graph.value(aspect, HAS_VALUE) is not None
+        if (aspect, _RDF_TYPE, klasse) in graph and graph.value(aspect, has_value) is not None
     ]
     if len(literalen) > 1:
         return True
@@ -588,9 +682,10 @@ def _is_multipart(graph: GraafIndex, orientation: RdfNode, klasse: URIRef) -> bo
 
 def _leiding_orientations(graph: GraafIndex) -> Iterator[RdfNode]:
     """De orientaties die een begin- of eindpunt van een leiding bevatten."""
+    t = _leestermen(graph.gwsw_basis)
     return _uniek(
         orientation
-        for klasse in (*KLASSEN_BEGINPUNT, *KLASSEN_EINDPUNT)
+        for klasse in (*t.klassen_beginpunt, *t.klassen_eindpunt)
         for endpoint in graph.subjects(_RDF_TYPE, klasse)
         for orientation in part_holders_of(graph, endpoint)
     )
@@ -675,13 +770,14 @@ def _structural_diff(graph: GraafIndex, subclasses: dict[str, frozenset[str]]) -
     `_bruikbare_afsluiting` levert exact `None` waar `_afsluiting` een singleton
     oplevert, dus die twee zouden hier alleen als omweg naar dezelfde uitkomst dienen.
     """
+    basis = graph.gwsw_basis
     ontologisch_knopen = _houders(
-        graph, _orientations_of_class(graph, _afsluiting(subclasses, "Knooppunt"))
+        graph, _orientations_of_class(graph, _afsluiting(subclasses, "Knooppunt", basis))
     )
     ontologisch_strengen = _houders(
-        graph, _orientations_of_class(graph, _afsluiting(subclasses, "Verbinding"))
+        graph, _orientations_of_class(graph, _afsluiting(subclasses, "Verbinding", basis))
     )
-    structureel_knopen = _houders(graph, _orientations_with(graph, KLASSE_PUNT))
+    structureel_knopen = _houders(graph, _orientations_with(graph, _leestermen(basis).klasse_punt))
     structureel_strengen = _houders(graph, _leiding_orientations(graph))
 
     verschillen: dict[str, int] = {}

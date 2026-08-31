@@ -110,3 +110,88 @@ def test_parse_zonder_herkenbare_versie_valt_terug_op_16_met_waarschuwing(
         index, _ = _parse(bron, None)
     assert index.gwsw_basis == BASIS_16
     assert "geen herkenbare GWSW-versie" in caplog.text
+
+
+# --------------------------------------------------------------------------------------
+# De doortrekking in de leeslaag (`load_dataset` op de 1.7-fixture uit deel b)
+# --------------------------------------------------------------------------------------
+
+
+def _types_modulo_basis(dataset, basis):  # type: ignore[no-untyped-def]
+    return {
+        uri: (
+            frozenset(t.removeprefix(basis) for t in node.types),
+            frozenset(t.removeprefix(basis) for t in node.orientation_types),
+        )
+        for uri, node in dataset.nodes.items()
+    }
+
+
+def test_17_dataset_leest_dezelfde_knopen_en_strengen_modulo_basis() -> None:
+    """De 1.7-voorbeeldfixture levert dezelfde domeinobjecten als de 1.6-tegenhanger."""
+    from gwsw_orox_helpers.dataset import load_dataset
+
+    d16 = load_dataset(TTL16)
+    d17 = load_dataset(TTL17)
+
+    assert d16._basis == BASIS_16
+    assert d17._basis == BASIS_17
+    assert set(d16.nodes) == set(d17.nodes)
+    assert set(d16.conduits) == set(d17.conduits)
+    # De typen zijn gelijk op de basis-IRI na.
+    assert _types_modulo_basis(d16, BASIS_16) == _types_modulo_basis(d17, BASIS_17)
+    # De ontologische herkenning werkt op 1.7 net zo goed.
+    assert d17.klassenhierarchie_bekend
+    assert d17.of_class("Leiding") == d16.of_class("Leiding")
+    assert any(d17.is_a(uri, "Put") for uri in d17.nodes)
+
+
+def test_17_dataset_zonder_opgave_kiest_de_17_bundel() -> None:
+    """Zonder opgegeven ontologie kiest de lader de gebundelde 1.7-ontologie."""
+    from gwsw_orox_helpers.dataset import load_dataset
+
+    d17 = load_dataset(TTL17)
+    assert [pad.name for pad in d17.ontologies] == ["gwsw_ontologie_totaal_17.ttl"]
+
+
+def test_17_dataset_met_expliciete_16_ontologie_meldt_geen_valse_hierarchie(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Een versiemismatch mag `klassenhierarchie_bekend` niet stil op True houden.
+
+    De impact-analyse van issue #32 waarschuwt hiervoor: de 1.6-ontologie levert een
+    niet-triviale afsluiting, maar op een 1.7-dataset matcht die geen enkele orientatie.
+    De vlag hoort dan eerlijk `False` te zijn (terugval op geometrie), niet True.
+    """
+    from gwsw_orox_helpers.bronnen import gebundelde_ontologie_voor
+    from gwsw_orox_helpers.dataset import load_dataset
+
+    dataset = load_dataset(TTL17, ontology_paths=[gebundelde_ontologie_voor("1.6")])
+    assert dataset._basis == BASIS_17
+    assert dataset.klassenhierarchie_bekend is False
+    # Het gezondheidssignaal laat zien dat de herkenning op geometrie leunt.
+    assert dataset.structural_diff.get("knooppunten_wel_geometrie_geen_rol")
+
+
+def test_kenmerk_property_17_is_een_superset_van_16() -> None:
+    """De ontologische kenmerkkennis groeit met 1.7 en verliest geen 1.6-kenmerk."""
+    from gwsw_orox_helpers.dataset import load_dataset
+
+    k16 = load_dataset(TTL16).kenmerk_property
+    k17 = load_dataset(TTL17).kenmerk_property
+    assert k16.items() <= k17.items()
+
+
+def test_onbekende_versie_valt_terug_op_de_16_bundel_met_waarschuwing(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Een gedetecteerde basis zonder gebundelde ontologie (bv. 1.8) valt terug op 1.6."""
+    from gwsw_orox_helpers.bronnen import gebundelde_ontologie
+    from gwsw_orox_helpers.dataset import _gebundelde_paden_voor_basis
+
+    with caplog.at_level(logging.WARNING, logger="gwsw_orox_helpers.dataset"):
+        paden = _gebundelde_paden_voor_basis("http://data.gwsw.nl/1.8/totaal/")
+    assert paden == [gebundelde_ontologie()]
+    assert "geen ontologie voor gebundeld" in caplog.text
+    # De gebundelde versies zelf leveren hun eigen bundel, zonder waarschuwing.
+    assert _gebundelde_paden_voor_basis(BASIS_17)[0].name == "gwsw_ontologie_totaal_17.ttl"

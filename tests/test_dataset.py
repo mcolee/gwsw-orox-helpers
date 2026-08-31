@@ -121,9 +121,10 @@ def test_closure_bouwt_de_terugval_alleen_waar_de_hierarchie_hem_niet_kent(
     aanroepen: list[str] = []
     echte_uri = klassen_module._uri
 
-    def geteld(naam: str) -> str:
+    def geteld(naam: str, basis: str = GWSW) -> str:
+        # Sinds issue #32 draagt `_uri` een basis-parameter; de telling blijft op de naam.
         aanroepen.append(naam)
-        return echte_uri(naam)
+        return echte_uri(naam, basis)
 
     monkeypatch.setattr(klassen_module, "_uri", geteld)
 

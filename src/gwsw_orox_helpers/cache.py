@@ -290,16 +290,21 @@ def laad_met_cache(
 ) -> tuple[GwswDataset, CacheUitslag]:
     """Leest de dataset uit de cache, of leest hem in en legt hem weg.
 
-    `ontology_paths` betekent hier hetzelfde als in `load_dataset` (zie
-    `ontologiepaden`) en wordt hier één keer ingevuld, zodat de sleutel, de lezing en
-    het herstel van een beschadigde graafcache alle drie dezelfde bestanden zien.
+    `ontology_paths` betekent hier hetzelfde als in `load_dataset` (zie `ontologiepaden`).
+    Sinds issue #32 wordt het hier **niet** meer vooraf naar de gebundelde 1.6-ontologie
+    ingevuld: bij `None` moet `load_dataset` de gebundelde ontologie op de gedetecteerde
+    dataset-versie kunnen kiezen, en dat kan alleen als het `None` ook echt ziet. `None`
+    reist daarom ongewijzigd door naar de lezing (`load_dataset`) en het herstel
+    (`_herlees_graaf`) -- die twee zien zo dezelfde bestanden. De `cachesleutel` vult `None`
+    zelf in tot de gebundelde 1.6-bundel voor de hash: de sleutel is per dataset uniek langs
+    de bytes van het dataset-bestand (die per versie verschillen), dus dat de hash de
+    1.6-bundel noemt waar de lezing de 1.7-bundel kiest, maakt hem niet dubbelzinnig.
 
     Bij een cachetreffer wordt er niets geparseerd en start er dus geen laadfase:
     een balk die in nul seconden vol schiet zou suggereren dat het inlezen snel was
     in plaats van overgeslagen. De laadfase komt uit `load_dataset` zelf.
     """
     begin = time.perf_counter()
-    ontology_paths = ontologiepaden(ontology_paths)
     if not gebruik_cache:
         dataset = load_dataset(dataset_path, ontology_paths, fallback_encoding, voortgang=voortgang)
         return dataset, CacheUitslag("bestand", "", time.perf_counter() - begin)
@@ -339,7 +344,7 @@ def laad_met_cache(
 
 
 def _herlees_graaf(
-    dataset_path: Path, ontology_paths: list[Path], fallback_encoding: str | None
+    dataset_path: Path, ontology_paths: list[Path] | None, fallback_encoding: str | None
 ) -> GraafIndex:
     """Leest de graafindex opnieuw uit de brondata; herstelweg voor `LuieGraaf`.
 

@@ -198,17 +198,22 @@ def _kapotte_geometrie(tmp_path: Path) -> Path:
 
 
 def test_een_onleesbare_gml_literaal_belandt_in_geometry_errors(tmp_path: Path) -> None:
-    """Een kapotte geometrie breekt de lezing niet af; ze wordt per orientatie gemeld.
+    """Een kapotte geometrie breekt de lezing niet af; ze wordt per **object** gemeld.
 
     Twee soorten kapot tegelijk (zie `_kapotte_geometrie`). Allebei de objecten blijven
     bestaan, zonder geometrie en zonder z -- dat is het bedoelde gedrag en het is de
     reden dat `geometry_errors` bestaat.
+
+    De sleutel is de knoop of de streng, niet de orientatie waar de literaal aan hing
+    (issue #36). Dat is wat `geometry_errors` altijd al beloofde -- de afnemer telt er
+    "objecten met een onleesbare geometrie" mee -- en het is de voorwaarde waaronder
+    `subset()` de fouten kan meenemen.
     """
     gelezen = load_dataset(_kapotte_geometrie(tmp_path), ontology_paths=[])
 
-    assert set(gelezen.geometry_errors) == {f"{TOETS}PutC_ori", f"{TOETS}L1_ori"}
-    assert "niet-numerieke coordinaat" in gelezen.geometry_errors[f"{TOETS}PutC_ori"]
-    assert "onbruikbare LineString-geometrie" in gelezen.geometry_errors[f"{TOETS}L1_ori"]
+    assert set(gelezen.geometry_errors) == {f"{TOETS}PutC", f"{TOETS}L1"}
+    assert "niet-numerieke coordinaat" in gelezen.geometry_errors[f"{TOETS}PutC"]
+    assert "onbruikbare LineString-geometrie" in gelezen.geometry_errors[f"{TOETS}L1"]
     assert gelezen.nodes[f"{TOETS}PutC"].point is None
     assert gelezen.nodes[f"{TOETS}PutC"].z is None
     assert gelezen.conduits[f"{TOETS}L1"].line is None
@@ -1356,27 +1361,62 @@ def test_subset_draagt_de_rest_van_de_dataset_ongewijzigd_over(voorbeeld: GwswDa
     assert kleiner._resolved_nodes == {}
 
 
-def test_subset_laat_de_geometriefouten_vallen(tmp_path: Path) -> None:
-    """Vastgelegd zoals het is, niet zoals het hoort -- de bevinding staat bij issue #16.
+def test_subset_houdt_de_geometriefouten_bij_hun_object(tmp_path: Path) -> None:
+    """De geometriefouten volgen hun object door `subset()` heen (issue #36).
 
-    `inlezen._geometry` sleutelt `geometry_errors` op de **orientatie**
-    (`errors[str(orientation)]`), terwijl `subset()` filtert op de URI's die de aanroeper
-    doorgeeft: knopen en strengen. Die twee verzamelingen zijn per constructie disjunct,
-    dus het filter treft nooit iets -- ook een subset die *elk* object behoudt komt
-    zonder geometriefouten terug, zoals hieronder.
+    De voorganger van deze test legde de bevinding uit issue #16 vast: `geometry_errors`
+    was op de **orientatie** gesleuteld terwijl `subset()` op knoop- en streng-URI's
+    filtert, twee per constructie disjuncte verzamelingen. Zelfs een subset die *elk*
+    object behield kwam daardoor zonder geometriefouten terug, en de afnemer die op dat
+    getal rapporteert (nlriochecker telt er zijn gebiedsnotitie mee) zag altijd nul.
 
-    Deze test spreekt geen oordeel uit over wat juist is; dat is een auteursbeslissing.
-    Wat zij doet is het gedrag zichtbaar maken, zodat de dag dat het verandert hier
-    blijkt in plaats van bij een afnemer die zijn foutenlijst kwijt is.
+    Nu de melding op het object staat, doet het bestaande filter in `subset()` wat het
+    altijd al beloofde: alles behouden houdt alles, en een echte deelverzameling houdt
+    precies de fouten van de objecten die meegaan.
     """
     gelezen = load_dataset(_kapotte_geometrie(tmp_path), ontology_paths=[])
 
-    assert set(gelezen.geometry_errors) == {f"{TOETS}PutC_ori", f"{TOETS}L1_ori"}
-    # De sleutels zijn de orientaties en niet de objecten; die blijven gewoon bestaan.
+    assert set(gelezen.geometry_errors) == {f"{TOETS}PutC", f"{TOETS}L1"}
     assert f"{TOETS}PutC" in gelezen.nodes
     assert f"{TOETS}L1" in gelezen.conduits
 
     alles = gelezen.subset([*gelezen.nodes, *gelezen.conduits])
 
     assert alles.nodes == gelezen.nodes
-    assert alles.geometry_errors == {}
+    assert alles.geometry_errors == gelezen.geometry_errors
+
+    # En een echte deelverzameling snijdt mee: de streng valt af, dus haar fout ook.
+    alleen_putc = gelezen.subset([f"{TOETS}PutC"])
+
+    assert set(alleen_putc.geometry_errors) == {f"{TOETS}PutC"}
+
+
+def test_een_orientatie_zonder_houder_houdt_haar_eigen_uri_als_sleutel(tmp_path: Path) -> None:
+    """Een kapotte geometrie mag nooit stil verdwijnen, ook niet zonder object (issue #36).
+
+    Sinds de melding op het object gesleuteld wordt, is er een geval zonder object: een
+    orientatie die wel een onleesbare literaal draagt maar door niets via `hasAspect`
+    gedragen wordt. Er is dan geen knoop en geen streng om de fout aan te hangen.
+
+    Zo'n wees terugvallen op haar eigen URI is geen schoonheid maar een principe: de
+    hele bevinding achter issue #36 was dat een melding stil wegviel. Hem hier alsnog
+    laten vallen zou dezelfde fout op een kleinere plek herhalen. Hij hoort per definitie
+    in geen enkele subset -- dat is juist, want hij is geen object.
+    """
+    bron = (TTL_DIR / "top001_losliggende_put.ttl").read_text(encoding="utf-8")
+    bron += (
+        "\n:Wees_ori rdf:type gwsw:Putorientatie ;\n"
+        "    gwsw:hasAspect [ rdf:type gwsw:Punt ;\n"
+        '        gwsw:hasValue "<gml:Point xmlns:gml=\\"http://www.opengis.net/gml\\">'
+        '<gml:pos>een twee</gml:pos></gml:Point>"^^geo:gmlLiteral ] .\n'
+    )
+    pad = tmp_path / "wees_orientatie.ttl"
+    pad.write_text(bron, encoding="utf-8")
+
+    gelezen = load_dataset(pad, ontology_paths=[])
+
+    assert f"{TOETS}Wees_ori" in gelezen.geometry_errors
+    assert "niet-numerieke coordinaat" in gelezen.geometry_errors[f"{TOETS}Wees_ori"]
+    # Hij is geen knoop: de wees draagt geen object, dus er valt niets in te lezen.
+    assert f"{TOETS}Wees_ori" not in gelezen.nodes
+    assert f"{TOETS}Wees" not in gelezen.nodes

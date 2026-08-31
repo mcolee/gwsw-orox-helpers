@@ -7,3 +7,7 @@ dist/
 .ruff_cache/
 .coverage
 /manifesto.md
+
+# hookify lokale regels (niet delen)
+.claude/*.local.md
+.claude/agents/opus48.md

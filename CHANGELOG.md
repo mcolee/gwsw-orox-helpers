@@ -1,26 +1,6 @@
 # Changelog
 
 ## [Unreleased]
-- `geometry_errors` staat op het object in plaats van op de orientatie (issue #36, bug;
-  **gedragswijziging binnen een bestaand veld** — naam, type en handtekening van
-  `GwswDataset.geometry_errors` blijven gelijk, alleen wélke sleutels erin staan
-  verandert). `inlezen._geometry` schreef de melding weg onder de orientatie-URI, terwijl
-  `GwswDataset.subset()` filtert op de knoop- en streng-URI's die de aanroeper doorgeeft.
-  Die twee verzamelingen zijn per constructie disjunct, dus het filter trof nooit iets:
-  **elke** subset kwam zonder geometriefouten terug, ook `subset([*nodes, *conduits])`.
-  De schade zat bij de afnemer: nlriochecker bouwt in `afbakening.py` zijn analyseset met
-  `dataset.subset(kern | schil)` en telt in `checks/topologie.py` `len(geometry_errors)`
-  voor zijn notitie — die notitie bleef bij **elke gebiedsrun** stil. `_geometry` geeft de
-  melding nu terug in plaats van haar weg te schrijven (de houders zijn op dat punt nog
-  niet bekend) en `_meld_geometriefout` sleutelt haar op elk object dat de orientatie
-  draagt. Twee gevolgen om te weten: draagt één orientatie twee objecten, dan telt de fout
-  voortaan twee keer — de telling gaat daarmee betekenen wat de veldnaam en de
-  afnemersrapporten altijd al beweerden ("objecten met een onleesbare geometrie") in
-  plaats van orientaties; en een orientatie zónder houder valt terug op haar eigen URI,
-  zodat een melding nooit stil verdwijnt. Voor nlriochecker is dit additief: alle vier de
-  lezers daar gebruiken uitsluitend `len()` en waarheidswaarde, nooit de sleutels
-  (AST-sweep 31-08). `subset()` zelf is niet gewijzigd — het bestaande filter doet nu wat
-  het altijd al beloofde.
 - CI-triggerdiscipline in `.github/workflows/toets.yml` (issue #24, ci-hygiene;
   **additief** — uitsluitend CI-configuratie, geen regel code aangeraakt). Drie
   wijzigingen: (a) `push` heeft een `branches: [main, dev]`-filter, zodat een commit op

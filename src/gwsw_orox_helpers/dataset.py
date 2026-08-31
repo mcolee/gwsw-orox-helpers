@@ -581,15 +581,6 @@ class GwswDataset:
         onderdelen opzoeken, en hem meesnijden zou stilzwijgend gegevens weglaten.
         Alleen `subjects_of_class()` loopt daardoor nog over de volledige export;
         dat zijn de drempels in NET-007 en RVZ, en dat staat in het rapport.
-
-        `geometry_errors` snijdt wel mee, en sinds issue #36 doet het filter hieronder
-        dat ook echt: de meldingen staan op de knoop of de streng waar de onleesbare
-        literaal bij hoort, niet meer op de orientatie eronder. Zolang dat laatste het
-        geval was, waren de sleutels en `behouden` per constructie disjunct en kwam
-        elke subset zonder geometriefouten terug -- ook een die alles behield. De enige
-        sleutel die geen object is, is die van een orientatie zonder houder
-        (`inlezen._meld_geometriefout`); zo'n wees valt hier weg, en dat is juist,
-        want hij is geen knoop en geen streng.
         """
         behouden = frozenset(uris)
         return replace(

@@ -357,6 +357,43 @@ def test_de_17_ontologie_draagt_de_hernoemde_klassen_en_rev() -> None:
     assert BASIS_17 + "Leidingomhulling" not in klassen
 
 
+# De 1.7-tegenhangers van de klasse-afgeleiden hierboven (39/709/40/38 voor 1.6). Gemeten via
+# de package-API op de gebundelde 1.7-ontologie, met de 1.7-basis meegegeven aan `_afsluiting`
+# en de ontologielezers. Ze schuiven bij een 1.7-upgrade net zo mee als de 1.6-aantallen.
+AANTAL_DATATYPES_GWSW17 = 43
+AANTAL_FACETBEREIKEN_GWSW17 = 42
+AANTAL_KENMERKKLASSEN_GWSW17 = 729
+AANTAL_KENMERKBEREIKEN_GWSW17 = 44
+
+
+def test_de_klasse_afgeleiden_werken_op_de_17_ontologie() -> None:
+    """Deel c maakt de 1.7-baseline af: `_afsluiting` en de lezers met de 1.7-basis.
+
+    De baseline van deel b telde de kale `owl:Class`-lijst. Hier draait de echte
+    klasse-afgeleide keten op 1.7: de `Kenmerk`-afsluiting (met de 1.7-basis), de datatypen
+    en hun facetbereiken, en de kenmerkbereiken. Zonder de basis-parameter zou `_afsluiting`
+    de 1.7-`Kenmerk`-IRI niet in de 1.7-gesleutelde afsluiting terugvinden en op een
+    singleton blijven steken -- de laatste assert legt dat verschil vast.
+    """
+    index = lees_ontologie(paden=[gebundelde_ontologie_voor("1.7")])
+    subclasses = _subclass_closure(index)
+
+    datatypes = sorted(
+        term for term in index.subjects(RDF.type, RDFS.Datatype) if isinstance(term, URIRef)
+    )
+    assert len(datatypes) == AANTAL_DATATYPES_GWSW17
+    facetten = [facetbereik(index, datatype) for datatype in datatypes]
+    assert sum(bereik is not None for bereik in facetten) == AANTAL_FACETBEREIKEN_GWSW17
+
+    kenmerken = sorted(URIRef(uri) for uri in _afsluiting(subclasses, "Kenmerk", BASIS_17))
+    assert len(kenmerken) == AANTAL_KENMERKKLASSEN_GWSW17
+    bereiken = [kenmerkbereik(index, kenmerk, BASIS_17) for kenmerk in kenmerken]
+    assert sum(bereik is not None for bereik in bereiken) == AANTAL_KENMERKBEREIKEN_GWSW17
+
+    # Met de 1.6-basis (de default) mist `_afsluiting` de 1.7-Kenmerk-IRI en blijft singleton.
+    assert len(_afsluiting(subclasses, "Kenmerk")) == 1
+
+
 # --- De collectiewandeling zelf, tegen `rdflib.collection.Collection` gehouden --------
 
 LIJSTEN = """

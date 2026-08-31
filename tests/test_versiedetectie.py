@@ -195,3 +195,10 @@ def test_onbekende_versie_valt_terug_op_de_16_bundel_met_waarschuwing(
     assert "geen ontologie voor gebundeld" in caplog.text
     # De gebundelde versies zelf leveren hun eigen bundel, zonder waarschuwing.
     assert _gebundelde_paden_voor_basis(BASIS_17)[0].name == "gwsw_ontologie_totaal_17.ttl"
+
+
+def test_cachesleutel_verschilt_per_versie() -> None:
+    """Een 1.6- en een 1.7-dataset krijgen elk hun eigen cachesleutel (issue #32)."""
+    from gwsw_orox_helpers.cache import cachesleutel
+
+    assert cachesleutel(TTL16) != cachesleutel(TTL17)

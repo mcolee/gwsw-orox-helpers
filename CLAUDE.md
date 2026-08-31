@@ -18,8 +18,14 @@ Eerste afnemer: nlriochecker. Nederlandse identifiers, GWSW-conform.
 
   **1.6 is de default en de leidende versie**: `bronnen.gebundelde_ontologie()` en
   `bronnen.vocabulaire_index_pad()` leveren de 1.6-bestanden, en zonder dataset-context
-  leest de package 1.6. De runtime-detectie die op een 1.7-bron de 1.7-set kiest, volgt in
-  een later deel van issue #32; tot dan blijft de default onvoorwaardelijk 1.6.
+  leest de package 1.6. Sinds deel c van issue #32 **detecteert de package de versie uit de
+  bron**: `bestand._parse` leest de `gwsw:`-prefix (met de predicaat-IRI's als terugval) en
+  zet die basis op `GraafIndex.gwsw_basis`; de lees- en cliplaag leiden hun predicaten en
+  klasse-IRI's daaruit af, en `load_dataset` kiest zonder opgegeven ontologie de gebundelde
+  versie die bij de gedetecteerde basis hoort. Een bron zonder herkenbare versie valt terug
+  op 1.6 **met een `logging.warning`** (nooit stil); een gedetecteerde maar niet-gebundelde
+  versie (bv. 1.8) leest met de gevonden termenset maar valt voor de ontologie terug op de
+  1.6-bundel, ook met een melding.
 
   Dit is de enige plek waar de versienummers als projectafspraak staan;
   `test_indexversie_staat_in_claude_md` leest per gebundelde index het `versie=`-deel hier

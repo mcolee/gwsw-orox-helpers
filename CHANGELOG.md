@@ -1,6 +1,38 @@
 # Changelog
 
 ## [Unreleased]
+- **GWSW 1.7-support met behoud van volledige 1.6 (issue #32, delen a+b+c; additief).** De
+  package detecteert de GWSW-versie uit de bron en kiest de bijpassende termenset en
+  gebundelde ontologie; 1.6 blijft de default. **Additief tegenover nlriochecker**: de
+  publieke `dataset.GWSW`/`HAS_*`/`KLASSE_*` houden naam én 1.6-waarde, de handtekening en
+  de veldenlijst van `GwswDataset` en de handtekeningen van `parts_of`/`part_holders_of`/
+  `aspects_of`/`aspect_holders_of` blijven ongewijzigd — er is geen bevroren contract
+  geraakt (`tests/test_publieke_api.py` bleef groen). Wat er bij kwam:
+  - **Deel a — twee gebundelde versies.** `gwsw_ontologie_totaal_16.ttl` (hernoemd) en
+    `_17.ttl` (nieuw, mét de CoF **REV**), elk met zijn eigen index
+    (`gwsw-vocabulaire-index-16.json`: 3316 termen; `-17.json`: 3485 termen). `bronnen`
+    kreeg `GEBUNDELDE_VERSIES`, `STANDAARD_VERSIE`, `gebundelde_ontologie_voor(versie)` en
+    `vocabulaire_index_pad_voor(versie)`; `gebundelde_ontologie()`/`vocabulaire_index_pad()`
+    houden hun handtekening en leveren nog altijd 1.6.
+  - **Deel b — 1.7-fixtures en baselines.** Een 1.7-fixtureset in `tests/fixtures/ttl17/`
+    (byte-gelijk aan de 1.6-set op de `gwsw:`-prefixregel na) en versie-bewuste
+    ontologiebaselines (1.7: 66.664 tripels, 3.485 eigen-naamruimte-IRI's, 2.167 `owl:Class`).
+  - **Deel c — detectie en doortrekking.** `bestand._parse` leest de basis uit de
+    `gwsw:`-prefix (met de predicaat-IRI's als terugval) en zet die op
+    `GraafIndex.gwsw_basis`; `namen` draagt de termenset per basis (`Termen`, `termen_voor`,
+    `basis_uit_prefixen`, `basis_uit_iri`). De lees- en cliplaag (`inlezen`, `klassen`,
+    `ontologie`, `clip/*`) leiden hun predicaten en klasse-IRI's uit die basis af;
+    `load_dataset` kiest zonder opgegeven ontologie de gebundelde versie die bij de
+    gedetecteerde dataset-basis hoort. Een 1.7-dataset wordt zo dezelfde knopen/strengen als
+    de 1.6-tegenhanger (modulo basis-IRI), een 1.7-bron clipt en herenigt graaf-gelijk, en de
+    schrijver blijft graaf-agnostisch (een 1.7-bron komt er als 1.7 uit). Onbekende/ontbrekende
+    versie → 1.6-terugval **met een `logging.warning`** (nooit stil); een versiemismatch
+    (1.7-dataset met expliciet de 1.6-ontologie) meldt eerlijk `klassenhierarchie_bekend ==
+    False` in plaats van een lege lezing te maskeren. Klasse-afgeleiden op 1.7: 43 datatypes,
+    729 kenmerkklassen.
+  - **Bump-afwijking:** dit blok is naar de letter van `CLAUDE.md` een *minor* ("minor = een
+    afgerond blok/fase"), maar de auteur brengt het (auteursbeslissing 31-08) bewust als
+    **patch 0.2.1** uit, samen met #36 en #37. De agent bumpt en tagt niets.
 - `inlezen._orientations_of_class` ordent zijn klassen met `sorted()` en levert daarmee een
   reproduceerbare orientatievolgorde (issue #37, bug; **additief** — privé functie, geen
   bevroren contract geraakt). De functie liep over een `frozenset[str]` (de subklasse-afsluiting

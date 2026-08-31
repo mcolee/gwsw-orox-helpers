@@ -75,6 +75,20 @@ definieert (een teruggekopieerde `rsplit` geeft overal hetzelfde antwoord en zou
 geen gedragstest opvallen) en geen gebruiker binnen de package die ze nog via `klassen`
 haalt.
 
+**Sinds issue #32 draagt `namen` óók de termenset per versie, naast de gepinde
+1.6-constanten.** De module-constanten (`GWSW`, `HAS_*`) blijven letterlijk 1.6 -- dat is het
+bevroren contract dat nlriochecker importeert -- maar erbij staat een `Termen`-dataclass met
+de zeven properties per basis (`termen_voor(basis)`, `TERMEN_16` als default) en de detectie
+zelf: `basis_uit_prefixen` leest de `gwsw:`-prefix, `basis_uit_iri` de basis uit een losse
+IRI (de terugval voor een export zonder prefixdeclaratie), en `versie_van_basis` /
+`basis_voor_versie` rekenen tussen versienummer en basis-IRI. `_uri` kreeg een
+`basis`-parameter (default 1.6). Alles blijft tekst -- de lezers maken er hun eigen
+munteenheid van: `inlezen` een `URIRef`-termenset per basis (`_leestermen`, gecachet),
+`clip` een `_Kniptermen` met pyoxigraph-`NamedNode`-en. **Waar de gedetecteerde basis woont:**
+op `GraafIndex.gwsw_basis`, gezet door `bestand._parse` na het vullen; de leeslaag leest hem
+daar, en `GwswDataset` leidt hem voor `closure`/`is_connection_class` af uit de typen van zijn
+objecten (een `init=False`-memo, zodat het gepinde cachepad de graafpickle niet hoeft te laden).
+
 `rdfmotor` ligt naast `codering`: allebei bladeren op `errors` na, en allebei door de
 leesweg én de schrijfweg gebruikt. De cliplaag komt er niet langs -- die parseert en
 serialiseert niet zelf maar leent `lees_orox` / `schrijf_orox_quads` van `schrijven` --
@@ -259,7 +273,7 @@ die anders uit elkaar loopt, en die staat één keer:
 | Gedeelde kennis | Woont in | Gelezen door |
 |---|---|---|
 | De aanroep van de motor zelf: `pyoxigraph.parse` en `pyoxigraph.serialize` op Turtle, plus de reeks pyoxigraph-versies waarop de package getoetst is | `rdfmotor` | `bestand._parse` (bytes), `schrijven.lees_orox` (een pad, of tekst bij een terugvalcodering) en `schrijven.schrijf_orox_quads` (de serializer) |
-| De IRI's: `GWSW` en de naamruimten, `hasAspect`/`hasPart`/`hasConnection`, `geo:gmlLiteral` | `namen` (tekst) | `inlezen` (als `URIRef`), `clip.termen` (als `NamedNode`), `clip.plan`/`clip.stroom`/`clip.merge`/`clip.bereik` (als tekst), `schrijven` (prefixkop), `graaf` (`xsd:string`), `ontologie`, `dataset` (`GWSW`, en het exporteert hem) |
+| De IRI's: `GWSW` en de naamruimten, `hasAspect`/`hasPart`/`hasConnection`, `geo:gmlLiteral`; sinds issue #32 óók de termenset per gedetecteerde basis (`Termen`, `termen_voor`) en de detectie (`basis_uit_prefixen`, `basis_uit_iri`) | `namen` (tekst) | `inlezen` (als `URIRef`-termenset per basis), `clip.termen` (als `NamedNode`-termenset), `clip.plan`/`clip.stroom`/`clip.merge`/`clip.bereik` (via die termenset), `schrijven` (prefixkop, 1.6-cosmetisch), `graaf` (`xsd:string` + `gwsw_basis`), `bestand` (detectie), `ontologie`, `dataset` (`GWSW`, en het exporteert hem) |
 | Het spellen van een korte klassenaam heen en terug (`_uri`, `_short`) | `namen` | `klassen` (`_afsluiting`, `_kenmerk_properties`, `_klassefuncties`), `inlezen` (de korte naam van een soort, een referentie of een klasse), `dataset` (`beheerobjecttype`, `is_connection_class`) |
 | De prefixkop van een OroX-export | `schrijven.STANDAARD_PREFIXEN`, opgebouwd uit `namen` | `schrijven`, `clip.orkest` (krijgt ze via `lees_orox` en vult `knip:` aan) |
 | UTF-8 met terugvalcodering, inclusief beide foutmeldingen | `codering.decodeer` | `bestand._decode`, `schrijven._gedecodeerd` |
@@ -389,12 +403,14 @@ levert de ontologie-`GraafIndex` waarop de lezers van `ontologie` werken — dez
 die `load_dataset` intern als `restrictiebron` opbouwt en daarna weggooit. Zonder haar
 moest een afnemer die `facetbereik` of `kenmerkbereik` op een geladen dataset wilde
 gebruiken de ontologie zelf parsen, en de enige weg daarheen (`bestand._parse`) is privé.
-De padkeuze is die van `ontologiepaden` en dus letterlijk dezelfde als bij de lader: `None`
-is de gebundelde GWSW-default 1.6 (63.614 triples, circa 0,4 s) — er reizen sinds issue #32
-twee versie-benoemde bundels mee (1.6 en 1.7, zie `bronnen`), en `None` blijft
-onvoorwaardelijk 1.6 tot de versiedetectie in een later deel landt. Een lege lijst is de
-expliciete keuze om zonder ontologie te lezen, en meerdere bestanden stapelen in volgorde
-in één index.
+De padkeuze is die van `ontologiepaden`: `None` is de gebundelde GWSW-default 1.6 (63.614
+triples, circa 0,4 s) — er reizen sinds issue #32 twee versie-benoemde bundels mee (1.6 en
+1.7, zie `bronnen`). Voor `lees_ontologie` blijft `None` **onvoorwaardelijk 1.6**, en met
+reden: deze functie leest alleen een ontologie en heeft geen dataset om een versie uit te
+detecteren. De versiekeuze zit sinds deel c van issue #32 in `load_dataset`, dat de dataset
+éérst parst en dan bij `None` de gebundelde ontologie kiest die bij de gedetecteerde
+dataset-basis hoort (`_gebundelde_paden_voor_basis`). Een lege lijst is de expliciete keuze
+om zonder ontologie te lezen, en meerdere bestanden stapelen in volgorde in één index.
 
 **De snit zit onder de fase, niet erop.** Beide functies lopen langs één privé-hulp,
 `_stapel_ontologie(paden, fallback_encoding, voortgang)`: de lus die per bestand

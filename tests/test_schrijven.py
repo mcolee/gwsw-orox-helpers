@@ -426,3 +426,30 @@ def test_dewoldenhoogeveen_houdt_tellingen_en_orde_van_grootte(tmp_path: Path) -
     assert doel_triples == bron_triples
     assert doel_klassen == bron_klassen
     assert abs(doel_bytes - bron_bytes) / bron_bytes <= 0.15
+
+
+MINI17 = Path(__file__).parent / "fixtures" / "ttl17" / "mini_orox.ttl"
+
+
+def test_17_bron_blijft_17_bij_round_trip(tmp_path: Path) -> None:
+    """De regenererende serializer is graaf-agnostisch: een 1.7-bron komt er als 1.7 uit.
+
+    `schrijf_orox` injecteert `namen.GWSW` (1.6) nergens in een triple; de IRI's stromen
+    ongewijzigd door. `STANDAARD_PREFIXEN` zet `gwsw:` in de kop cosmetisch op 1.6, maar de
+    bronprefix wint (`{**STANDAARD_PREFIXEN, **parser.prefixes}`). Dus blijft de graaf gelijk
+    en draagt de kop de 1.7-`gwsw:`.
+    """
+    doel = tmp_path / "mini17_terug.ttl"
+    schrijf_orox(MINI17, doel)
+
+    # Graaf-gelijk: dezelfde triples, dezelfde 1.7-IRI's.
+    assert isomorphic(_graaf(MINI17), _graaf(doel))
+    # En de kop draagt de 1.7-prefix, niet de 1.6 uit STANDAARD_PREFIXEN.
+    kop = doel.read_text(encoding="utf-8")
+    assert "@prefix gwsw: <http://data.gwsw.nl/1.7/totaal/> ." in kop
+    assert "@prefix gwsw: <http://data.gwsw.nl/1.6/totaal/> ." not in kop
+
+
+def test_standaardprefixen_blijven_16() -> None:
+    """De cosmetische kopprefix blijft 1.6; de bronprefix wint erover (issue #32)."""
+    assert STANDAARD_PREFIXEN["gwsw"] == "http://data.gwsw.nl/1.6/totaal/"

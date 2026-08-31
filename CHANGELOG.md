@@ -1,6 +1,8 @@
 # Changelog
 
 ## [Unreleased]
+
+## [0.2.1] - 2026-08-31
 - **GWSW 1.7-support met behoud van volledige 1.6 (issue #32, delen a+b+c; additief).** De
   package detecteert de GWSW-versie uit de bron en kiest de bijpassende termenset en
   gebundelde ontologie; 1.6 blijft de default. **Additief tegenover nlriochecker**: de

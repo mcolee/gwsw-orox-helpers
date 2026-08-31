@@ -59,6 +59,14 @@ MODULES = {
 
 # Een default die een objectrepr is, draagt een geheugenadres; dat is geen contract.
 ADRES = re.compile(r" object at 0x[0-9a-f]+>")
+# Python 3.13 verhuisde `Path` naar de submodule `pathlib._local`, dus schrijft
+# `inspect.signature` daar `-> pathlib._local.Path` waar 3.12 `-> pathlib.Path` schrijft.
+# `pathlib.Path is pathlib._local.Path`: hetzelfde object, andere repr. Net als het
+# geheugenadres hierboven is dat interpreterruis en geen contractverschil -- zonder deze
+# normalisatie zou de matrix uit issue #25 (3.12 én 3.13) rood staan op een verschil dat
+# geen afnemer merkt. De pin zelf blijft even streng: alleen dit ene modulepad wordt
+# teruggeschreven naar de vorm die de dictionary hieronder noteert.
+LOKALE_PATHLIB = re.compile(r"\bpathlib\._local\.")
 
 # De submodules van het `clip`-package, in de volgorde van de importrichting: een submodule
 # mag alleen naar een zuster *boven* zich wijzen. Zie de docstring van `gwsw_orox_helpers.clip`
@@ -209,8 +217,12 @@ def _op(naam: str) -> Any:
 
 
 def _handtekening(obj: Any) -> str:
-    """De handtekening als tekst, zonder het geheugenadres van een objectdefault."""
-    return ADRES.sub(" object>", str(inspect.signature(obj)))
+    """De handtekening als tekst, zonder interpreterruis.
+
+    Twee dingen worden weggenormaliseerd: het geheugenadres van een objectdefault en het
+    3.13-modulepad van `pathlib.Path`. Zie de regexen bovenaan.
+    """
+    return LOKALE_PATHLIB.sub("pathlib.", ADRES.sub(" object>", str(inspect.signature(obj))))
 
 
 HANDTEKENINGEN: dict[str, str] = {

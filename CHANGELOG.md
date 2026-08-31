@@ -29,7 +29,14 @@
   `docs/agents/afk-regie.md`) noemt stap vijf nu als `uv run pytest
   --cov=gwsw_orox_helpers --cov-fail-under=95` — kaal, want uv synct de dev-groep
   standaard mee, dus lokaal en CI draaien dezelfde stap. De poort blijft vijf stappen;
-  alleen de vorm van stap vijf verandert.
+  alleen de vorm van stap vijf verandert. **De matrix vond meteen iets** (en dat is precies
+  waarvoor hij er staat): Python 3.13 verhuisde `Path` naar de submodule `pathlib._local`,
+  waardoor `inspect.signature` daar `-> pathlib._local.Path` schrijft en de twee gepinde
+  handtekeningen `bronnen.gebundelde_ontologie` en `bronnen.vocabulaire_index_pad` op 3.13
+  faalden. `pathlib.Path is pathlib._local.Path` — hetzelfde object, andere repr, geen
+  contractverschil, en dus normaliseert `_handtekening()` in `tests/test_publieke_api.py`
+  dat modulepad weg zoals hij het geheugenadres van een objectdefault al wegnormaliseerde.
+  De pin zelf blijft even streng; alleen dit ene modulepad wordt teruggeschreven.
 - De veerkracht- en contracttakken van de leeslaag staan onder toets (issue #16,
   testbaarheid; **additief** — uitsluitend tests, fixtures en de fixturegenerator, geen
   regel productiecode aangeraakt). Dekking van `src/gwsw_orox_helpers/inlezen.py`:

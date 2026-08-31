@@ -357,15 +357,19 @@ def _types(graph: GraafIndex, subject: RdfNode) -> frozenset[str]:
 
 
 def _geometry(
-    graph: GraafIndex, orientation: RdfNode, klasse: URIRef, errors: dict[str, str]
-) -> tuple[Point | LineString | Polygon | None, list[float | None]]:
-    """Zoekt de geometrie van een orientatie en geeft die met haar z-waarden terug.
+    graph: GraafIndex, orientation: RdfNode, klasse: URIRef
+) -> tuple[Point | LineString | Polygon | None, list[float | None], str | None]:
+    """Zoekt de geometrie van een orientatie en geeft die met haar z-waarden en fout terug.
 
     Via `parse_gml_met_z` en niet via `parse_gml` plus `parse_gml_z`: die twee zouden
     dezelfde literaal twee tot vijf keer regexen en naar floats omzetten, en dit is het
     pad dat dat voor elke geometrie in de export doet. De uitkomst en elke foutmelding
-    zijn per contract dezelfde (`test_parse_gml_met_z_is_gelijkwaardig_aan_de_twee_losse_lezers`);
-    een onleesbare literaal belandt dus nog altijd in `errors` en levert `None, []` op.
+    zijn per contract dezelfde (`test_parse_gml_met_z_is_gelijkwaardig_aan_de_twee_losse_lezers`).
+
+    Een leesbare literaal levert `<geometrie>, <z-waarden>, None` op, een onleesbare
+    `None, [], <melding>`. `_geometry` schrijft de melding sinds issue #36 niet meer zelf
+    in `errors`: `_read_nodes` en `_read_conduits` sleutelen haar op de knoop- of
+    streng-URI, zodat `GwswDataset.subset` haar met haar object mee kan filteren.
     """
     for aspect in aspects_of(graph, orientation):
         if (aspect, _RDF_TYPE, klasse) not in graph:
@@ -374,11 +378,11 @@ def _geometry(
         if literal is None:
             continue
         try:
-            return parse_gml_met_z(str(literal))
+            geometrie, z_waarden = parse_gml_met_z(str(literal))
         except GeometryError as error:
-            errors[str(orientation)] = str(error)
-            return None, []
-    return None, []
+            return None, [], str(error)
+        return geometrie, z_waarden, None
+    return None, [], None
 
 
 def _read_nodes(
@@ -406,11 +410,18 @@ def _read_nodes(
         bron = _orientations_with(graph, KLASSE_PUNT)
 
     for orientation in bron:
-        point, z_waarden = _geometry(graph, orientation, KLASSE_PUNT, errors)
+        point, z_waarden, geometriefout = _geometry(graph, orientation, KLASSE_PUNT)
         maaiveld, maaiveld_inwinning = _maaiveld_kenmerk(graph, orientation)
         multipart = _is_multipart(graph, orientation, KLASSE_PUNT)
+        houder_gezien = False
         for subject in aspect_holders_of(graph, orientation):
             uri = str(subject)
+            # Vóór de ontdubbelingsbewaker (issue #36): een object dat via twee
+            # orientaties langskomt houdt zo de melding van zijn kapotte orientatie, ook
+            # al is de `Node` al uit een eerdere, leesbare orientatie gebouwd.
+            houder_gezien = True
+            if geometriefout is not None:
+                errors[uri] = geometriefout
             if uri in nodes:
                 continue
             deksel, deksel_inwinning = _deksel_kenmerk(graph, subject, deksel_termen)
@@ -430,6 +441,11 @@ def _read_nodes(
                 deksel_inwinning=deksel_inwinning,
                 multipart=multipart,
             )
+        # Wees-orientatie (issue #36): een kapotte literaal op een orientatie die geen
+        # enkel object draagt, valt terug op de orientatie-URI, anders verdwijnt de
+        # melding stil. Zo'n wees zit per definitie in geen enkele subset.
+        if geometriefout is not None and not houder_gezien:
+            errors[str(orientation)] = geometriefout
 
     return nodes
 
@@ -503,13 +519,19 @@ def _read_conduits(
         else _leiding_orientations(graph)
     )
     for orientation in bron:
-        line, z_waarden = _geometry(graph, orientation, KLASSE_LIJN, errors)
+        line, z_waarden, geometriefout = _geometry(graph, orientation, KLASSE_LIJN)
         multipart = _is_multipart(graph, orientation, KLASSE_LIJN)
         begin = _endpoint(graph, orientation, KLASSEN_BEGINPUNT)
         eind = _endpoint(graph, orientation, KLASSEN_EINDPUNT)
 
+        houder_gezien = False
         for subject in aspect_holders_of(graph, orientation):
             uri = str(subject)
+            # Vóór de ontdubbelingsbewaker (issue #36), net als bij `_read_nodes`: de
+            # melding hangt aan elk object dat deze kapotte orientatie draagt.
+            houder_gezien = True
+            if geometriefout is not None:
+                errors[uri] = geometriefout
             if uri in conduits:
                 continue
             # Draagt één orientatie twee leidingen, dan telt hetzelfde herstelde eind
@@ -530,6 +552,10 @@ def _read_conduits(
                 multipart=multipart,
                 z_values=tuple(z_waarden),
             )
+        # Wees-orientatie (issue #36), net als bij `_read_nodes`: een kapotte lijn op een
+        # orientatie zonder enkele houder valt terug op de orientatie-URI.
+        if geometriefout is not None and not houder_gezien:
+            errors[str(orientation)] = geometriefout
 
     return conduits, Koppelingsherstel(len(hersteld), len(set(hersteld)))
 

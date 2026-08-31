@@ -581,6 +581,13 @@ class GwswDataset:
         onderdelen opzoeken, en hem meesnijden zou stilzwijgend gegevens weglaten.
         Alleen `subjects_of_class()` loopt daardoor nog over de volledige export;
         dat zijn de drempels in NET-007 en RVZ, en dat staat in het rapport.
+
+        `geometry_errors` gaat sinds issue #36 met zijn object mee: de lezer sleutelt
+        elke melding op de knoop- of streng-URI, dus dit filter houdt precies de fouten
+        van de behouden objecten -- `subset([*nodes, *conduits])` geeft dezelfde
+        `geometry_errors` als de bron. Eén uitzondering, uit voorzorg: een kapotte
+        *wees-orientatie* zonder enkele houder is op de orientatie-URI gesleuteld, en die
+        hoort bij geen enkel object; zo'n melding valt dus altijd uit elke subset.
         """
         behouden = frozenset(uris)
         return replace(

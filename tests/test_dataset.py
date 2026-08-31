@@ -198,17 +198,18 @@ def _kapotte_geometrie(tmp_path: Path) -> Path:
 
 
 def test_een_onleesbare_gml_literaal_belandt_in_geometry_errors(tmp_path: Path) -> None:
-    """Een kapotte geometrie breekt de lezing niet af; ze wordt per orientatie gemeld.
+    """Een kapotte geometrie breekt de lezing niet af; ze wordt op het object gemeld.
 
     Twee soorten kapot tegelijk (zie `_kapotte_geometrie`). Allebei de objecten blijven
     bestaan, zonder geometrie en zonder z -- dat is het bedoelde gedrag en het is de
-    reden dat `geometry_errors` bestaat.
+    reden dat `geometry_errors` bestaat. Sinds issue #36 is de sleutel de knoop- of
+    streng-URI en niet meer die van de orientatie.
     """
     gelezen = load_dataset(_kapotte_geometrie(tmp_path), ontology_paths=[])
 
-    assert set(gelezen.geometry_errors) == {f"{TOETS}PutC_ori", f"{TOETS}L1_ori"}
-    assert "niet-numerieke coordinaat" in gelezen.geometry_errors[f"{TOETS}PutC_ori"]
-    assert "onbruikbare LineString-geometrie" in gelezen.geometry_errors[f"{TOETS}L1_ori"]
+    assert set(gelezen.geometry_errors) == {f"{TOETS}PutC", f"{TOETS}L1"}
+    assert "niet-numerieke coordinaat" in gelezen.geometry_errors[f"{TOETS}PutC"]
+    assert "onbruikbare LineString-geometrie" in gelezen.geometry_errors[f"{TOETS}L1"]
     assert gelezen.nodes[f"{TOETS}PutC"].point is None
     assert gelezen.nodes[f"{TOETS}PutC"].z is None
     assert gelezen.conduits[f"{TOETS}L1"].line is None
@@ -216,6 +217,128 @@ def test_een_onleesbare_gml_literaal_belandt_in_geometry_errors(tmp_path: Path) 
     # De rest van de export komt gewoon binnen; een onleesbaar object is geen
     # afgebroken lezing.
     assert gelezen.nodes[f"{TOETS}PutA"].point is not None
+
+
+_GML_PRELUDE = (
+    "@prefix rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .\n"
+    "@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .\n"
+    "@prefix geo: <http://www.opengis.net/ont/geosparql#> .\n"
+    "@prefix gwsw: <http://data.gwsw.nl/1.6/totaal/> .\n"
+    "@prefix : <http://example.org/toets#> .\n\n"
+    "gwsw:Putorientatie rdfs:subClassOf gwsw:Knooppunt .\n"
+    "gwsw:Leidingorientatie rdfs:subClassOf gwsw:Verbinding .\n\n"
+)
+
+
+def _punt_aspect(coordinaten: str) -> str:
+    """Een `Punt`-aspect met deze coordinatentekst (`"een twee"` is onleesbaar)."""
+    return (
+        "[ rdf:type gwsw:Punt ; gwsw:hasValue "
+        '"<gml:Point xmlns:gml=\\"http://www.opengis.net/gml\\">'
+        f'<gml:pos>{coordinaten}</gml:pos></gml:Point>"^^geo:gmlLiteral ]'
+    )
+
+
+def _put_met_leesbare_en_kapotte_orientatie(tmp_path: Path, *, leesbaar_eerst: bool) -> Path:
+    """Een put met twee Putorientaties: een met een leesbaar Punt en een met een kapot.
+
+    De schrijfvolgorde van de twee orientatieblokken bepaalt welke de lezer het eerst
+    verwerkt -- de graafindex bewaart de stroomvolgorde -- zodat dezelfde put beide
+    kanten kan toetsen: eerst leesbaar dan kapot, en omgekeerd.
+    """
+    put = (
+        ':PutX rdf:type gwsw:Inspectieput ; rdfs:label "X" ;\n'
+        "    gwsw:hasAspect :PutX_oriL , :PutX_oriK .\n\n"
+    )
+    leesbaar = (
+        ":PutX_oriL rdf:type gwsw:Putorientatie ;\n"
+        f"    gwsw:hasAspect {_punt_aspect('1000.0 2000.0')} .\n\n"
+    )
+    kapot = (
+        ":PutX_oriK rdf:type gwsw:Putorientatie ;\n"
+        f"    gwsw:hasAspect {_punt_aspect('een twee')} .\n"
+    )
+    blokken = (leesbaar, kapot) if leesbaar_eerst else (kapot, leesbaar)
+    naam = "leesbaar_eerst" if leesbaar_eerst else "kapot_eerst"
+    pad = tmp_path / f"twee_orientaties_{naam}.ttl"
+    pad.write_text(_GML_PRELUDE + put + "".join(blokken), encoding="utf-8")
+    return pad
+
+
+def test_een_object_met_een_leesbare_en_een_kapotte_orientatie_houdt_beide(
+    tmp_path: Path,
+) -> None:
+    """Invariant: het object staat in `geometry_errors` zodra één orientatie kapot was.
+
+    Ook als het daarnaast een bruikbare geometrie heeft. De melding landt vóór de
+    ontdubbelingsbewaker in de lezer, dus een put die via een leesbare orientatie al
+    gebouwd is, houdt de fout van zijn tweede, kapotte orientatie (issue #36).
+    """
+    gelezen = load_dataset(
+        _put_met_leesbare_en_kapotte_orientatie(tmp_path, leesbaar_eerst=True),
+        ontology_paths=[],
+    )
+
+    put = gelezen.nodes[f"{TOETS}PutX"]
+    assert put.point is not None  # de eerst verwerkte, leesbare orientatie gaf een punt
+    assert f"{TOETS}PutX" in gelezen.geometry_errors
+
+
+def test_geometry_errors_hangt_niet_af_van_de_orientatievolgorde(tmp_path: Path) -> None:
+    """Order-onafhankelijkheid: welke orientatie eerst komt verandert de sleutels niet.
+
+    Dezelfde put, met de leesbare en de kapotte orientatie in omgekeerde schrijfvolgorde.
+    Het object staat beide keren in `geometry_errors` -- de melding hangt aan het object
+    en niet aan de volgorde waarin de orientaties langskomen (issue #36).
+    """
+    leesbaar_eerst = load_dataset(
+        _put_met_leesbare_en_kapotte_orientatie(tmp_path, leesbaar_eerst=True),
+        ontology_paths=[],
+    )
+    kapot_eerst = load_dataset(
+        _put_met_leesbare_en_kapotte_orientatie(tmp_path, leesbaar_eerst=False),
+        ontology_paths=[],
+    )
+
+    assert set(leesbaar_eerst.geometry_errors) == {f"{TOETS}PutX"}
+    assert set(kapot_eerst.geometry_errors) == {f"{TOETS}PutX"}
+
+
+def test_een_wees_orientatie_valt_terug_op_de_orientatie_uri(tmp_path: Path) -> None:
+    """Een kapotte orientatie zonder enkele houder sleutelt op de orientatie-URI (issue #36).
+
+    Zonder die terugval zou de melding stil verdwijnen -- en stil verdwijnen is precies
+    wat deze bevinding aanklaagt. Zowel een put- als een leidingorientatie zonder houder
+    komt zo in `geometry_errors`; zo'n wees zit per definitie in geen enkele subset.
+    """
+    bron = _GML_PRELUDE + (
+        # Een gewone, leesbare put, zodat de dataset knopen heeft.
+        ':PutA rdf:type gwsw:Inspectieput ; rdfs:label "A" ;\n'
+        "    gwsw:hasAspect :PutA_ori .\n:PutA_ori rdf:type gwsw:Putorientatie ;\n"
+        f"    gwsw:hasAspect {_punt_aspect('1000.0 2000.0')} .\n\n"
+        # Een wees-putorientatie: kapot Punt, door geen enkel object gedragen.
+        ":LosPutOri rdf:type gwsw:Putorientatie ;\n"
+        f"    gwsw:hasAspect {_punt_aspect('een twee')} .\n\n"
+        # Een wees-leidingorientatie: een onbruikbare lijn (een enkel punt), zonder houder.
+        ":LosLeidingOri rdf:type gwsw:Leidingorientatie ;\n"
+        "    gwsw:hasAspect [ rdf:type gwsw:Lijn ; gwsw:hasValue "
+        '"<gml:LineString xmlns:gml=\\"http://www.opengis.net/gml\\">'
+        '<gml:posList srsDimension=\\"2\\">1000.0 2000.0</gml:posList>'
+        '</gml:LineString>"^^geo:gmlLiteral ] .\n'
+    )
+    pad = tmp_path / "wees_orientatie.ttl"
+    pad.write_text(bron, encoding="utf-8")
+
+    gelezen = load_dataset(pad, ontology_paths=[])
+
+    assert f"{TOETS}LosPutOri" in gelezen.geometry_errors
+    assert "niet-numerieke coordinaat" in gelezen.geometry_errors[f"{TOETS}LosPutOri"]
+    assert f"{TOETS}LosLeidingOri" in gelezen.geometry_errors
+    assert "onbruikbare LineString-geometrie" in gelezen.geometry_errors[f"{TOETS}LosLeidingOri"]
+    # Een wees zit in geen enkele subset, ook niet in "alles behouden".
+    alles = gelezen.subset([*gelezen.nodes, *gelezen.conduits])
+    assert f"{TOETS}LosPutOri" not in alles.geometry_errors
+    assert f"{TOETS}LosLeidingOri" not in alles.geometry_errors
 
 
 def test_hasconnection_is_symmetrisch(tmp_path: Path) -> None:
@@ -1356,27 +1479,27 @@ def test_subset_draagt_de_rest_van_de_dataset_ongewijzigd_over(voorbeeld: GwswDa
     assert kleiner._resolved_nodes == {}
 
 
-def test_subset_laat_de_geometriefouten_vallen(tmp_path: Path) -> None:
-    """Vastgelegd zoals het is, niet zoals het hoort -- de bevinding staat bij issue #16.
+def test_subset_houdt_de_geometriefouten_bij_hun_object(tmp_path: Path) -> None:
+    """`geometry_errors` is op het object gesleuteld, dus het filter van `subset` klopt.
 
-    `inlezen._geometry` sleutelt `geometry_errors` op de **orientatie**
-    (`errors[str(orientation)]`), terwijl `subset()` filtert op de URI's die de aanroeper
-    doorgeeft: knopen en strengen. Die twee verzamelingen zijn per constructie disjunct,
-    dus het filter treft nooit iets -- ook een subset die *elk* object behoudt komt
-    zonder geometriefouten terug, zoals hieronder.
-
-    Deze test spreekt geen oordeel uit over wat juist is; dat is een auteursbeslissing.
-    Wat zij doet is het gedrag zichtbaar maken, zodat de dag dat het verandert hier
-    blijkt in plaats van bij een afnemer die zijn foutenlijst kwijt is.
+    Tot issue #36 sleutelde de lezer de melding op de **orientatie**, terwijl `subset()`
+    filtert op de knoop- en streng-URI's die de aanroeper doorgeeft; die verzamelingen
+    zijn per constructie disjunct, dus elke `subset()` -- ook een die *elk* object behoudt
+    -- kwam zonder geometriefouten terug. Nu de sleutels objecten zijn doet het bestaande
+    filter zijn werk: een subset die alles behoudt geeft dezelfde `geometry_errors` als de
+    bron, en een echte deelverzameling houdt alleen de fouten van de behouden objecten.
     """
     gelezen = load_dataset(_kapotte_geometrie(tmp_path), ontology_paths=[])
 
-    assert set(gelezen.geometry_errors) == {f"{TOETS}PutC_ori", f"{TOETS}L1_ori"}
-    # De sleutels zijn de orientaties en niet de objecten; die blijven gewoon bestaan.
+    assert set(gelezen.geometry_errors) == {f"{TOETS}PutC", f"{TOETS}L1"}
     assert f"{TOETS}PutC" in gelezen.nodes
     assert f"{TOETS}L1" in gelezen.conduits
 
+    # "Alles behouden" levert nu dezelfde foutenlijst als de bron.
     alles = gelezen.subset([*gelezen.nodes, *gelezen.conduits])
-
     assert alles.nodes == gelezen.nodes
-    assert alles.geometry_errors == {}
+    assert alles.geometry_errors == gelezen.geometry_errors
+
+    # Een echte deelverzameling houdt alleen de fout van het behouden object.
+    alleen_putc = gelezen.subset([f"{TOETS}PutC"])
+    assert set(alleen_putc.geometry_errors) == {f"{TOETS}PutC"}

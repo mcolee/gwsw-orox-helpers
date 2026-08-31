@@ -1,6 +1,30 @@
 # Changelog
 
 ## [Unreleased]
+- `GwswDataset.geometry_errors` sleutelt op het object en niet meer op de orientatie
+  (issue #36, bug; **additief in de praktijk** — naam, type en handtekening van het veld
+  én van `subset()` blijven gelijk, alleen wélke sleutels erin staan verandert). `subset()`
+  gaf tot nu toe **altijd** een lege `geometry_errors` terug, ook `subset([*nodes,
+  *conduits])`: de dict was op de orientatie-URI gesleuteld terwijl `subset` op de knoop-
+  en streng-URI's filtert, en die verzamelingen zijn per constructie disjunct. Concreet
+  gevolg bij de afnemer: nlriochecker meldde bij een gebiedsrun **nooit** de notitie "N
+  objecten hebben een GML-literaal die niet te lezen was". De melding landt nu bij het
+  inlezen op de knoop- of streng-URI (in `_read_nodes`/`_read_conduits`, **vóór** de
+  ontdubbelingsbewaker, zodat een object dat via twee orientaties langskomt zijn melding
+  houdt ook als de `Node`/`Conduit` al uit een eerdere, leesbare orientatie gebouwd is),
+  waarna het bestaande filter in `subset` vanzelf klopt. **Bedoeld: melden op het object,
+  óók als dat een bruikbare geometrie heeft** — de afnemerstekst telt "objecten met een
+  GML-literaal die niet te lezen was", niet "objecten zonder geometrie". Een kapotte
+  *wees-orientatie* zonder enkele houder valt terug op de orientatie-URI, zodat de melding
+  niet stil verdwijnt; zo'n wees zit per definitie in geen enkele subset. **Additief voor
+  nlriochecker**: de vier lezers van het veld (`afbakening.py`, `checks/topologie.py`,
+  `toetsrun.py`, `uitvoer/bevindingen.py`) gebruiken uitsluitend `len()` en waarheidswaarde,
+  nooit de sleutels (AST-sweep 31-08). `inlezen._geometry` schrijft niet meer zelf in
+  `errors` maar geeft de melding als derde tuple-element terug (privé, nergens vastgepind).
+  Effect op de fixture `_kapotte_geometrie`: `set(geometry_errors)` gaat van
+  `{PutC_ori, L1_ori}` naar `{PutC, L1}`, het aantal blijft 2. **Cachesleutel**: `inlezen`
+  staat in `cache.LADERMODULES`, dus de sleutel roteert en bestaande caches worden één keer
+  opnieuw opgebouwd.
 - CI-triggerdiscipline in `.github/workflows/toets.yml` (issue #24, ci-hygiene;
   **additief** — uitsluitend CI-configuratie, geen regel code aangeraakt). Drie
   wijzigingen: (a) `push` heeft een `branches: [main, dev]`-filter, zodat een commit op

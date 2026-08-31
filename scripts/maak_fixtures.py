@@ -724,6 +724,106 @@ FIXTURES["dataset_meervoudig_objecttype.ttl"] = (
     + ":Uitlaat1 rdf:type gwsw:Bouwwerk .\n",
 )
 
+# ---------------------------------------------------------------------------
+# De overslag- en omwegtakken van de lezers (issue #16). Elk van de zeven vormen
+# hieronder komt in geen enkele andere fixture voor, en `inlezen.py` heeft er een
+# tak voor: een kenmerk met een sub-aspect dat geen Inwinning is, een kenmerk van
+# de juiste klasse zonder waarde, een geometrie-aspect zonder literaal, een
+# putdekselniveau langs de twee omwegen, en een object met twee orientaties. Ze
+# zijn geen van alle een defect in de GWSW-zin -- ze zijn conform en horen gelezen
+# te worden zoals hier vastligt -- maar zonder deze fixture blijft een refactor die
+# er een stilzet groen.
+# ---------------------------------------------------------------------------
+
+# Put A: het kenmerk Begindatum draagt een sub-aspect dat geen Inwinning is.
+# `_read_inwinning` loopt de sub-aspecten van elk kenmerk af en moet deze overslaan
+# in plaats van hem als herkomst te lezen.
+KENMERK_MET_VREEMD_SUBASPECT = """
+:PutA gwsw:hasAspect :PutA_bd .
+:PutA_bd rdf:type gwsw:Begindatum ; gwsw:hasValue "1980-01-01"^^xsd:date ;
+    gwsw:hasAspect [ rdf:type gwsw:Toelichting ; gwsw:hasValue "geschat" ] .
+"""
+
+# Put B: een maaiveldorientatie met een Maaiveldhoogte zonder `hasValue`. Een
+# kenmerk zonder waarde is geen meting; het telt als afwezig.
+MAAIVELDHOOGTE_ZONDER_WAARDE = """
+:PutB_ori gwsw:hasConnection :PutB_maa .
+:PutB_maa rdf:type gwsw:Maaiveldorientatie ;
+    gwsw:hasAspect [ rdf:type gwsw:Maaiveldhoogte ] .
+"""
+
+# Put C: het putdekselniveau hangt rechtstreeks aan de put, zonder Putdeksel-onderdeel
+# en zonder Dekselorientatie. Dat is de eerste van de twee omwegen in `_deksel_kenmerk`.
+DEKSELNIVEAU_AAN_DE_PUT = """
+:PutC gwsw:hasAspect [ rdf:type gwsw:Putdekselniveau ; gwsw:hasValue 9.80 ] .
+"""
+
+# Put D: het putdeksel is er wel, maar het niveau hangt aan het onderdeel zelf en niet
+# aan een Dekselorientatie. Dat is de tweede omweg.
+DEKSELNIVEAU_AAN_HET_ONDERDEEL = """
+:PutD gwsw:hasPart :PutD_dek .
+:PutD_dek rdf:type gwsw:Putdeksel ;
+    gwsw:hasAspect [ rdf:type gwsw:Putdekselniveau ; gwsw:hasValue 9.70 ] .
+"""
+
+# Put E: de orientatie draagt wel een Punt-aspect maar geen literaal. De put blijft een
+# knoop -- haar orientatie is een Putorientatie -- alleen zonder geometrie.
+PUNT_ZONDER_LITERAAL = """:PutE rdf:type gwsw:Inspectieput ; rdfs:label "E" ;
+    gwsw:hasAspect :PutE_ori .
+:PutE_ori rdf:type gwsw:Putorientatie ;
+    gwsw:hasAspect [ rdf:type gwsw:Punt ] .
+"""
+
+# Put F en streng 1 dragen elk twee orientaties. Het GWSW verbiedt dat niet, en een
+# export die het doet mag geen dubbele knoop of dubbele streng opleveren.
+TWEEDE_PUTORIENTATIE = """
+:PutF gwsw:hasAspect :PutF_ori2 .
+:PutF_ori2 rdf:type gwsw:Putorientatie ;
+    gwsw:hasAspect [ rdf:type gwsw:Punt ;
+        gwsw:hasValue "<gml:Point xmlns:gml=\\"http://www.opengis.net/gml\\"><gml:pos>1200.0 2005.0</gml:pos></gml:Point>"^^geo:gmlLiteral ] .
+"""
+
+TWEEDE_LEIDINGORIENTATIE = """
+:L1 gwsw:hasAspect :L1_ori2 .
+:L1_ori2 rdf:type gwsw:Leidingorientatie ;
+    gwsw:hasPart :L1_b2 , :L1_e2 ;
+    gwsw:hasAspect [ rdf:type gwsw:Lijn ;
+        gwsw:hasValue "<gml:LineString xmlns:gml=\\"http://www.opengis.net/gml\\"><gml:posList srsDimension=\\"2\\">1000.0 2001.0 1050.0 2001.0</gml:posList></gml:LineString>"^^geo:gmlLiteral ] .
+:L1_b2 rdf:type gwsw:BeginpuntLeiding .
+:L1_e2 rdf:type gwsw:EindpuntLeiding .
+"""
+
+FIXTURES["dataset_rommelige_export.ttl"] = (
+    "geen; zeven conforme maar ongebruikelijke vormen die de lezers moeten overslaan "
+    "of langs een tweede weg moeten vinden (issue #16)",
+    put("PutA", "A", 1000.0, 2000.0)
+    + KENMERK_MET_VREEMD_SUBASPECT
+    + put("PutB", "B", 1050.0, 2000.0)
+    + MAAIVELDHOOGTE_ZONDER_WAARDE
+    + put("PutC", "C", 1100.0, 2000.0)
+    + DEKSELNIVEAU_AAN_DE_PUT
+    + put("PutD", "D", 1150.0, 2000.0)
+    + DEKSELNIVEAU_AAN_HET_ONDERDEEL
+    + PUNT_ZONDER_LITERAAL
+    + put("PutF", "F", 1200.0, 2000.0)
+    + TWEEDE_PUTORIENTATIE
+    + leiding("L1", "1", [(1000.0, 2000.0), (1050.0, 2000.0)], "PutA", "PutB")
+    + TWEEDE_LEIDINGORIENTATIE,
+)
+
+# De inwinningsdatum, het enige veld van `Inwinning` dat geen enkele fixture droeg
+# (issue #16). Put A draagt een volledige inwinning op haar dekselniveau, put B alleen
+# een datum -- die tweede is de tegenproef dat `Inwinning.__bool__` ook zonder wijze
+# waar is en de herkomst dus niet stilletjes wegvalt.
+FIXTURES["dataset_inwinningsdatum.ttl"] = (
+    "geen; het putdekselniveau van put A draagt wijze en datum van inwinning, dat van "
+    "put B alleen een datum",
+    put("PutA", "A", *A)
+    + deksel("PutA", 9.85, wijze="Inmeting", datum="2019-05-17")
+    + put("PutB", "B", *B)
+    + deksel("PutB", 9.75, datum="2020-11-02"),
+)
+
 
 def render(defect: str, inhoud: str) -> str:
     """De volledige tekst van een fixture: de prelude, de DEFECT-regel en de inhoud.

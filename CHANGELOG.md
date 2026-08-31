@@ -1,6 +1,28 @@
 # Changelog
 
 ## [Unreleased]
+- De veerkracht- en contracttakken van de leeslaag staan onder toets (issue #16,
+  testbaarheid; **additief** — uitsluitend tests, fixtures en de fixturegenerator, geen
+  regel productiecode aangeraakt). Dekking van `src/gwsw_orox_helpers/inlezen.py`:
+  **95% → 100%** (232 statements, 12 → 0 ongedekt; projectbreed 25 → 13 ongedekte
+  statements). Twee nieuwe gegenereerde fixtures uit `scripts/maak_fixtures.py`:
+  `dataset_rommelige_export.ttl` (zeven conforme maar ongebruikelijke vormen — een
+  kenmerk met een sub-aspect dat geen `Inwinning` is, een `Maaiveldhoogte` zonder
+  `hasValue`, een `Punt` zonder literaal, het putdekselniveau langs beide omwegen
+  (rechtstreeks aan de put en aan het `Putdeksel`-onderdeel zonder `Dekselorientatie`),
+  en een put én een streng met elk twee orientaties) en `dataset_inwinningsdatum.ttl`
+  (`KLASSE_DATUM_INWINNING`, het enige veld van `Inwinning` dat geen enkele fixture
+  droeg). Daarnaast twee tests op `GwswDataset.subset()`, dat tot nu toe alleen als
+  hulpmiddel in memo-tests voorkwam: dat de graafindex **niet** meegesneden wordt (`is`
+  dezelfde index, `subjects_of_class()` blijft over de volledige export lopen) en dat de
+  overige velden van de `replace()` ongewijzigd meekomen. De `geometry_errors`-vangtak
+  zelf was al gedekt door `test_een_onleesbare_gml_literaal_belandt_in_geometry_errors`
+  (issue #13). **Bevinding, niet gerepareerd**: `subset()` filtert `geometry_errors` op
+  de doorgegeven knoop- en streng-URI's, terwijl `inlezen._geometry` die dict op de
+  *orientatie* sleutelt — die verzamelingen zijn disjunct, dus elke `subset()` levert een
+  lege `geometry_errors` op, ook een die elk object behoudt. Vastgelegd zoals het is in
+  `test_subset_laat_de_geometriefouten_vallen`; repareren raakt een bestaande retourvorm
+  en is daarmee een auteursbeslissing.
 - De mypy-poort staat op `disallow_untyped_defs = true` en kijkt nu ook naar `scripts/`
   (issue #20, ci-hygiene; **additief** — uitsluitend annotaties en configuratie, geen
   enkele signatuur, retourvorm of gedragsregel gewijzigd). Scope: **28 → 34 bestanden**

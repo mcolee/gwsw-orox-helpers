@@ -1123,3 +1123,241 @@ def test_stelsel_leden_scheidt_lokale_stelsels_van_buckets() -> None:
 
     assert lokaal == 2  # vuilwater-1 en gemengd-1
     assert buckets == 1  # de hemelwater-bucket met een streng én een put
+
+
+# --- De overslag- en omwegtakken van de lezers (issue #16) -----------------------------
+#
+# Zeven vormen die conform GWSW 1.6 zijn maar in geen enkele andere fixture voorkomen, en
+# die `inlezen.py` elk met een eigen tak afhandelt: overslaan wat geen inwinning is,
+# overslaan wat geen waarde draagt, en het putdekselniveau langs twee omwegen vinden. Ze
+# stonden alle zeven ongedekt in het dekkingsrapport; een refactor die er een stilzette
+# bleef groen.
+
+ROMMELIG = TTL_DIR / "dataset_rommelige_export.ttl"
+
+
+@pytest.fixture(scope="module")
+def rommelig() -> GwswDataset:
+    """De export met de zeven ongebruikelijke vormen; zonder ontologie gelezen.
+
+    De fixture declareert haar eigen klassenhierarchie in de gedeelde prelude, dus de
+    lader herkent knopen en strengen aan hun orientatieklasse en niet aan hun geometrie.
+    Dat is hier wezenlijk: put E draagt geen punt en moet toch een knoop zijn.
+    """
+    return load_dataset(ROMMELIG, ontology_paths=[])
+
+
+def test_een_subaspect_dat_geen_inwinning_is_telt_niet_als_herkomst(
+    rommelig: GwswDataset,
+) -> None:
+    """Een kenmerk mag meer sub-aspecten dragen dan alleen zijn Inwinning.
+
+    `_read_inwinning` loopt ze allemaal af en moet overslaan wat geen `gwsw:Inwinning`
+    is. Leest hij in plaats daarvan het eerste het beste sub-aspect, dan krijgt het
+    kenmerk een herkomst die er niet staat -- een verzinsel dat nergens een melding
+    oplevert en dat de hoogte- en ouderdomsanalyses wel meewegen.
+    """
+    begindatum = rommelig.nodes[f"{TOETS}PutA"].aspect("Begindatum")
+
+    assert begindatum is not None
+    assert begindatum.value == "1980-01-01"
+    assert begindatum.inwinning is None
+    # Voorwaarde: het kenmerk draagt wel degelijk een sub-aspect, alleen geen Inwinning.
+    subaspecten = list(aspects_of(rommelig.graph, URIRef(f"{TOETS}PutA_bd")))
+    assert subaspecten
+    assert not any(
+        (deel, RDF.type, URIRef(f"{GWSW}Inwinning")) in rommelig.graph for deel in subaspecten
+    )
+
+
+def test_een_kenmerk_zonder_waarde_telt_als_afwezig(rommelig: GwswDataset) -> None:
+    """Een Maaiveldhoogte zonder `hasValue` is geen meting maar een leeg kenmerk.
+
+    `_aspect_van_klasse` slaat hem over. Zou hij hem meenemen, dan kreeg de put een
+    maaiveldkenmerk zonder getal: `Node.maaiveld` blijft dan alsnog leeg, maar
+    `maaiveld_aspect` niet -- en dat is het veld waaraan ATTR-013 en de vulwaardestap
+    zien of er iets geregistreerd is.
+    """
+    put = rommelig.nodes[f"{TOETS}PutB"]
+
+    assert put.maaiveld_aspect is None
+    assert put.maaiveld is None
+    assert put.bovenkant is None
+    # Voorwaarde: de maaiveldorientatie ernaast draagt wel degelijk een Maaiveldhoogte.
+    assert rommelig.subjects_of_class("Maaiveldhoogte")
+
+
+def test_putdekselniveau_rechtstreeks_aan_de_put(rommelig: GwswDataset) -> None:
+    """De eerste omweg van `_deksel_kenmerk`: geen Putdeksel-onderdeel, geen orientatie.
+
+    Sommige exports hangen het niveau rechtstreeks aan de put. Wie alleen de weg via het
+    Putdeksel-onderdeel volgt, laat `Node.bovenkant` stil op de maaiveldhoogte
+    terugvallen -- geen melding, alleen een andere hoogte onder elke hoogtecheck.
+    """
+    put = rommelig.nodes[f"{TOETS}PutC"]
+
+    assert put.dekselniveau == 9.80
+    assert put.bovenkant == 9.80
+    assert rommelig.onderdelen(f"{TOETS}PutC") == [], "de put heeft geen Putdeksel-onderdeel"
+
+
+def test_putdekselniveau_aan_het_putdeksel_zonder_dekselorientatie(
+    rommelig: GwswDataset,
+) -> None:
+    """De tweede omweg: het Putdeksel is er wel, de Dekselorientatie niet.
+
+    `_deksel_kenmerk` kijkt eerst in de orientaties van het onderdeel en daarna op het
+    onderdeel zelf. Valt die tweede stap weg, dan verdwijnt het niveau met dezelfde
+    stille terugval op het maaiveld als hierboven.
+    """
+    put = rommelig.nodes[f"{TOETS}PutD"]
+
+    assert put.dekselniveau == 9.70
+    assert rommelig.onderdelen(f"{TOETS}PutD", "Putdeksel") == [f"{TOETS}PutD_dek"]
+    assert rommelig.subjects_of_class("Dekselorientatie") == []
+
+
+def test_een_geometrie_aspect_zonder_literaal_laat_de_knoop_staan(
+    rommelig: GwswDataset,
+) -> None:
+    """Een Punt zonder `hasValue` is geen geometriefout maar een leeg aspect.
+
+    De put blijft een knoop -- haar orientatie is een Putorientatie -- alleen zonder
+    punt. Dat is iets anders dan een onleesbare literaal: die belandt in
+    `geometry_errors` (zie `test_een_onleesbare_gml_literaal_belandt_in_geometry_errors`)
+    en deze niet. Het onderscheid telt voor het rapport: een lege geometrie is een
+    registratiegat, een onleesbare is een exportfout.
+    """
+    put = rommelig.nodes[f"{TOETS}PutE"]
+
+    assert put.point is None
+    assert put.z is None
+    assert rommelig.geometry_errors == {}
+    # Voorwaarde: de orientatie draagt wel degelijk een Punt-aspect, alleen zonder waarde.
+    punten = [
+        aspect
+        for aspect in aspects_of(rommelig.graph, URIRef(f"{TOETS}PutE_ori"))
+        if (aspect, RDF.type, URIRef(f"{GWSW}Punt")) in rommelig.graph
+    ]
+    assert punten
+
+
+def test_twee_orientaties_leveren_een_knoop_en_een_streng(rommelig: GwswDataset) -> None:
+    """Een object met twee orientaties telt een keer, niet twee keer.
+
+    Het GWSW verbiedt het niet en een export mag het schrijven; de twee lezers houden
+    per object de eerste orientatie aan die zij tegenkomen. Zonder die overslag zou
+    dezelfde put -- en dezelfde streng -- twee keer in het domeinmodel staan, met elke
+    bevinding erop verdubbeld en met een tweede, andere geometrie.
+    """
+    putorientaties = {
+        str(orientatie)
+        for orientatie in rommelig.graph.subjects(RDF.type, URIRef(f"{GWSW}Putorientatie"))
+        if str(orientatie).startswith(f"{TOETS}PutF")
+    }
+    leidingorientaties = {
+        str(orientatie)
+        for orientatie in rommelig.graph.subjects(RDF.type, URIRef(f"{GWSW}Leidingorientatie"))
+    }
+
+    assert putorientaties == {f"{TOETS}PutF_ori", f"{TOETS}PutF_ori2"}
+    assert leidingorientaties == {f"{TOETS}L1_ori", f"{TOETS}L1_ori2"}
+    assert [uri for uri in rommelig.nodes if uri.startswith(f"{TOETS}PutF")] == [f"{TOETS}PutF"]
+    assert list(rommelig.conduits) == [f"{TOETS}L1"]
+    assert rommelig.nodes[f"{TOETS}PutF"].orientation in putorientaties
+    # Zes putten, en niet zeven of acht: A tot en met F, elk een keer.
+    assert len(rommelig.nodes) == 6
+
+
+# --- `subset()`: wat er meegesneden wordt en wat niet (issue #16) ----------------------
+
+
+def test_subset_dunt_het_domeinmodel_uit_maar_laat_de_graaf_heel(
+    voorbeeld: GwswDataset,
+) -> None:
+    """`subset()` snijdt `nodes` en `conduits`; de graafindex gaat ongewijzigd mee.
+
+    Dat is geen detail maar de reden dat de methode bruikbaar is: de checks zoeken hun
+    onderdelen -- een overstortdrempel, een compartiment -- rechtstreeks in de graaf op,
+    en een meegesneden index zou daar stilzwijgend gegevens weglaten. De keerzijde staat
+    in de docstring van de methode en hier: `subjects_of_class()` blijft over de
+    volledige export lopen, ook op een uitgedunde dataset.
+    """
+    behouden = f"{TOETS}PutA"
+    kleiner = voorbeeld.subset([behouden])
+
+    assert set(kleiner.nodes) == {behouden}
+    assert kleiner.conduits == {}
+    # Niet een gefilterde kopie maar letterlijk dezelfde index.
+    assert kleiner.graph is voorbeeld.graph
+    assert len(kleiner.graph) == len(voorbeeld.graph)
+    assert kleiner.subjects_of_class("Put") == voorbeeld.subjects_of_class("Put")
+    # Beide putten, ook die welke net uit `nodes` gesneden is. (De lijst zelf mag een
+    # subject vaker noemen: put A is Inspectieput én VerdektePut, allebei in de
+    # afsluiting van Put.)
+    assert {str(subject) for subject in kleiner.subjects_of_class("Put")} == {
+        f"{TOETS}PutA",
+        f"{TOETS}PutB",
+    }
+    # De herkomst blijft ongemoeid: `subset` levert een nieuwe dataset op.
+    assert len(voorbeeld.nodes) == 4
+    assert len(voorbeeld.conduits) == 3
+    # En de aanroeper mag elke iterable meegeven, ook een eenmalige.
+    assert set(voorbeeld.subset(iter([behouden])).nodes) == {behouden}
+
+
+def test_subset_draagt_de_rest_van_de_dataset_ongewijzigd_over(voorbeeld: GwswDataset) -> None:
+    """Alles wat niet over knopen en strengen gaat, komt onveranderd mee.
+
+    `subset()` is een `replace()` met drie velden erin; de andere komen ongewijzigd mee.
+    Daar bouwt de afnemer op die na het uitdunnen nog de bron, de klassenhierarchie, de
+    ontologiepaden of het herstel van de fantoomkoppeling nodig heeft -- en juist een
+    `replace()` is de vorm waarin dat stil te breken is.
+
+    De twee memo's zijn de uitzondering en met opzet: ze staan op `init=False` en
+    beginnen leeg (zie `test_de_typenmemo_gaat_niet_mee_naar_een_uitgedunde_dataset` en
+    `test_een_replace_afgeleide_begint_met_een_lege_herleidingsmemo`).
+    """
+    kleiner = voorbeeld.subset([*voorbeeld.nodes, *voorbeeld.conduits])
+
+    assert kleiner.nodes == voorbeeld.nodes
+    assert kleiner.conduits == voorbeeld.conduits
+    assert kleiner.source == voorbeeld.source
+    assert kleiner.subclasses is voorbeeld.subclasses
+    assert kleiner.ontologies == voorbeeld.ontologies
+    assert kleiner.decode_fallback == voorbeeld.decode_fallback
+    assert kleiner.structural_diff == voorbeeld.structural_diff
+    assert kleiner.kenmerk_property == voorbeeld.kenmerk_property
+    assert kleiner.functie_per_klasse == voorbeeld.functie_per_klasse
+    assert kleiner.koppelingsherstel == voorbeeld.koppelingsherstel
+    assert kleiner._types_memo == {}
+    assert kleiner._resolved_nodes == {}
+
+
+def test_subset_laat_de_geometriefouten_vallen(tmp_path: Path) -> None:
+    """Vastgelegd zoals het is, niet zoals het hoort -- de bevinding staat bij issue #16.
+
+    `inlezen._geometry` sleutelt `geometry_errors` op de **orientatie**
+    (`errors[str(orientation)]`), terwijl `subset()` filtert op de URI's die de aanroeper
+    doorgeeft: knopen en strengen. Die twee verzamelingen zijn per constructie disjunct,
+    dus het filter treft nooit iets -- ook een subset die *elk* object behoudt komt
+    zonder geometriefouten terug, zoals hieronder.
+
+    Deze test spreekt geen oordeel uit over wat juist is; dat is een auteursbeslissing.
+    Wat zij doet is het gedrag zichtbaar maken, zodat de dag dat het verandert hier
+    blijkt in plaats van bij een afnemer die zijn foutenlijst kwijt is.
+    """
+    bron = (TTL_DIR / "top001_losliggende_put.ttl").read_text(encoding="utf-8")
+    bron = bron.replace("1200.0 2500.0", "een twee")
+    pad = tmp_path / "kapotte_geometrie.ttl"
+    pad.write_text(bron, encoding="utf-8")
+    gelezen = load_dataset(pad, ontology_paths=[])
+
+    assert set(gelezen.geometry_errors) == {f"{TOETS}PutC_ori"}
+    # De sleutel is de orientatie en niet de put; de put zelf blijft gewoon bestaan.
+    assert f"{TOETS}PutC" in gelezen.nodes
+
+    alles = gelezen.subset([*gelezen.nodes, *gelezen.conduits])
+
+    assert alles.nodes == gelezen.nodes
+    assert alles.geometry_errors == {}

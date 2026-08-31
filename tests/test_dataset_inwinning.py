@@ -10,12 +10,14 @@ gelden, terwijl juist die helft uit hetzelfde hoogtemodel komt als het AHN.
 
 from __future__ import annotations
 
+from datetime import date
 from pathlib import Path
 
-from gwsw_orox_helpers.dataset import load_dataset
+from gwsw_orox_helpers.dataset import Inwinning, load_dataset
 
 TTL_DIR = Path(__file__).parent / "fixtures" / "ttl"
 SCENARIO = TTL_DIR / "ext_scenario.ttl"
+MET_DATUM = TTL_DIR / "dataset_inwinningsdatum.ttl"
 
 
 def _node(dataset, label: str):
@@ -52,3 +54,45 @@ def test_de_maaiveldorientatie_wordt_geen_knooppunt() -> None:
     dataset = load_dataset(SCENARIO, ontology_paths=[])
 
     assert not any(uri.endswith("_maa") for uri in dataset.nodes)
+
+
+# --- De datumhelft van de inwinning (issue #16) ----------------------------------------
+#
+# `Inwinning` heeft twee velden en tot nu toe droeg geen enkele fixture het tweede: de
+# datum kwam nergens uit een TTL terug. `inlezen._read_inwinning` leest hem wel, en de
+# omzetting loopt via `domein._as_date`.
+
+
+def test_de_datum_van_inwinning_wordt_gelezen() -> None:
+    """Het GWSW hangt WijzeVanInwinning en DatumInwinning onder dezelfde Inwinning.
+
+    Beide horen bij het kenmerk terug te komen. Bleef de datumhelft ongelezen, dan
+    stond overal `datum=None` -- een publiek veld dat er altijd leeg uitziet is niet te
+    onderscheiden van een export die de datum niet levert, en geen enkele check zou
+    erover klagen.
+    """
+    dataset = load_dataset(MET_DATUM, ontology_paths=[])
+
+    put = _node(dataset, "A")
+
+    assert put.dekselniveau == 9.85
+    assert put.deksel_inwinning == Inwinning(wijze="Inmeting", datum=date(2019, 5, 17))
+    # Dezelfde inwinning hangt aan het kenmerk zelf; `_herkomst` hoeft niet terug te
+    # vallen op de puntgeometrie.
+    assert put.deksel_aspect is not None
+    assert put.deksel_aspect.inwinning == put.deksel_inwinning
+
+
+def test_een_inwinning_met_alleen_een_datum_telt_ook() -> None:
+    """`Inwinning.__bool__` is waar zodra er iets ingevuld is, ook zonder wijze.
+
+    `_read_inwinning` geeft alleen een gevulde inwinning terug (`if gevonden`). Telde
+    de datum daar niet mee, dan viel de herkomst van zo'n kenmerk stil weg en was "geen
+    herkomst bekend" niet te onderscheiden van "wel ingewonnen, wijze niet vastgelegd".
+    """
+    dataset = load_dataset(MET_DATUM, ontology_paths=[])
+
+    put = _node(dataset, "B")
+
+    assert put.deksel_inwinning == Inwinning(wijze=None, datum=date(2020, 11, 2))
+    assert bool(put.deksel_inwinning) is True

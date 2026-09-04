@@ -1,6 +1,8 @@
 # Changelog
 
 ## [Unreleased]
+
+## [0.2.2] - 2026-09-04
 - Publieke leesweg naar de GWSW-versie van een dataset: `GwswDataset.gwsw_versie`
   (issue #39, additief). De nieuwe gememoiseerde property levert een frozen
   `GwswVersie(basis, versie, gedetecteerd)`; `GwswVersie` staat in `dataset.__all__` en de

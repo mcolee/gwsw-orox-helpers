@@ -1,6 +1,15 @@
 # Changelog
 
 ## [Unreleased]
+- Publieke docstrings staan in domeintaal: de module-, klasse- en methode-docstrings van de
+  leeslaag noemen geen interne nlriochecker-checkcodes (`HGT-004`, `NET-007`, `TOP-020`,
+  `ATTR-013`, ...) of nlriochecker-bestandsnamen (`uitvoer/melding.py`, `SHACL-nulmeting`,
+  `analysis.bepaal_typeringspoort`, ...) meer, zodat `help()` zelfstandig leesbaar is voor
+  een PyPI-afnemer. De `graaf`-moduledocstring somt alleen nog aanroepers *binnen* de package
+  op. De herkomst (checkcode en aanroepende module per publieke naam) is bewaard in de nieuwe
+  `docs/afnemers.md`, waarnaar `docs/architectuur.md` verwijst (issue #56, documentatie;
+  **additief** — alleen docstringtekst, geen signatuur, retourvorm, foutmelding of gedrag
+  geraakt; `#`-commentaar met checkcodes bleef staan).
 - CI toetst nu ook op Python 3.14 (`toets.yml`-matrix `["3.12", "3.13", "3.14"]`), de
   dekking wordt met takdekking gemeten (`[tool.coverage.run] branch = true`) en de tot dan
   ongedekte opruim-tak van `cache._schrijf_atomair` (een afgebroken schrijf verwijdert het

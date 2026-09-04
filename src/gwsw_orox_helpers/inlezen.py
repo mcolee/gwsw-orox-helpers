@@ -15,7 +15,7 @@ niet, `dataset` haalt `_parse` en `_gc_uit` er rechtstreeks op.
 `test_de_bestandssnit_ligt_vast` houdt dat zo.
 
 De IRI's staan hier als `URIRef`, gemaakt uit de tekst in `namen`. Ze komen via `dataset`
-naar buiten -- dat is het oppervlak dat nlriochecker kent -- en horen daarom bij de laag
+naar buiten -- dat is het oppervlak dat een afnemer kent -- en horen daarom bij de laag
 die ze leest, niet bij de tekstmodule die ze spelt.
 """
 

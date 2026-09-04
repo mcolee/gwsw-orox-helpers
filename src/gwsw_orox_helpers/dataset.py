@@ -16,7 +16,7 @@ is in zes modules verdeeld, elk met een eigen vraag:
   als vrije functies op `nodes` en een typepredicaat (sinds issue #27 los van deze
   module; de drie methoden hieronder zijn er doorgeefluiken naartoe).
 
-Die verdeling is intern. **Het oppervlak blijft hier**: elke naam die nlriochecker uit
+Die verdeling is intern. **Het oppervlak blijft hier**: elke naam die een afnemer uit
 `gwsw_orox_helpers.dataset` importeert, komt hier ook naar buiten -- de klassen, de
 IRI-constanten en de graafhulpen -- met dezelfde handtekening en hetzelfde gedrag
 (Harde regel in `CLAUDE.md`; `tests/test_publieke_api.py` is de scheidsrechter).
@@ -198,7 +198,7 @@ class GwswVersie:
     patroon als `bronnen.GEBUNDELDE_VERSIES`) en `gedetecteerd` of een knoop of streng van de
     dataset een GWSW-type droeg waaruit die basis is afgeleid (`True`) dan wel geen enkele --
     de terugval op de gepinde 1.6-basis (`False`). Dit is wat een afnemer die geen internals
-    mag aanraken (`nlriochecker`) in zijn rapportkop kan tonen.
+    mag aanraken in zijn rapportkop kan tonen.
 
     Let wel: de vlag is de leesweg van `gwsw_versie` (typen van knopen en strengen, zodat het
     cachepad de graafpickle niet laadt), niet die van `bestand._parse` (prefix en IRI-scan).
@@ -339,7 +339,7 @@ class GwswDataset:
         """De versie-juiste `URIRef`-termenset van deze dataset; de publieke leesweg (issue #51).
 
         De gepinde module-constanten (`HAS_*`, `KLASSE_*`) spellen altijd 1.6 -- dat is het
-        bevroren contract dat nlriochecker importeert. Op een 1.7-dataset vindt een bevraging
+        bevroren contract dat een afnemer importeert. Op een 1.7-dataset vindt een bevraging
         met die constanten stil nul. `termen` levert dezelfde predicaten en klasse-IRI's voor de
         gedetecteerde basis (`gwsw_versie.basis`), zodat een afnemer de graaf versie-juist kan
         bevragen -- of, eenvoudiger, de drie str-methoden `uris_of_class`, `buren` en
@@ -368,9 +368,9 @@ class GwswDataset:
         klinkende naam de gevaarlijke is.
 
         Twee redenen dat hij blijft bestaan. Hij drukt "is een gemodelleerde knoop of
-        streng van dit type" uit, en dat is wat `klim_naar_knoop` en `uitvoer/melding.py`
-        vragen: de eerste moet stoppen zodra hij een knoop uit het domeinmodel te pakken
-        heeft, de tweede weegt de prioriteit van een melding op het knoop- of
+        streng van dit type" uit, en dat is wat `klim_naar_knoop` en de meldingsweging van
+        een afnemer vragen: de eerste moet stoppen zodra hij een knoop uit het domeinmodel te
+        pakken heeft, de tweede weegt de prioriteit van een melding op het knoop- of
         strengobject waaraan zij hangt. En hij spaart de
         graafopvraging van `graph_types_of()` uit, die op elke wandeling over De Wolden en Hoogeveen
         meetelt.
@@ -521,7 +521,7 @@ class GwswDataset:
         #27 de vrije vorm aan. Hij blijft staan omdat #27 een *additieve* wijziging is en
         een methode weghalen een aftrekkende -- niet omdat een afnemer hem zou kunnen
         aanroepen, want een naam met een underscore is geen belofte (zie
-        `docs/architectuur.md`) en nlriochecker roept hem nergens aan. Schrappen is
+        `docs/architectuur.md`) en geen afnemer roept hem aan. Schrappen is
         daarmee een auteursbeslissing van één regel: de bewaker
         `test_de_netwerksnit_ligt_vast` slaat een methode die er niet meer is over.
         """
@@ -535,9 +535,9 @@ class GwswDataset:
         Geeft (omgekeerd, beginput, eindput) terug, waarbij `omgekeerd` zegt of de
         lijn bij de administratieve eindput begint. None als er niets te vergelijken
         valt: geen geometrie, geen echte lijngeometrie, geen twee verschillende
-        putten, of putten zonder punt. TOP-020 en de kaartlaag met richtingspijlen
-        lezen allebei deze methode, zodat het kaartbeeld en de bevinding niet uit
-        elkaar kunnen lopen.
+        putten, of putten zonder punt. Een topologiecheck op de tekenrichting en de
+        kaartlaag met richtingspijlen lezen allebei deze methode, zodat het kaartbeeld
+        en de bevinding niet uit elkaar kunnen lopen.
 
         Doorgeefluik naar `netwerk.richting_van_geometrie`, met dezelfde memo als
         `resolve_network_node` hierboven: de twee koppelingen van de streng worden er
@@ -584,10 +584,10 @@ class GwswDataset:
         Zulke klassen staan op de orientatie van een streng, en `Conduit` draagt
         haar orientatietypen niet zoals `Node` dat wel doet; een selectie erop kan
         dus nooit een treffer geven. `of_class()` weigert er een, want daar is de
-        klassenaam configuratie. Wie een klassenaam uit een *meting* krijgt --
-        `analysis.bepaal_typeringspoort` leest ze uit de CfkTypes_typ-regels van de
-        SHACL-nulmeting -- vraagt het hier vooraf: een meetuitkomst hoort de run
-        niet te laten vallen, maar als onbeoordeelbaar in het rapport te komen.
+        klassenaam configuratie. Wie een klassenaam uit een *meting* krijgt -- een
+        afnemer die een typering uit een externe meetuitkomst afleidt -- vraagt het hier
+        vooraf: een meetuitkomst hoort de run niet te laten vallen, maar als
+        onbeoordeelbaar in het rapport te komen.
 
         Zonder ontologie is de afsluiting alleen `Verbinding` zelf, dus dan wordt
         alleen die naam herkend.
@@ -761,7 +761,8 @@ class GwswDataset:
         De graafindex gaat ongewijzigd mee: hij is de bron waaruit de checks hun
         onderdelen opzoeken, en hem meesnijden zou stilzwijgend gegevens weglaten.
         Alleen `subjects_of_class()` loopt daardoor nog over de volledige export;
-        dat zijn de drempels in NET-007 en RVZ, en dat staat in het rapport.
+        dat zijn de drempels die een check over de volledige export nodig heeft, en
+        dat staat in het rapport.
 
         `geometry_errors` gaat sinds issue #36 met zijn object mee: de lezer sleutelt
         elke melding op de knoop- of streng-URI, dus dit filter houdt precies de fouten
@@ -1027,8 +1028,8 @@ def markeer_vulwaarden(
     Sommige exports schrijven 0,000 waar het kenmerk leeg hoort te zijn (De Wolden en Hoogeveen:
     een kwart van de BOB's). De checks zouden die nul als meting lezen en er duizenden
     hoogtefouten van maken. Deze stap zet zo'n kenmerk op `None` en onthoudt op het
-    object dat en welke waarde er stond, zodat ATTR-013 het een keer kan melden en de
-    hoogtechecks het object overslaan en dat in hun toelichting zeggen.
+    object dat en welke waarde er stond, zodat een attribuutcheck het een keer kan melden
+    en de hoogtechecks het object overslaan en dat in hun toelichting zeggen.
 
     De stap staat los van het laden: de cache bewaart de ruwe parse, de band is
     projectconfiguratie. De meegegeven dataset blijft onaangeraakt; met een lege

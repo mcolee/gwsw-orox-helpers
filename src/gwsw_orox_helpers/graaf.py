@@ -16,23 +16,18 @@ inclusief volgorde:
 
 - ``objects(subject, predicate)`` -- beide gebonden. `dataset.py`
   (`GwswDataset.graph_types_of`), `inlezen.py`
-  (`parts_of`/`aspects_of`/`part_holders_of`/`aspect_holders_of` -- met als externe
-  aanroepers ook `checks/netwerk.py` en `checks/randvoorzieningen.py` -- ,
-  `_read_aspects`, `_types`, `_connections`), `checks/administratief.py`
-  (hasConnection), `nulbevinding.py` (`_ouders`) en de ontologielezers
-  `ontologie.verwachte_property`, `functie_van_klasse` en `datatype_van_kenmerk` (de
-  restrictiebron kan deze index zijn).
+  (`parts_of`/`aspects_of`/`part_holders_of`/`aspect_holders_of`, `_read_aspects`,
+  `_types`, `_connections`) en de ontologielezers `ontologie.verwachte_property`,
+  `functie_van_klasse` en `datatype_van_kenmerk` (de restrictiebron kan deze index zijn).
 - ``subjects(predicate, object)`` -- beide gebonden. `dataset.py`
-  (`GwswDataset.subjects_of_class`), `inlezen.py` (de vier hasPart/hasAspect-lezers --
-  zie hierboven voor hun externe aanroepers -- , `_orientations_of_class`,
-  `_orientations_with`, `_leiding_orientations`, `_connections`),
-  `checks/administratief.py`, `checks/attributen.py` (`_property_tellingen`),
-  `nulbevinding.py`. `klassen._subclass_closure` niet -- die gebruikt
+  (`GwswDataset.subjects_of_class`), `inlezen.py` (de vier hasPart/hasAspect-lezers,
+  `_orientations_of_class`, `_orientations_with`, `_leiding_orientations`,
+  `_connections`). `klassen._subclass_closure` niet -- die gebruikt
   `subject_objects`.
 - ``value(subject, predicate)`` -- het eerste object of None. `dataset.py`
   (`GwswDataset.onderdeel_label`), `inlezen.py` (`_read_aspects`, `_read_inwinning`,
-  `_aspect_van_klasse`, `_label`, `_geometry`, `_is_multipart`),
-  `checks/attributen.py` en alle vijf de lezers van `ontologie` -- `verwachte_property`,
+  `_aspect_van_klasse`, `_label`, `_geometry`, `_is_multipart`)
+  en alle vijf de lezers van `ontologie` -- `verwachte_property`,
   `functie_van_klasse`, `datatype_van_kenmerk`, `facetbereik` en (via die laatste)
   `_lijstleden`, dat de `rdf:first`/`rdf:rest`-ketting van een
   `owl:withRestrictions`-lijst er stap voor stap mee afloopt (issue #19). Dat een

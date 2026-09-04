@@ -52,7 +52,7 @@ def _afsluiting(
     Bewust geen `subclasses.get(_uri(wortel), frozenset({_uri(wortel)}))`: die default
     is een gewoon argument en wordt dus ook opgebouwd op de treffer, met een tweede
     `_uri`-aanroep erbij. `GwswDataset.closure` vraagt deze functie via `is_a` ruim een
-    miljoen keer per nlriochecker-run (issue #12), en dan telt een wegwerp-frozenset per
+    miljoen keer per run (issue #12), en dan telt een wegwerp-frozenset per
     aanroep mee. Het antwoord is aan beide kanten hetzelfde als voorheen.
 
     `basis` (issue #32) is de gedetecteerde GWSW-basis waarin de sleutel wordt opgebouwd;

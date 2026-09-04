@@ -394,7 +394,9 @@ De leeslaag is intern in zes modules verdeeld (`domein`, `bestand`, `inlezen`, `
 `codering`, `netwerk`), maar **het oppervlak ligt in `dataset`**: elke naam die nlriochecker uit
 `gwsw_orox_helpers.dataset` importeert komt daar naar buiten, met dezelfde handtekening
 en hetzelfde gedrag. Dat is een Harde regel uit `CLAUDE.md` en `tests/test_publieke_api.py`
-is de scheidsrechter. Praktisch:
+is de scheidsrechter. De publieke docstrings staan sinds issue #56 in domeintaal; welke
+nlriochecker-checkcode of -module achter elke naam zit, bewaart `docs/afnemers.md` en niet
+`help()`. Praktisch:
 
 - de waardeobjecten (`Node`, `Conduit`, `Aspect`, `Inwinning`, `Vulwaarde`,
   `Koppelingsherstel`, `DecodeFallback`) staan in `domein`/`codering` en worden door

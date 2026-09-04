@@ -2,7 +2,7 @@
 
 Twee lagen boven elkaar, en de bovenste twee zijn het contract: `OroxError` is wat een
 afnemer van deze package vangt, `DatasetError` is de fout die zegt dat de bron er niet
-doorheen komt. Nlriochecker vangt die breed en dat blijft zo -- geen van beide is sinds
+doorheen komt. Een afnemer vangt die breed en dat blijft zo -- geen van beide is sinds
 hun eerste versie veranderd en dat is een Harde regel in `CLAUDE.md`.
 
 Daaronder staan sinds issue #31 zeven **faalfamilies**. Ze zijn er omdat één klasse 29

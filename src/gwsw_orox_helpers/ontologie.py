@@ -7,7 +7,7 @@ en dat datatype draagt via `owl:equivalentClass` een `owl:withRestrictions`-lijs
     Kenmerk -> allValuesFrom -> Dt_X -> equivalentClass -> withRestrictions -> min/max
 
 Dit is de ontbrekende schakel uit issue #35: zonder haar blijft elke drempel handwerk
-en kan een eigen check een waarde goedkeuren die de SHACL-nulmeting afkeurt. De module
+en kan een eigen check een waarde goedkeuren die een SHACL-validatie afkeurt. De module
 *leest* alleen; hij vergelijkt niets met de projectdrempels en verandert niets aan een
 run. Alleen de inclusieve grenzen worden gelezen -- de GWSW-facetten zijn dat allemaal.
 
@@ -185,9 +185,9 @@ def verwachte_property(graph: GraafLezer, kenmerk: URIRef, basis: str = GWSW) ->
     `None` als het kenmerk geen van beide restricties draagt (zoals `Straatnaam`).
 
     De verwijzende restrictie wint van de waarderestrictie: zij is het sterkste
-    signaal, want zij bindt aan een concrete collectie. Dit is de schakel die
-    ATTR-014 nodig heeft om te zien dat een export `hasValue` schrijft waar de
-    ontologie `hasReference` eist; de SHACL-nulmeting mist die fout per constructie
+    signaal, want zij bindt aan een concrete collectie. Dit is de schakel die een
+    attribuutcheck nodig heeft om te zien dat een export `hasValue` schrijft waar de
+    ontologie `hasReference` eist; een SHACL-validatie mist die fout per constructie
     (issue #37).
 
     `basis` (issue #32) is de GWSW-basis van de graaf; default 1.6.
@@ -209,8 +209,8 @@ def functie_van_klasse(graph: GraafLezer, klasse: URIRef, basis: str = GWSW) -> 
 
     Het GWSW zegt wat een hulpstuk doet via een `owl:Restriction` op `gwsw:functie`
     met `owl:hasValue` (`T_stuk` → `VerbindenVanDrieLeidingen`, `Kruisstuk` →
-    `VerbindenVanVierLeidingen`). TOP-022 en TOP-023 lezen daar het verwachte aantal
-    leidingen uit (issue #60). Alleen de restricties direct op de klasse; het
+    `VerbindenVanVierLeidingen`). Een topologiecheck leest daar het verwachte aantal
+    leidingen van een hulpstuk uit (issue #60). Alleen de restricties direct op de klasse; het
     overerven naar subklassen doet `klassen._klassefuncties`.
 
     Tweeënveertig GWSW-klassen dragen meer dan een functiewaarde (`Zadel` bijvoorbeeld

@@ -1,6 +1,21 @@
 # Changelog
 
 ## [Unreleased]
+- Publieke leesweg naar de GWSW-versie van een dataset: `GwswDataset.gwsw_versie`
+  (issue #39, additief). De nieuwe gememoiseerde property levert een frozen
+  `GwswVersie(basis, versie, gedetecteerd)`; beide namen staan in `dataset.__all__` en zijn
+  gepind in `tests/test_publieke_api.py`. Hij is er voor een afnemer (`nlriochecker`) die de
+  gebruikte versie in zijn rapportkop wil tonen en een voorbehoud wil zetten bij de terugval,
+  zonder een internal (`_basis`, `graph.gwsw_basis`) aan te raken. **Additief tegenover
+  nlriochecker**: de handtekening en de veldenlijst van `GwswDataset` blijven ongewijzigd
+  (`gwsw_versie` is een property, `GwswVersie` een nieuw type; het interne `_basis` blijft en
+  levert nu `gwsw_versie.basis`). `gedetecteerd` wordt -- net als `_basis` -- afgeleid uit de
+  typen van de knopen en strengen (`False` als geen enkele een GWSW-type draagt), zodat het
+  luie cachepad (`cache.LuieGraaf`) de graafpickle níét hoeft te laden; een bewaker in
+  `tests/test_versiedetectie.py` legt dat vast. Nieuw: `namen.versie_uit_basis(basis) -> str`,
+  de totale tegenhanger van `versie_van_basis`, zodat de property en `bronnen.GEBUNDELDE_VERSIES`
+  dezelfde tekens spreken. **Cachesleutel**: `dataset` en `namen` staan in `cache.LADERMODULES`,
+  dus de sleutel roteert en bestaande caches worden één keer opnieuw opgebouwd.
 
 ## [0.2.1] - 2026-08-31
 - **GWSW 1.7-support met behoud van volledige 1.6 (issue #32, delen a+b+c; additief).** De

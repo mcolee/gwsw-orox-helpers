@@ -88,6 +88,12 @@ munteenheid van: `inlezen` een `URIRef`-termenset per basis (`_leestermen`, geca
 op `GraafIndex.gwsw_basis`, gezet door `bestand._parse` na het vullen; de leeslaag leest hem
 daar, en `GwswDataset` leidt hem voor `closure`/`is_connection_class` af uit de typen van zijn
 objecten (een `init=False`-memo, zodat het gepinde cachepad de graafpickle niet hoeft te laden).
+De **publieke leesweg** daarnaartoe is sinds issue #39 de gememoiseerde property
+`GwswDataset.gwsw_versie -> GwswVersie` (`basis`, `versie`, `gedetecteerd`): dezelfde afleiding
+uit de typen van de knopen en strengen -- geen `self.graph.gwsw_basis`, dus geen pickle-lading op
+het cachepad -- met `gedetecteerd=False` wanneer geen enkele knoop of streng een GWSW-type draagt.
+`_basis` blijft de interne leesweg en levert `gwsw_versie.basis`; `namen.versie_uit_basis` haalt
+het versiecijfer uit de basis.
 
 `rdfmotor` ligt naast `codering`: allebei bladeren op `errors` na, en allebei door de
 leesweg én de schrijfweg gebruikt. De cliplaag komt er niet langs -- die parseert en

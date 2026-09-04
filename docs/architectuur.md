@@ -12,7 +12,10 @@ Wie wat importeert, binnen de package. `A -> B` betekent "A importeert B"; elke 
 wijst naar een regel *boven* zich en nooit andersom. Na te lopen met
 `grep -rn "^from gwsw_orox_helpers" src/gwsw_orox_helpers/` -- `-r` en geen `*.py`-glob,
 want `clip` is een submap en die mist een glob op de wortel. Dit zijn alle randen die er
-zijn.
+zijn. `test_de_wortelsnit_houdt_de_importrichting` in `tests/test_publieke_api.py` bewaakt
+dat tegen de echte import-AST -- gelijkheid per rij, zodat een import erbij of eraf de
+tekening laat afwijken, zoals `test_de_clipsubmodules_houden_de_importrichting` dat voor
+`clip/` doet.
 
 ```
 errors   voortgang   bronnen   namen   geometry   domein    <- bladeren: geen import
@@ -23,13 +26,13 @@ codering   -> errors
 rdfmotor   -> errors
 ontologie  -> graaf, namen
 klassen    -> graaf, namen, ontologie
-bestand    -> codering, errors, graaf, rdfmotor
+bestand    -> codering, errors, graaf, namen, rdfmotor
 inlezen    -> domein, geometry, graaf, klassen, namen
 netwerk    -> domein
 dataset    -> bestand, bronnen, codering, domein, errors, geometry, graaf, inlezen,
               klassen, namen, netwerk, voortgang
-cache      -> bestand, codering, dataset, domein, geometry, graaf, inlezen, klassen,
-              namen, netwerk, ontologie, rdfmotor, voortgang
+cache      -> bestand, bronnen, codering, dataset, domein, errors, geometry, graaf,
+              inlezen, klassen, namen, netwerk, ontologie, rdfmotor, voortgang
 
 schrijven  -> codering, errors, namen, rdfmotor
 clip/      -> errors, geometry, namen, schrijven   (een package; zie hieronder)

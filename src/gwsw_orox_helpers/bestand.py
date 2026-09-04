@@ -9,7 +9,7 @@ elkaar gehaald is het testen van de lezers geen kwestie van een echt bestand mee
 
 **In de lagentabel staat deze module ónder `inlezen`, maar er loopt geen rand tússen de
 twee.** Onder, omdat hij alleen op de bladeren leunt (`codering`, `errors`, `graaf`,
-`rdfmotor`) en `inlezen` daar nog `domein`, `geometry`, `klassen` en `namen` bij heeft;
+`namen`, `rdfmotor`) en `inlezen` daar nog `domein`, `geometry` en `klassen` bij heeft;
 géén rand, omdat geen van beide de ander importeert -- `dataset` haalt `_parse` en
 `_gc_uit` rechtstreeks hier op en `inlezen` her-exporteert ze niet.
 `test_de_bestandssnit_ligt_vast` bewaakt precies die twee dingen.

@@ -124,6 +124,71 @@ BESTAND_MAG_IMPORTEREN = frozenset({"codering", "errors", "graaf", "namen", "rdf
 # rechtstreeks bij pyoxigraph haalt, gaan sowieso niet door die adapter.
 CLIP_MAG_IMPORTEREN = frozenset({"clip", "errors", "geometry", "namen", "schrijven"})
 
+# De importrichting van de wortel, één regel per module, zoals de lagentekening onder
+# "De lagen" in `docs/architectuur.md` haar tekent (`A -> B` = "A importeert B"). Deze dict
+# spiegelt die tekening letterlijk: elke rij is de vólledige verzameling randen van die
+# module naar een andere wortelmodule (gelijkheid, geen deelverzameling -- de tekening zegt
+# "Dit zijn alle randen die er zijn", en `test_de_wortelsnit_houdt_de_importrichting`
+# bewijst dat tegen de echte import-AST). Tekening en dict horen dus handmatig gelijk te
+# blijven; schuift er een import, dan valt die test om en moeten beide bij. `clip` staat
+# erin als package-rand (de union van wat de fasen uit de wortel halen), net zoals de
+# tekening `clip/` als één rij noemt; de randen bínnen `clip/` bewaakt
+# `test_de_clipsubmodules_houden_de_importrichting`. De bladeren krijgen een lege set.
+WORTELRANDEN: dict[str, frozenset[str]] = {
+    "errors": frozenset(),
+    "voortgang": frozenset(),
+    "bronnen": frozenset(),
+    "namen": frozenset(),
+    "geometry": frozenset(),
+    "domein": frozenset(),
+    "graaf": frozenset({"namen"}),
+    "codering": frozenset({"errors"}),
+    "rdfmotor": frozenset({"errors"}),
+    "ontologie": frozenset({"graaf", "namen"}),
+    "klassen": frozenset({"graaf", "namen", "ontologie"}),
+    "bestand": frozenset({"codering", "errors", "graaf", "namen", "rdfmotor"}),
+    "inlezen": frozenset({"domein", "geometry", "graaf", "klassen", "namen"}),
+    "netwerk": frozenset({"domein"}),
+    "dataset": frozenset(
+        {
+            "bestand",
+            "bronnen",
+            "codering",
+            "domein",
+            "errors",
+            "geometry",
+            "graaf",
+            "inlezen",
+            "klassen",
+            "namen",
+            "netwerk",
+            "voortgang",
+        }
+    ),
+    "cache": frozenset(
+        {
+            "bestand",
+            "bronnen",
+            "codering",
+            "dataset",
+            "domein",
+            "errors",
+            "geometry",
+            "graaf",
+            "inlezen",
+            "klassen",
+            "namen",
+            "netwerk",
+            "ontologie",
+            "rdfmotor",
+            "voortgang",
+        }
+    ),
+    "schrijven": frozenset({"codering", "errors", "namen", "rdfmotor"}),
+    "clip": frozenset({"errors", "geometry", "namen", "schrijven"}),
+    "__init__": frozenset({"clip", "schrijven"}),
+}
+
 # De twee spellingshelpers die sinds issue #29 in `namen` wonen: `_uri` schrijft een korte
 # klassenaam uit tot een GWSW-IRI, `_short` leest hem er weer uit terug. Ze stonden in
 # `klassen`, en daardoor liep het spellen van twee andere modules (`inlezen` en `dataset`)
@@ -201,6 +266,15 @@ def _pakketimporten(bron: str) -> set[str]:
                 if alias.name.startswith("gwsw_orox_helpers.")
             )
     return gevonden
+
+
+def _wortelranden(bron: str) -> frozenset[str]:
+    """De wortelmodules die deze bron importeert, teruggebracht tot hun toprij.
+
+    `_pakketimporten` levert de gepunte naam onder de package (`clip.knip`); voor de
+    lagentekening telt alleen de toprij (`clip`), want die tekent `clip/` als één regel.
+    """
+    return frozenset(pad.split(".")[0] for pad in _pakketimporten(bron))
 
 
 def _is_docstring(regel: ast.stmt) -> bool:
@@ -851,3 +925,45 @@ def test_de_clipsubmodules_houden_de_importrichting() -> None:
             assert CLIPLAGEN.index(zuster) < CLIPLAGEN.index(eigen), (
                 f"{naam} importeert {zuster}, dat onder hem ligt; de importrichting draait om"
             )
+
+
+def test_de_wortelsnit_houdt_de_importrichting() -> None:
+    """De lagentekening in `docs/architectuur.md` noemt alle randen van de wortel; hier staat
+    dat vast tegen de echte imports -- zoals `test_de_clipsubmodules_houden_de_importrichting`
+    dat voor `clip/` doet, maar dan een regel hoger, op de wortel zelf.
+
+    `WORTELRANDEN` hierboven is een letterlijke spiegel van de tekening onder "De lagen":
+    elke `A -> B` daar is een rand in de rij van `A`, en de bladeren krijgen een lege set.
+    De twee bewijzen elkaar -- schuift er een import in de code, dan wijkt de gemeten rij af
+    van de dict en valt deze test om; wijkt de dict van de tekening af, dan is dat handwerk
+    dat een lezer opmerkt. Deze test parseert het Markdown-document niet: de tekening en de
+    dict blijven handmatig gelijk, precies zoals bij de clip-test.
+
+    Twee dingen tegelijk, allebei aan de import-AST en niet aan een `^from`-regel (een
+    ingesprongen import in een functie, `from gwsw_orox_helpers import x`,
+    `from gwsw_orox_helpers.x import y` en `import gwsw_orox_helpers.x` tellen alle mee, via
+    `_wortelranden`/`_pakketimporten`). De randen per rij zijn een **gelijkheid** en geen
+    deelverzameling: de tekening claimt "Dit zijn alle randen die er zijn", dus een import
+    erbij of eraf hoort de rij te laten afwijken. En de dict dekt **precies** de modules van
+    de wortel -- een nieuwe module in `src/gwsw_orox_helpers/` (of een nieuw `clip`-achtig
+    package) moet zich hier melden, net als `LADERMODULES` dat in `tests/test_cache.py` eist.
+    """
+    pakket = Path(dataset.__file__ or "").parent
+    modules = {pad.stem for pad in pakket.glob("*.py")} | {"clip"}
+    assert set(WORTELRANDEN) == modules, (
+        "de wortelsnit-dict hoort precies de modules van de wortel te dekken; "
+        "een nieuwe module (of package) moet zich hier melden"
+    )
+
+    gemeten: dict[str, frozenset[str]] = {}
+    for module in modules:
+        if module == "clip":
+            clippakket = pakket / "clip"
+            randen: frozenset[str] = frozenset()
+            for pad in clippakket.glob("*.py"):
+                randen |= _wortelranden(pad.read_text(encoding="utf-8"))
+            gemeten[module] = randen - {"clip"}
+        else:
+            bron = (pakket / f"{module}.py").read_text(encoding="utf-8")
+            gemeten[module] = _wortelranden(bron)
+    assert gemeten == WORTELRANDEN

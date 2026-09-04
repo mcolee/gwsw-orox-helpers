@@ -1,6 +1,14 @@
 # Changelog
 
 ## [Unreleased]
+- Lagentekening compleet en bewaakt: de ontbrekende randen `bestand -> namen`,
+  `cache -> bronnen` en `cache -> errors` staan nu in `docs/architectuur.md` (en `namen` in
+  de docstring van `bestand.py`), en een nieuwe wortel-AST-test
+  `test_de_wortelsnit_houdt_de_importrichting` in `tests/test_publieke_api.py` houdt de
+  tekening en de echte imports per rij gelijk (issue #57, docs/tests; **additief** — geen
+  import, signatuur of gedrag geraakt). Het issue voorspelde twee randen; de meting op de
+  huidige code (ná #48/#51/#52) vond er drie — `cache -> errors` (`BestandError`, issue #48)
+  ontbrak ook.
 - Bibliotheek-etiquette aan de rand: str-paden, twee gedocumenteerde fouten en een minder
   invasieve rdflib-demping (issue #55, robuustheid/docs; **additief** — geen bestaande
   signatuur, retourvorm of gedrag geraakt).

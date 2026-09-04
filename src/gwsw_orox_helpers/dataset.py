@@ -192,9 +192,16 @@ class GwswVersie:
     Drie tekens, alle drie afgeleid en geen van alle een init-veld op `GwswDataset`:
     `basis` is de namespace (bv. `http://data.gwsw.nl/1.7/totaal/`), `versie` het
     versienummer daaruit (`"1.6"`, `"1.7"`; via `namen.versie_uit_basis`, hetzelfde
-    patroon als `bronnen.GEBUNDELDE_VERSIES`) en `gedetecteerd` of die versie uit de bron
-    kwam (`True`) dan wel de terugval op de gepinde 1.6-basis is (`False`). Dit is wat een
-    afnemer die geen internals mag aanraken (`nlriochecker`) in zijn rapportkop kan tonen.
+    patroon als `bronnen.GEBUNDELDE_VERSIES`) en `gedetecteerd` of een knoop of streng van de
+    dataset een GWSW-type droeg waaruit die basis is afgeleid (`True`) dan wel geen enkele --
+    de terugval op de gepinde 1.6-basis (`False`). Dit is wat een afnemer die geen internals
+    mag aanraken (`nlriochecker`) in zijn rapportkop kan tonen.
+
+    Let wel: de vlag is de leesweg van `gwsw_versie` (typen van knopen en strengen, zodat het
+    cachepad de graafpickle niet laadt), niet die van `bestand._parse` (prefix en IRI-scan).
+    Een dataset waarvan de bron wél een GWSW-basis droeg maar geen enkel object een
+    GWSW-eigentype, meldt hier de terugval; de `_parse`-terugval (`logging.warning`) komt
+    alleen voor bij een bron zonder enige GWSW-marker, en die laadt niet.
     """
 
     basis: str

@@ -3,8 +3,8 @@
 ## [Unreleased]
 - Publieke leesweg naar de GWSW-versie van een dataset: `GwswDataset.gwsw_versie`
   (issue #39, additief). De nieuwe gememoiseerde property levert een frozen
-  `GwswVersie(basis, versie, gedetecteerd)`; beide namen staan in `dataset.__all__` en zijn
-  gepind in `tests/test_publieke_api.py`. Hij is er voor een afnemer (`nlriochecker`) die de
+  `GwswVersie(basis, versie, gedetecteerd)`; `GwswVersie` staat in `dataset.__all__` en de
+  property is apart gepind in `tests/test_publieke_api.py`. Hij is er voor een afnemer (`nlriochecker`) die de
   gebruikte versie in zijn rapportkop wil tonen en een voorbehoud wil zetten bij de terugval,
   zonder een internal (`_basis`, `graph.gwsw_basis`) aan te raken. **Additief tegenover
   nlriochecker**: de handtekening en de veldenlijst van `GwswDataset` blijven ongewijzigd

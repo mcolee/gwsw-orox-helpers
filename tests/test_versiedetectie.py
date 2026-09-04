@@ -287,3 +287,6 @@ def test_gwsw_versie_laadt_de_luie_graaf_niet(
         assert versie.versie == "1.6"
         assert versie.gedetecteerd is True
         assert sum("Graaf van schijf gelezen" in bericht for bericht in caplog.messages) == 0
+        # Tekst-onafhankelijke tegenhanger: `_graaf` is een echte instance-var uit `__init__`
+        # (geen `__getattr__`-omweg) en blijft `None` zolang de pickle niet gelezen is.
+        assert warm.graph._graaf is None

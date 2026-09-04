@@ -1,6 +1,17 @@
 # Changelog
 
 ## [Unreleased]
+- Een 3D-`gml:posList` zonder `srsDimension` wordt niet langer stil verminkt bij
+  `clip_orox`/`merge_orox` (issue #46, bugfix; **additief** — geen publieke signatuur of
+  bestaande retourvorm geraakt). `clip.knip._knip_lijn` knipt zo'n lijn niet meer maar geeft
+  hem heel door, net als een lijn met een andere verhouding dan 2 of 3 getallen per punt. De
+  oorzaak: `geometry._dimensie_van` kiest zonder srsDimension bij een even tokental dimensie 2,
+  dus een stuk van vier punten (12 tokens) las als 2D terwijl de bron (15 tokens, oneven) als
+  3D las; `merge._hersteld` snoeide daardoor 2 getallen per punt waar de bron er 3 schreef,
+  wat een half knippunt en een onduidbare geometrie opleverde — en het defect hing van de
+  stukvolgorde af. Nieuw: `geometry.heeft_srsdimension`, waarmee de knip 3D-zonder-srsDimension
+  onderscheidt (de telling in `tokens_per_punt` leest de srsDimension met opzet niet). Conforme
+  GWSW-exports dragen de srsDimension op elke posList en houden ongewijzigd gedrag.
 - Motorfouten één keer vertalen in `rdfmotor`; `bestand._parse` vangt smal (issue #50,
   robuustheid; grotendeels **additief**, met één door de auteur goedgekeurde
   gedragsverschuiving). `rdfmotor` draagt nu naast parse/serialize ook de fouttaxonomie en

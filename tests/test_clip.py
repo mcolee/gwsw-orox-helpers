@@ -425,6 +425,72 @@ def test_lijn_zonder_srsdimension_wordt_ook_geknipt(tmp_path: Path) -> None:
     assert isomorphic(terug, _graaf(bron))
 
 
+# De vijf-punts lijn onder de #46-tests: West krijgt er vier (12 tokens, even), Oost drie
+# (9 tokens). Zonder srsDimension leest `geometry._dimensie_van` het even stuk als 2D.
+_VIJFPUNTS = (
+    "233000.00 581000.00 8.50 233010.00 581000.00 8.45 233015.00 581000.00 8.42 "
+    "233030.00 581000.00 8.40 233040.00 581000.00 8.35"
+)
+
+
+def test_3d_zonder_srsdimension_wordt_niet_geknipt_maar_heel_doorgegeven(tmp_path: Path) -> None:
+    """Issue #46: een 3D-posList zonder srsDimension wordt niet geknipt maar heel doorgegeven.
+
+    Zonder srsDimension kan een stuk met een even tokental (het West-stuk, 12) door
+    `geometry._dimensie_van` als 2D gelezen worden, terwijl de bron 3D is. `merge._hersteld`
+    telde de stap dan op het eerste geziene *stuk* en snoeide 2 getallen per punt waar de bron
+    er 3 schreef -- een half knippunt en een geometrie die niemand schreef, en het defect hing
+    van de stukvolgorde af. De kortste weg: zo'n lijn heel doorgeven, net als een lijn met een
+    andere verhouding dan 2 of 3 getallen per punt. Beide deelvolgordes (C2 en C4) horen dan
+    isomorf terug te komen met lege `geometry_errors`.
+    """
+    from gwsw_orox_helpers.dataset import load_dataset
+
+    bron = _klein(
+        tmp_path,
+        ":L a gwsw:Gemengdriool ; gwsw:hasAspect :L_ori .\n"
+        ":L_ori a gwsw:Leidingorientatie ; gwsw:hasAspect :L_lij .\n"
+        f":L_lij a gwsw:Lijn ; gwsw:hasValue {_lijn(_VIJFPUNTS, dimensie='')} .\n",
+    )
+    delen = clip_orox(bron, MINI_GRENS, tmp_path / "delen", sleutel="gemeentenaam")
+
+    # Niet geknipt: geen enkel deel draagt een knipmerk; de lijn staat heel in elk vlak.
+    for pad in delen:
+        helft = _graaf(pad)
+        assert (None, rdflib.URIRef(f"{KNIP}herkomst"), None) not in helft
+        assert _VIJFPUNTS in str(helft.value(_mini("L_lij"), rdflib.URIRef(f"{GWSW}hasValue")))
+
+    for label, volgorde in (("C2", delen), ("C4", delen[::-1])):
+        doel = tmp_path / f"terug_{label}.ttl"
+        merge_orox(volgorde, doel)
+        assert isomorphic(_graaf(doel), _graaf(bron)), label
+        assert not load_dataset(doel).geometry_errors, label
+
+
+def test_3d_met_srsdimension_blijft_geknipt(tmp_path: Path) -> None:
+    """Gedragsbehoud (#46): dezelfde vijf-punts lijn *met* srsDimension wordt wel geknipt.
+
+    De fix raakt alleen 3D-invoer zonder srsDimension. Een conforme export draagt de
+    srsDimension in het omhulsel -- ook op de stukken, want `vervang_coordinaten` laat hem
+    staan -- dus `_stapgrootte` leest daar 3 en de knip blijft sluitend.
+    """
+    bron = _klein(
+        tmp_path,
+        ":L a gwsw:Gemengdriool ; gwsw:hasAspect :L_ori .\n"
+        ":L_ori a gwsw:Leidingorientatie ; gwsw:hasAspect :L_lij .\n"
+        f":L_lij a gwsw:Lijn ; gwsw:hasValue {_lijn(_VIJFPUNTS)} .\n",
+    )
+    delen, terug = _heen_en_terug(tmp_path, bron)
+
+    herkomsten = {
+        str(waarde)
+        for pad in delen
+        for waarde in _graaf(pad).objects(None, rdflib.URIRef(f"{KNIP}herkomst"))
+    }
+    assert len(herkomsten) == 1  # echt geknipt: de lijn valt uiteen
+    assert isomorphic(terug, _graaf(bron))
+
+
 def test_object_buiten_alle_vlakken_valt_niet_buiten_de_boot(tmp_path: Path) -> None:
     """Wat nergens in valt, gaat naar het dichtstbijzijnde vlak in plaats van nergens heen.
 

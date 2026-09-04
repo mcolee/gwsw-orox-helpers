@@ -26,6 +26,7 @@ from gwsw_orox_helpers.errors import KnipError
 from gwsw_orox_helpers.geometry import (
     GeometryError,
     coordinaattokens,
+    heeft_srsdimension,
     parse_gml,
     parse_gml_z,
     tokens_per_punt,
@@ -96,7 +97,19 @@ def _vlak_van(punt: Point, vlakken: tuple[_Vlak, ...]) -> int:
 def _knip_lijn(
     literal: str, lijn: LineString, vlakken: tuple[_Vlak, ...]
 ) -> tuple[int, tuple[_Stuk, ...] | None]:
-    """Verdeelt een lijn over de vlakken; knipt hem als hij de grens kruist."""
+    """Verdeelt een lijn over de vlakken; knipt hem als hij de grens kruist.
+
+    Niet elke grenskruisende lijn wordt geknipt. Een lijn met een andere verhouding dan 2
+    of 3 getallen per punt gaat heel naar elk vlak dat hij raakt (het snijden zou op de
+    verkeerde plaats gebeuren), en sinds issue #46 doet een **3D-lijn zonder srsDimension**
+    dat ook: een stuk daarvan kan een even tokental hebben en wordt door `geometry` dan als
+    2D gelezen (2 wint bij twijfel), terwijl de hele bron oneven telt en als 3D leest. De
+    stap die de knip hier op de bron telt (3) en die `merge._hersteld` op zo'n los stuk
+    hertelt (2) lopen dan uiteen -- het defect hangt van de stukvolgorde af en levert stil
+    een half knippunt op. `tokens_per_punt` leest de srsDimension met opzet niet, dus de
+    detectie kijkt naar de declaratie zelf (`heeft_srsdimension`). Conforme GWSW-exports
+    dragen de srsDimension op elke posList en worden hierdoor niet geraakt.
+    """
     for index, vlak in enumerate(vlakken):
         if vlak.voorbereid.covers(lijn):
             return 1 << index, None
@@ -104,12 +117,17 @@ def _knip_lijn(
     tokens = coordinaattokens(literal)
     punten = list(lijn.coords)
     # `stap` is het aantal getallen per punt: geteld, en met opzet niet uit de srsDimension
-    # gelezen (zie `tokens_per_punt`). `merge._stapgrootte` telt straks hetzelfde.
+    # gelezen (zie `tokens_per_punt`). Buiten de 3D-zonder-srsDimension-uitzondering hieronder
+    # telt `merge._stapgrootte` straks hetzelfde.
     stap = tokens_per_punt(literal, len(punten))
     if stap is None or stap not in (2, 3):
         # Zonder een sluitende tokenverdeling valt er geen tekstplakje te knippen, en bij
         # een andere verhouding dan 2 of 3 getallen per punt zou het snijden op de
         # verkeerde plaats gebeuren; dan gaat de hele lijn naar elk vlak dat hij raakt.
+        return _heel(lijn, vlakken), None
+    if stap == 3 and not heeft_srsdimension(literal):
+        # 3D zonder srsDimension: een stuk kan een even tokental dragen en bij de hereniging
+        # als 2D gesnoeid worden waar de bron 3D is (issue #46). Niet knippen, heel doorgeven.
         return _heel(lijn, vlakken), None
     if vervang_coordinaten(literal, " ".join(tokens)) != literal:
         # De hereniging zet de tokens met een enkele spatie aaneen en legt ze met

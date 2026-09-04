@@ -143,11 +143,20 @@ def tokens_per_punt(literal: str, punten: int) -> int | None:
 
     Uit de verhouding tussen het aantal tokens en het aantal punten dat de lezer in de
     literaal ziet, en **niet** uit de `srsDimension`. Dat is een opzettelijke keuze en de
-    grond onder de knip en zijn omkering: allebei tellen ze, dus allebei komen ze op
-    hetzelfde uit -- ook bij een literaal zonder srsDimension, of met een srsDimension
-    die niet klopt met wat erin staat. Zou de een tellen en de ander de srsDimension
-    lezen, dan zou de hereniging per punt op de verkeerde plaats snoeien en stilzwijgend
-    een geometrie opleveren die niemand ooit geschreven heeft.
+    grond onder de knip en zijn omkering: tellen beide kanten over dezelfde tokenreeks,
+    dan komen ze op hetzelfde uit -- ook met een srsDimension die niet klopt met wat erin
+    staat. Zou de een tellen en de ander de srsDimension lezen, dan zou de hereniging per
+    punt op de verkeerde plaats snoeien en stilzwijgend een geometrie opleveren die niemand
+    ooit geschreven heeft.
+
+    **De uitzondering, en waarom de knip haar zelf afvangt.** Bij een literaal *zonder*
+    srsDimension leunt het puntental op `_dimensie_van`, en die kiest bij twijfel 2 boven 3
+    (`aantal % 2 == 0`). Een stuk van een 3D-lijn zonder srsDimension kan een even tokental
+    dragen (vier punten -> twaalf tokens) en dan als 2D gelezen worden, terwijl de hele bron
+    (vijftien tokens, oneven) als 3D leest: op de bron telt deze functie 3, op zo'n stuk 2.
+    Dan lopen de knip en de hereniging wél uiteen. Daarom knipt `clip.knip._knip_lijn` een
+    3D-lijn zonder srsDimension niet maar geeft hem heel door (issue #46), zodat er nooit
+    een stuk van bestaat waarover deze telling kan omslaan.
 
     `punten` is het aantal punten dat de aanroeper al kent (`len(lijn.coords)`); deze
     functie parseert de literaal niet nog eens. Komt de verhouding niet rond -- geen
@@ -158,6 +167,19 @@ def tokens_per_punt(literal: str, punten: int) -> int | None:
     if punten <= 0 or alle == 0 or alle % punten != 0:
         return None
     return alle // punten
+
+
+def heeft_srsdimension(literal: str) -> bool:
+    """Of de GML-literaal een `srsDimension` op zijn coordinatenlijst declareert.
+
+    De tekstkant van de dimensievraag, naast `tokens_per_punt`. `_dimensie_van` valt zonder
+    srsDimension bij een even tokental terug op 2, dus wie 3D-zonder-srsDimension van 2D wil
+    onderscheiden kan niet op de *gelezen* dimensie afgaan maar hoort naar de declaratie zelf
+    te kijken. De knip gebruikt dat om een 3D-lijn zonder srsDimension heel door te geven
+    (issue #46): een stuk ervan kan een even tokental hebben en zou bij de hereniging als 2D
+    gesnoeid worden.
+    """
+    return SRS_DIMENSIE_PATROON.search(literal) is not None
 
 
 def _kind(literal: str) -> str:

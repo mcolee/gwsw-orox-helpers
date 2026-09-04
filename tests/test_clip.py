@@ -1108,6 +1108,30 @@ def test_twee_vlakken_met_dezelfde_naam_is_een_dataseterror(tmp_path: Path) -> N
         clip_orox(MINI, pad, tmp_path / "uit", sleutel="naam")
 
 
+def test_botsende_gesaneerde_namen_is_een_dataseterror(tmp_path: Path) -> None:
+    """Twee namen die na sanering hetzelfde bestand zouden opleveren, worden geweigerd.
+
+    `'a b'` en `'a/b'` verschillen als ruwe naam maar saneren allebei tot `a_b`; zonder
+    deze controle schreef het tweede deel stil over het eerste heen. De melding noemt
+    beide ruwe namen, zodat de auteur ziet welke twee botsen.
+    """
+
+    def _vlak(naam: str) -> dict[str, object]:
+        return {
+            "type": "Feature",
+            "properties": {"naam": naam},
+            "geometry": {"type": "Polygon", "coordinates": [[[0, 0], [1, 0], [1, 1], [0, 0]]]},
+        }
+
+    pad = _grenslaag(
+        tmp_path, {"type": "FeatureCollection", "features": [_vlak("a b"), _vlak("a/b")]}
+    )
+    with pytest.raises(DatasetError, match="leveren allebei de bestandsnaam") as gevangen:
+        clip_orox(MINI, pad, tmp_path / "uit", sleutel="naam")
+    melding = str(gevangen.value)
+    assert "'a b'" in melding and "'a/b'" in melding
+
+
 def test_vlak_dat_geen_vlak_is_is_een_dataseterror(tmp_path: Path) -> None:
     pad = _grenslaag(
         tmp_path,
@@ -1177,6 +1201,23 @@ def test_bron_met_een_knipnaam_is_een_dataseterror(tmp_path: Path) -> None:
         encoding="utf-8",
     )
     with pytest.raises(DatasetError, match="staart die de clip zelf"):
+        clip_orox(bron, MINI_GRENS, tmp_path / "uit", sleutel="gemeentenaam")
+
+
+def test_bron_met_een_knip_predicaat_is_een_dataseterror(tmp_path: Path) -> None:
+    """Een bron met een predicaat uit de `knip:`-naamruimte wordt geweigerd.
+
+    `merge_orox` gooit elke triple met een `knip:`-predicaat weg; stond zo'n predicaat al
+    in de bron, dan verdween hij stil bij de hereniging (`isomorf=False`). Dat is precies
+    het dataverlies dat deze module belooft niet te doen, dus volgt er een `KnipError`.
+    """
+    bron = tmp_path / "knip.ttl"
+    bron.write_text(
+        f"@prefix : <http://x#> .\n@prefix gwsw: <{GWSW}> .\n@prefix knip: <{KNIP}> .\n"
+        ":a a gwsw:Inspectieput ; knip:geknipt true .\n",
+        encoding="utf-8",
+    )
+    with pytest.raises(DatasetError, match="knip-naamruimte"):
         clip_orox(bron, MINI_GRENS, tmp_path / "uit", sleutel="gemeentenaam")
 
 

@@ -116,8 +116,9 @@ class GrenslaagError(DatasetError):
 
     Het bestand ging open (anders was het een `BestandError`), maar wat erin staat kan de
     clip niet gebruiken: geen leesbare GeoJSON, geen features, een feature zonder de
-    naamproperty of met een naam die al gebruikt is, een geometrie die niet te lezen is,
-    of een geometrie die geen (multi)vlak is.
+    naamproperty of met een naam die al gebruikt is, twee namen die na sanering hetzelfde
+    bestand zouden opleveren (`'a b'` en `'a/b'` -> `a_b`), een geometrie die niet te lezen
+    is, of een geometrie die geen (multi)vlak is.
 
     **De ene naad in de indelingsregel hierboven.** "Geen leesbare GeoJSON" valt ook als
     de bytes van de grenslaag geen UTF-8 zijn, en naar de oorzaak gerekend was dat een
@@ -127,7 +128,7 @@ class GrenslaagError(DatasetError):
     boodschap niet draagt. Het scheelt hem bovendien niets: de terugvalcodering waar
     `CoderingError` om vraagt, kent de grenslaag niet -- GeoJSON *is* UTF-8.
 
-    Zes plekken, alle in `clip.grenzen._lees_grenzen`.
+    Zeven plekken, alle in `clip.grenzen._lees_grenzen`.
     """
 
 
@@ -136,11 +137,12 @@ class KnipError(DatasetError):
 
     De heen- en terugweg van de clip zijn één belofte -- wat `clip_orox` snijdt, moet
     `merge_orox` weer tot de bron maken -- en daarom deelt hun onvermogen één familie. Wat
-    er dan misging: de bron draagt zelf al de knipstaart van de clip, een knippunt krijgt
-    geen hoogte, er zijn geen delen opgegeven, een knipmerk is onvolledig, de stukken van
-    een lijn komen uit verschillende knipbeurten of ze zijn niet compleet.
+    er dan misging: de bron draagt zelf al de knipstaart van de clip of een predicaat uit
+    de `knip:`-naamruimte, een knippunt krijgt geen hoogte, er zijn geen delen opgegeven,
+    een knipmerk is onvolledig, de stukken van een lijn komen uit verschillende knipbeurten
+    of ze zijn niet compleet.
 
-    Negen plekken, in `clip.plan`, `clip.knip` (twee), `clip.orkest` en `clip.merge`
+    Tien plekken, in `clip.plan` (twee), `clip.knip` (twee), `clip.orkest` en `clip.merge`
     (vijf).
     """
 

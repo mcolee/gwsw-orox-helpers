@@ -17,7 +17,7 @@ import pyoxigraph
 
 from gwsw_orox_helpers.clip.grenzen import _Vlak
 from gwsw_orox_helpers.clip.knip import _plaats, _Stuk
-from gwsw_orox_helpers.clip.termen import _KNIPSTAART, _Kniptermen
+from gwsw_orox_helpers.clip.termen import _KNIPSTAART, KNIP, _Kniptermen
 from gwsw_orox_helpers.errors import KnipError
 from gwsw_orox_helpers.geometry import is_multipart_literal
 from gwsw_orox_helpers.namen import GML_LITERAL
@@ -133,6 +133,12 @@ def _maak_plan(
         if voorwerp is not None and voorwerp.startswith("_:"):
             ouder_van.setdefault(voorwerp, onderwerp)
         predicaat = quad.predicate.value
+        if predicaat.startswith(KNIP):
+            raise KnipError(
+                f"{bron}: het predicaat {predicaat!r} zit in de knip-naamruimte die de clip "
+                f"zelf voor de knipmerken gebruikt; zo'n bron is na de hereniging niet van een "
+                f"geknipte te onderscheiden."
+            )
         if voorwerp is not None:
             if predicaat in houder_naar_onderdeel:
                 randen.append((onderwerp, voorwerp))

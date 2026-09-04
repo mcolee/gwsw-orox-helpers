@@ -1,6 +1,15 @@
 # Changelog
 
 ## [Unreleased]
+- De clip weigert nu luid twee invarianten die hij eerder half bewaakte (issue #47, bugfix;
+  **additief** — geen publieke signatuur of bestaande retourvorm geraakt, alleen invoer die
+  nu stil data verloor gaat falen). (a) Twee grenslaag-namen die na sanering hetzelfde
+  bestand zouden opleveren (`'a b'` en `'a/b'` → `a_b`) leverden stil één overschreven deel
+  op; `clip.grenzen._lees_grenzen` ontdubbelt nu óók op `_bestandsnaam(naam)` en gooit een
+  `GrenslaagError` met beide ruwe namen. De bestaande dedup op de exact gelijke ruwe naam
+  blijft ongewijzigd. (b) Een bron die zelf al een predicaat uit de `knip:`-naamruimte
+  droeg, verloor dat stil bij `merge_orox` (`isomorf=False`); `clip.plan._maak_plan` weigert
+  zo'n bron nu met een `KnipError`, net als een bron die de `__knip<n>`-staart al draagt.
 - Een 3D-`gml:posList` zonder `srsDimension` wordt niet langer stil verminkt bij
   `clip_orox`/`merge_orox` (issue #46, bugfix; **additief** — geen publieke signatuur of
   bestaande retourvorm geraakt). `clip.knip._knip_lijn` knipt zo'n lijn niet meer maar geeft

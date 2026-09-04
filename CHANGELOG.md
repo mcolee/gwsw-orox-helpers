@@ -10,6 +10,11 @@
   de gedecodeerde inhoud in plaats van pyoxigraph het bestand zelf te laten openen; zonder BOM
   blijft de streamende leesweg van het bestandspad ongewijzigd. De terugvalcodering-tak en het
   `DecodeFallback`-verslag blijven op BOM-loze invoer gelijk.
+- De `CoderingError` van een bron mét BOM meldt nu de juiste byte en bestand-positie
+  (issue #53, bugfix; **additief** — alleen de foutmelding klopt weer). `utf-8-sig` telt
+  `error.start` vanaf de BOM-gestripte tekst; de melding verrekent nu de BOM-lengte, zodat de
+  positie het bestand-offset is (inclusief BOM, zoals in een hex-editor) en de gerapporteerde
+  byte de werkelijk foute byte. Op BOM-loze invoer verandert de melding niet.
 - Versiekennis staat nu op één plek (issue #52, interne opschoning; **additief** — geen
   publieke signatuur, constante of retourvorm geraakt, en de detectie-uitkomst blijft
   gelijk). De basis-scan over de IRI's van een bron staat nog op één plek

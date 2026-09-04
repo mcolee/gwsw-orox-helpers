@@ -8,7 +8,7 @@ import pytest
 
 from gwsw_orox_helpers import codering
 from gwsw_orox_helpers.dataset import load_dataset
-from gwsw_orox_helpers.errors import DatasetError
+from gwsw_orox_helpers.errors import CoderingError, DatasetError
 
 TTL_DIR = Path(__file__).parent / "fixtures" / "ttl"
 MINI = TTL_DIR / "mini_orox.ttl"
@@ -70,6 +70,35 @@ def test_bom_loze_terugval_geeft_hetzelfde_verslag() -> None:
     assert verslag.encoding == "cp850"
     assert verslag.byte_count == 1
     assert any("cavaljéweg" in sample for sample in verslag.samples)
+
+
+def test_bom_foutpositie_telt_de_bom_mee() -> None:
+    """Met BOM meldt de CoderingError de bestand-positie, BOM incluis (issue #53).
+
+    `utf-8-sig` rapporteert `error.start` relatief aan de BOM-gestripte tekst; de melding
+    hoort de positie te geven die een gebruiker in een hex-editor ziet -- inclusief de drie
+    BOM-bytes. De foute byte 0x81 staat op bestand-positie 9, niet op 6.
+    """
+    rauw = b"\xef\xbb\xbf:a :b " + bytes([0x81]) + b" :c ."
+
+    with pytest.raises(CoderingError, match=r"byte 0x81 op positie 9"):
+        codering.decodeer(Path("x.ttl"), rauw, None)
+
+
+def test_bom_loze_foutpositie_blijft_ongewijzigd() -> None:
+    """Zonder BOM verschuift de gemelde positie niet: byte 0x81 op positie 6 (issue #53)."""
+    rauw = b":a :b " + bytes([0x81]) + b" :c ."
+
+    with pytest.raises(CoderingError, match=r"byte 0x81 op positie 6"):
+        codering.decodeer(Path("x.ttl"), rauw, None)
+
+
+def test_bom_foutpositie_ook_als_terugval_faalt() -> None:
+    """Ook de terugval-faalt-tak meldt de bestand-positie inclusief BOM (issue #53)."""
+    rauw = b"\xef\xbb\xbf:a :b " + bytes([0x81]) + b" :c ."
+
+    with pytest.raises(CoderingError, match=r"byte 0x81 op positie 9.*ook niet te lezen als ascii"):
+        codering.decodeer(Path("x.ttl"), rauw, "ascii")
 
 
 def test_cp850_bestand_wordt_gelezen_en_vastgelegd() -> None:

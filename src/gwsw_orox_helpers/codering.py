@@ -20,6 +20,7 @@ niet voor te betalen; wie een lezing rapporteert wel.
 
 from __future__ import annotations
 
+import codecs
 import re
 from dataclasses import dataclass
 from pathlib import Path
@@ -66,7 +67,12 @@ def decodeer(pad: Path, rauw: bytes, fallback_encoding: str | None) -> tuple[str
         return rauw.decode("utf-8-sig"), None
     except UnicodeDecodeError as error:
         # De uitzondering bestaat niet meer buiten dit blok; leg de feiten nu vast.
-        eerste_byte, eerste_positie = rauw[error.start], error.start
+        # `utf-8-sig` strip een leidende BOM en telt `error.start` vanaf de gestripte
+        # tekst; tel de BOM-lengte erbij op zodat de positie het bestand-offset is (wat de
+        # gebruiker in een hex-editor ziet), en `rauw` op de juiste byte wijst (issue #53).
+        bom_verschuiving = len(codecs.BOM_UTF8) if rauw.startswith(codecs.BOM_UTF8) else 0
+        eerste_positie = error.start + bom_verschuiving
+        eerste_byte = rauw[eerste_positie]
 
     if fallback_encoding is None:
         raise CoderingError(

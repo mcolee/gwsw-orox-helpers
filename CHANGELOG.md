@@ -1,6 +1,15 @@
 # Changelog
 
 ## [Unreleased]
+- Een leidende UTF-8-BOM maakt een verder geldige OroX-export niet langer onleesbaar met een
+  misleidende `TurtleError` (issue #53, bugfix; **additief** — geen publieke signatuur of
+  bestaande retourvorm geraakt, alleen invoer die nu faalt gaat slagen). `codering.decodeer`
+  leest UTF-8 met `utf-8-sig`, een superset die de BOM eruit haalt en op BOM-loze invoer
+  gelijk is aan `utf-8`; dat dekt zowel `load_dataset` (via `bestand._decode`) als
+  `schrijven._gedecodeerd`. `schrijven.lees_orox` peekt de kop en stuurt een bron met BOM langs
+  de gedecodeerde inhoud in plaats van pyoxigraph het bestand zelf te laten openen; zonder BOM
+  blijft de streamende leesweg van het bestandspad ongewijzigd. De terugvalcodering-tak en het
+  `DecodeFallback`-verslag blijven op BOM-loze invoer gelijk.
 - Versiekennis staat nu op één plek (issue #52, interne opschoning; **additief** — geen
   publieke signatuur, constante of retourvorm geraakt, en de detectie-uitkomst blijft
   gelijk). De basis-scan over de IRI's van een bron staat nog op één plek

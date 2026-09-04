@@ -54,9 +54,16 @@ def decodeer(pad: Path, rauw: bytes, fallback_encoding: str | None) -> tuple[str
     De tweede uitkomst is de codering waarmee teruggevallen is, of `None` als het bestand
     gewoon UTF-8 was. Daarmee weet de aanroeper of er iets te rapporteren valt zonder de
     tekst nog een keer te hoeven wegen; `terugvalverslag` maakt er dan het verslag bij.
+
+    UTF-8 wordt met `utf-8-sig` gelezen: een strikt ruimere superset die een verder geldig
+    bestand mét of zonder een leidende UTF-8-BOM (`U+FEFF`) leest en die BOM uit de tekst
+    haalt. Zonder de BOM zou pyoxigraph over dat teken struikelen als eerste subject
+    (issue #53); op BOM-loze invoer is `utf-8-sig` gelijk aan `utf-8`. De terugvaltak raakt
+    dit niet: een BOM-loze bron die geen UTF-8 is, valt net als voorheen op de opgegeven
+    codering terug (die de ruwe bytes leest, BOM incluis als die er exotisch genoeg is).
     """
     try:
-        return rauw.decode("utf-8"), None
+        return rauw.decode("utf-8-sig"), None
     except UnicodeDecodeError as error:
         # De uitzondering bestaat niet meer buiten dit blok; leg de feiten nu vast.
         eerste_byte, eerste_positie = rauw[error.start], error.start

@@ -130,9 +130,17 @@ def lees_orox(bron: Path, fallback_encoding: str | None = None) -> OroxBron:
 
     Een lege bron (nul quads) levert een lege stroom met alleen de bronprefixen die de
     parser tot dan toe zag.
+
+    Draagt de bron een UTF-8-BOM, dan helpt de streamende weg niet: pyoxigraph opent het
+    bestand dan zelf en struikelt over de `U+FEFF` als eerste subject (issue #53). Daarom
+    wordt de kop gepeekt en gaat een bron met BOM langs `ontleed_turtle` op de gedecodeerde
+    inhoud -- dezelfde tak die er al is voor een terugvalcodering -- zodat de tekst zonder
+    BOM (`codering.decodeer` leest `utf-8-sig`) aan de motor gaat. Zonder BOM en zonder
+    terugvalcodering blijft het bestandspad byte-gelijk naar de motor gaan, dus blijft de
+    export van honderden megabytes buiten het geheugen.
     """
     try:
-        if fallback_encoding is None:
+        if fallback_encoding is None and not _begint_met_bom(bron):
             parser = rdfmotor.ontleed_turtle_bestand(bron)
         else:
             parser = rdfmotor.ontleed_turtle(_gedecodeerd(bron, fallback_encoding))
@@ -236,15 +244,33 @@ def schrijf_orox_quads(
                 tijdelijk.unlink(missing_ok=True)
 
 
-def _gedecodeerd(bron: Path, fallback_encoding: str) -> str:
-    """De inhoud van `bron` als tekst: UTF-8, of anders de opgegeven terugvalcodering.
+def _begint_met_bom(bron: Path) -> bool:
+    """Of `bron` begint met de drie bytes van een UTF-8-BOM (`EF BB BF`).
+
+    Alleen de kop wordt gelezen (drie bytes), zodat de streamende leesweg heel blijft voor
+    een gewone bron. Een `OSError` bij het openen wordt hier ingeslikt en als "geen BOM"
+    behandeld: een ontbrekende bron of een map hoort langs de bestaande leesweg dezelfde
+    `BestandError` te geven als voorheen (`lees_orox` / `_gecontroleerd`), niet hier al een
+    andere fout. Zo verandert er niets aan het gedrag van een bron zonder BOM.
+    """
+    try:
+        with open(bron, "rb") as bestand:
+            return bestand.read(3) == b"\xef\xbb\xbf"
+    except OSError:
+        return False
+
+
+def _gedecodeerd(bron: Path, fallback_encoding: str | None) -> str:
+    """De inhoud van `bron` als tekst: UTF-8 (met of zonder BOM), of anders de terugval.
 
     Precies dezelfde regel als aan de leeskant, want het is dezelfde regel:
-    `codering.decodeer` schrijft hem een keer op en beide lagen lezen hem daar. Wat de
-    leeskant er extra bij doet -- het aantal afwijkende bytes en een paar voorbeeldregels
-    vastleggen in `DecodeFallback` -- hoort bij het rapporteren van een lezing en niet bij
-    het terugschrijven ervan, en het kost een tweede gang over het hele bestand; die stap
-    blijft daar.
+    `codering.decodeer` schrijft hem een keer op en beide lagen lezen hem daar. `None` als
+    terugvalcodering betekent "geen terugval"; die tak dient de BOM-bron (issue #53), die
+    wél geldig UTF-8 is en dus geen terugval nodig heeft -- `utf-8-sig` haalt de BOM eruit.
+    Wat de leeskant er extra bij doet -- het aantal afwijkende bytes en een paar
+    voorbeeldregels vastleggen in `DecodeFallback` -- hoort bij het rapporteren van een
+    lezing en niet bij het terugschrijven ervan, en het kost een tweede gang over het hele
+    bestand; die stap blijft daar.
     """
     return decodeer(bron, bron.read_bytes(), fallback_encoding)[0]
 

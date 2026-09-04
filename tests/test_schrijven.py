@@ -186,6 +186,24 @@ def test_zonder_prefixen_blijft_de_graaf_gelijk(tmp_path: Path) -> None:
     assert isomorphic(_graaf(doel), _graaf(MINI))
 
 
+def test_utf8_bom_leest_gelijk_via_lees_orox(tmp_path: Path) -> None:
+    """Een UTF-8-BOM vooraan mag de streamende leesweg niet breken (issue #53).
+
+    `lees_orox` laat pyoxigraph het bestand zonder terugvalcodering zelf openen, dus helpt
+    `codering.decodeer` daar niet; een BOM-peek stuurt een bron met BOM alsnog via de
+    gedecodeerde inhoud, zodat de tekst zonder BOM aan de motor gaat. Zonder BOM blijft de
+    bron byte-gelijk het bestandspad naar de motor houden -- zie de map- en leesfouttests
+    hieronder, die op die streamende weg leunen.
+    """
+    bom = tmp_path / "mini_bom.ttl"
+    bom.write_bytes(b"\xef\xbb\xbf" + MINI.read_bytes())
+
+    zonder = list(lees_orox(MINI).quads)
+    met = list(lees_orox(bom).quads)
+
+    assert len(met) == len(zonder) == 55
+
+
 def test_cp850_bron_komt_er_als_utf8_uit(tmp_path: Path) -> None:
     """Een export met MS-DOS-bytes gaat met dezelfde terugvalcodering als de leeslaag."""
     doel = tmp_path / "cp850_terug.ttl"

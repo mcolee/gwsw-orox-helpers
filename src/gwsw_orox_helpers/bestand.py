@@ -127,7 +127,12 @@ def _parse(
         # net als bij de oude parse hoort die traceback niet in de CLI-uitvoer thuis.
         with _quiet_rdflib(), _gc_uit():
             index.vul_uit(quads)
-    except Exception as error:  # pyoxigraph gooit uiteenlopende parsefouten
+    except (*rdfmotor.MOTORFOUTEN, TypeError) as error:
+        # Smal, sinds issue #50. `MOTORFOUTEN` zijn de parsefouten van de motor; de `TypeError`
+        # komt uit `graaf.naar_rdflib` op een termsoort die niet in een Turtle-parse hoort.
+        # Alles daarbuiten -- `MemoryError`, `RecursionError`, een bug in eigen code -- is geen
+        # Turtle-fout en komt rauw naar buiten in plaats van als een lege "geen geldige Turtle ()"
+        # op een correcte bron (de brede `except Exception` deed dat wel).
         raise TurtleError(f"{path}: geen geldige Turtle ({error}).") from error
     # De gedetecteerde GWSW-basis van dit bestand (issue #32), hier gezet zodat de lezers
     # van `inlezen` hun predicaten en klasse-IRI's uit de bron afleiden in plaats van uit de
@@ -140,7 +145,7 @@ def _parse(
     # zodat een bron met een onherkenbare versie zichtbaar wordt in plaats van leeg gelezen.
     # Bij het stapelen van meerdere ontologiebestanden in dezelfde index wint de basis van
     # het laatst gelezen bestand -- die zijn in de praktijk allemaal van één versie.
-    basis = namen.basis_uit_prefixen(quads.prefixes)
+    basis = namen.basis_uit_prefixen(rdfmotor.prefixen_van(quads))
     if basis is None:
         basis = next(
             (b for term in index._pos if (b := namen.basis_uit_iri(str(term))) is not None),

@@ -141,7 +141,7 @@ def lees_orox(bron: Path, fallback_encoding: str | None = None) -> OroxBron:
 
     stroom = _gecontroleerd(bron, parser, fallback_encoding)
     eerste = list(itertools.islice(stroom, 1))
-    prefixen = {**STANDAARD_PREFIXEN, **parser.prefixes}
+    prefixen = {**STANDAARD_PREFIXEN, **rdfmotor.prefixen_van(parser)}
     return OroxBron(quads=itertools.chain(eerste, stroom), prefixen=prefixen)
 
 
@@ -277,8 +277,8 @@ def _gecontroleerd(
     """
     try:
         yield from parser
-    except (SyntaxError, ValueError) as fout:
-        if fallback_encoding is None and "Invalid UTF-8" in str(fout):
+    except rdfmotor.MOTORFOUTEN as fout:
+        if fallback_encoding is None and rdfmotor.is_coderingsfout(fout):
             raise CoderingError(
                 f"{bron}: geen geldige UTF-8 ({fout}) en er is geen terugvalcodering opgegeven."
             ) from fout

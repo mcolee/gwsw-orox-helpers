@@ -1,6 +1,20 @@
 # Changelog
 
 ## [Unreleased]
+- Motorfouten één keer vertalen in `rdfmotor`; `bestand._parse` vangt smal (issue #50,
+  robuustheid; grotendeels **additief**, met één door de auteur goedgekeurde
+  gedragsverschuiving). `rdfmotor` draagt nu naast parse/serialize ook de fouttaxonomie en
+  de prefixlezing: `MOTORFOUTEN` (`SyntaxError`, `ValueError`), `is_coderingsfout` (de
+  `"Invalid UTF-8"`-tekstmatch) en `prefixen_van` (de `parser.prefixes`-lezing). `bestand.
+  _parse` en `schrijven._gecontroleerd`/`lees_orox` lenen die in plaats van elk een eigen
+  kopie te dragen; een AST-sweep weert `.prefixes` en `SyntaxError` voortaan buiten
+  `rdfmotor`. **Gedragsverschuiving:** `bestand._parse` verving zijn brede `except Exception`
+  door een smalle vangst op `MOTORFOUTEN` plus de `TypeError` uit `graaf.naar_rdflib`. Een
+  `MemoryError` (of `RecursionError`, of een bug in eigen code) tijdens het vullen van de
+  index komt daardoor **rauw** naar buiten in plaats van als een misleidende "geen geldige
+  Turtle ()" met een lege oorzaak; concreet presenteert `load_dataset` een `MemoryError` niet
+  langer als `TurtleError`. Een echte syntaxfout blijft een `TurtleError` met regelnummer in
+  de melding. De publieke API en alle bestaande foutmeldingen zijn ongewijzigd.
 - `OSError` tijdens het streamen valt nu binnen de `DatasetError`-familie (issue #49,
   robuustheid; **additief** — `BestandError` valt al onder `DatasetError`, geen bestaande
   signatuur of retourvorm geraakt). `schrijven._gecontroleerd` vangt naast de parsefout nu

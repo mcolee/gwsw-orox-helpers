@@ -278,7 +278,7 @@ die anders uit elkaar loopt, en die staat één keer:
 
 | Gedeelde kennis | Woont in | Gelezen door |
 |---|---|---|
-| De aanroep van de motor zelf: `pyoxigraph.parse` en `pyoxigraph.serialize` op Turtle, plus de reeks pyoxigraph-versies waarop de package getoetst is | `rdfmotor` | `bestand._parse` (bytes), `schrijven.lees_orox` (een pad, of tekst bij een terugvalcodering) en `schrijven.schrijf_orox_quads` (de serializer) |
+| De motor-naad: `pyoxigraph.parse` en `pyoxigraph.serialize` op Turtle, sinds issue #50 ook de foutvertaling (`MOTORFOUTEN`, `is_coderingsfout`) en de prefixlezing (`prefixen_van`), plus de reeks pyoxigraph-versies waarop de package getoetst is | `rdfmotor` | `bestand._parse` (bytes; parse, `prefixen_van`, en de smalle vangst op `MOTORFOUTEN`+`TypeError`), `schrijven.lees_orox` (een pad, of tekst bij een terugvalcodering; parse, `prefixen_van`), `schrijven._gecontroleerd` (`MOTORFOUTEN`+`is_coderingsfout`) en `schrijven.schrijf_orox_quads` (de serializer) |
 | De IRI's: `GWSW` en de naamruimten, `hasAspect`/`hasPart`/`hasConnection`, `geo:gmlLiteral`; sinds issue #32 óók de termenset per gedetecteerde basis (`Termen`, `termen_voor`) en de detectie (`basis_uit_prefixen`, `basis_uit_iri`) | `namen` (tekst) | `inlezen` (als `URIRef`-termenset per basis), `clip.termen` (als `NamedNode`-termenset), `clip.plan`/`clip.stroom`/`clip.merge`/`clip.bereik` (via die termenset), `schrijven` (prefixkop, 1.6-cosmetisch), `graaf` (`xsd:string` + `gwsw_basis`), `bestand` (detectie), `ontologie`, `dataset` (`GWSW`, en het exporteert hem) |
 | Het spellen van een korte klassenaam heen en terug (`_uri`, `_short`) | `namen` | `klassen` (`_afsluiting`, `_kenmerk_properties`, `_klassefuncties`), `inlezen` (de korte naam van een soort, een referentie of een klasse), `dataset` (`beheerobjecttype`, `is_connection_class`) |
 | De prefixkop van een OroX-export | `schrijven.STANDAARD_PREFIXEN`, opgebouwd uit `namen` | `schrijven`, `clip.orkest` (krijgt ze via `lees_orox` en vult `knip:` aan) |
@@ -295,7 +295,15 @@ schrijfweg er ook niet voor.
 
 **De motor heeft één naad, de paden blijven twee.** De eerste rij van die tabel is de
 jongste: `pyoxigraph.parse` en `pyoxigraph.serialize` stonden op vier plekken
-uitgeschreven en staan nu één keer, in `rdfmotor`. Dat verandert aan de twee paden
+uitgeschreven en staan nu één keer, in `rdfmotor`. Sinds issue #50 draagt diezelfde naad
+niet alleen de aanroep maar ook de **foutvertaling en de prefixlezing**: `MOTORFOUTEN`
+(`SyntaxError`, `ValueError`) en `is_coderingsfout` zeggen wat de motor als fout gooit en
+wanneer dat een coderings- en geen syntaxfout is, en `prefixen_van` leest `parser.prefixes`.
+`bestand._parse` en `schrijven` lenen die drie in plaats van elk hun eigen kopie te dragen,
+en `bestand._parse` vangt daardoor smal -- `MOTORFOUTEN` plus de `TypeError` uit
+`naar_rdflib` -- zodat een `MemoryError` niet langer als lege "geen geldige Turtle ()" naar
+buiten komt (`test_de_foutvertaling_en_de_prefixen_wonen_alleen_in_rdfmotor` bewaakt de naad,
+naast `test_alleen_rdfmotor_roept_de_motor_aan`). Dat verandert aan de twee paden
 niets — de leesweg vult nog steeds een index, de schrijfweg stroomt nog steeds door —
 maar het maakt een minor-bump van de motor een een-naadswijziging in plaats van een
 zoektocht. pyoxigraph is pre-1.0 (0.3 → 0.4 brak de parse-signatuur al eens), en zo'n

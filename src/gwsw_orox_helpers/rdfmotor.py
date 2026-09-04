@@ -132,6 +132,37 @@ def ontleed_turtle_bestand(pad: Path) -> pyoxigraph.QuadParser:
     return pyoxigraph.parse(path=pad, format=_TURTLE)
 
 
+# De fouttaxonomie van de motor, op één plek. `bestand._parse` en `schrijven._gecontroleerd`
+# vertalen deze fouten naar hun eigen `DatasetError`-familie; wat de motor daarbuiten laat
+# ontsnappen (`MemoryError`, `RecursionError`, een bug in eigen code) hoort niet als "geen
+# geldige Turtle" verpakt te worden en komt bij die aanroepers rauw naar buiten. Deze tuple
+# is de ene plek waar `SyntaxError` als motor-fouttype staat; de AST-sweep in
+# `tests/test_rdfmotor.py` weert hem buiten deze module.
+MOTORFOUTEN: Final = (SyntaxError, ValueError)
+
+
+def is_coderingsfout(fout: Exception) -> bool:
+    """Of een motorfout in werkelijkheid over de bytecodering gaat en niet over de syntaxis.
+
+    pyoxigraph meldt niet-UTF-8-bytes met "Invalid UTF-8" in de tekst van de fout. De
+    leeslaag en de schrijfweg onderscheiden dat van een echte syntaxfout, want de remedie
+    verschilt: daar is een terugvalcodering het antwoord, hier de inhoud van de bron. De
+    tekstmatch woont hier zodat beide aanroepers hetzelfde oordeel delen.
+    """
+    return "Invalid UTF-8" in str(fout)
+
+
+def prefixen_van(parser: pyoxigraph.QuadParser) -> dict[str, str]:
+    """De prefixdeclaraties die de parser tot nu toe uit de kop las.
+
+    Alleen gevuld nadat de kop gelezen is (in de praktijk na de eerste quad). `bestand._parse`
+    leidt er de GWSW-basis uit af, `schrijven.lees_orox` bouwt er de prefixkop mee. Dat die
+    lezing hierlangs loopt, houdt `parser.prefixes` -- net als parse en serialize -- binnen de
+    ene motor-naad; `test_de_foutvertaling_en_de_prefixen_wonen_alleen_in_rdfmotor` bewaakt dat.
+    """
+    return parser.prefixes
+
+
 def serialiseer_turtle(
     quads: Iterable[pyoxigraph.Quad] | Iterable[pyoxigraph.Triple],
     doel: IO[bytes],

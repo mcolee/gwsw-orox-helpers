@@ -195,6 +195,37 @@ def test_alleen_rdfmotor_roept_de_motor_aan() -> None:
     )
 
 
+def test_de_foutvertaling_en_de_prefixen_wonen_alleen_in_rdfmotor() -> None:
+    """Buiten `rdfmotor` staat geen `parser.prefixes`-lezing en geen losse `SyntaxError`.
+
+    Sinds issue #50 draagt de motor-naad niet alleen parse/serialize maar ook de
+    foutvertaling (`MOTORFOUTEN`, `is_coderingsfout`) en de prefixlezing (`prefixen_van`).
+    `bestand._parse` en `schrijven` lenen die daar. Zonder deze sweep zou een tweede
+    `parser.prefixes` of een losse `except SyntaxError` de fouttaxonomie stilletjes weer uit
+    elkaar laten lopen -- precies zoals `test_alleen_rdfmotor_roept_de_motor_aan` dat voor
+    parse/serialize belet. Aan de **AST** en niet aan een grep, om dezelfde reden.
+
+    `.prefixes` als keyword bij `pyoxigraph.serialize` (`prefixes=...`) is een `ast.keyword`
+    en geen `ast.Attribute`, dus die valt hier terecht niet onder; en `rdfmotor.py` zelf is
+    de ene toegestane plek en wordt overgeslagen.
+    """
+    pakket = Path(rdfmotor.__file__ or "").parent
+    overtreders: list[str] = []
+    for pad in sorted(pakket.rglob("*.py")):
+        if pad.name == "rdfmotor.py" or "__pycache__" in pad.parts:
+            continue
+        for knoop in ast.walk(ast.parse(pad.read_text(encoding="utf-8"))):
+            if isinstance(knoop, ast.Attribute) and knoop.attr == "prefixes":
+                overtreders.append(f"{pad.name}:{knoop.lineno}: .prefixes")
+            elif isinstance(knoop, ast.Name) and knoop.id == "SyntaxError":
+                overtreders.append(f"{pad.name}:{knoop.lineno}: SyntaxError")
+
+    assert overtreders == [], (
+        f"{overtreders} leest `.prefixes` of noemt `SyntaxError` buiten `rdfmotor`; die horen "
+        "sinds issue #50 via `rdfmotor.prefixen_van` en `rdfmotor.MOTORFOUTEN` te lopen."
+    )
+
+
 @pytest.mark.parametrize("versie", ["0.5.0", "0.5.9", "0.5.99", "0.5.0rc1", "0.5"])
 def test_een_versie_binnen_de_reeks_gaat_door(versie: str) -> None:
     assert rdfmotor.controleer_versie(versie) is None

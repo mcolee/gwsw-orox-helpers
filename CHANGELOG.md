@@ -1,6 +1,13 @@
 # Changelog
 
 ## [Unreleased]
+- Ontwikkelstraat: Fable-audit-swarm `.claude/workflows/orox-fable-audit.js`
+  (`Workflow({name: 'orox-fable-audit'})`): negen lenzen met bewijsplicht (packaging,
+  api-docs, security, defecten lezen/geo-clip, architectuur snit/evolutie, kwaliteit,
+  tests-ci) → adversariële verify → regisseur met `releaseKlaar`, blokkers,
+  architectuuroordeel en ≤20 aanbevelingen. Draait in twee stappen (`stap: 'audit'` als
+  kostenmeting, daarna volledige run met `resumeFromRunId`). Eerste run 04-09-2026:
+  37/37 bevindingen bevestigd, niet release-klaar (verpakking), architectuurcijfer 7.
 
 ## [0.2.2] - 2026-09-04
 - Publieke leesweg naar de GWSW-versie van een dataset: `GwswDataset.gwsw_versie`

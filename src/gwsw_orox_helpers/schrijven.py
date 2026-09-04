@@ -252,7 +252,7 @@ def _gedecodeerd(bron: Path, fallback_encoding: str) -> str:
 def _gecontroleerd(
     bron: Path, parser: Iterator[pyoxigraph.Quad], fallback_encoding: str | None
 ) -> Iterator[pyoxigraph.Quad]:
-    """Vertaalt parsefouten onderweg naar `TurtleError`, net als de leeslaag doet.
+    """Vertaalt parse- en I/O-fouten onderweg naar de juiste `DatasetError`-familie.
 
     De parser is lui: een syntaxfout halverwege een export van 112 MB komt pas boven bij
     de quad waar hij staat, dus midden in het schrijven. Zonder deze laag zou de afnemer
@@ -266,6 +266,14 @@ def _gecontroleerd(
     terugvalcodering ontbreekt (`codering.decodeer`), en dat zegt deze laag hem na. Het
     kost geen tweede lezing: het oordeel komt uit de foutmelding van de parser, dus de
     bron blijft streamen.
+
+    Ook `OSError` valt hier, want de streamende parser leest schijf pas terwijl hij
+    afgelopen wordt: een map als bron (`IsADirectoryError` op de eerste quad, buiten de
+    constructie-vangst van `lees_orox`) of een leesfout halverwege (`EIO` op een
+    weggevallen share) hoort dezelfde `BestandError` "kan niet gelezen worden" te geven als
+    een ontbrekende bron, en niet als rauwe OSError langs de afnemer te glippen of door de
+    schrijf-vangst als "kan niet geschreven worden" verkeerd gelabeld te worden (issue #49).
+    De eerste-quad-pull in `lees_orox` drijft deze generator, dus valt óók binnen deze vangst.
     """
     try:
         yield from parser
@@ -275,3 +283,5 @@ def _gecontroleerd(
                 f"{bron}: geen geldige UTF-8 ({fout}) en er is geen terugvalcodering opgegeven."
             ) from fout
         raise TurtleError(f"{bron}: geen geldige Turtle ({fout}).") from fout
+    except OSError as fout:
+        raise BestandError(f"{bron}: bestand kan niet gelezen worden ({fout}).") from fout

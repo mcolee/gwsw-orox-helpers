@@ -1,6 +1,15 @@
 # Changelog
 
 ## [Unreleased]
+- `OSError` tijdens het streamen valt nu binnen de `DatasetError`-familie (issue #49,
+  robuustheid; **additief** — `BestandError` valt al onder `DatasetError`, geen bestaande
+  signatuur of retourvorm geraakt). `schrijven._gecontroleerd` vangt naast de parsefout nu
+  ook `OSError` en maakt er dezelfde `BestandError` "kan niet gelezen worden" van als een
+  ontbrekende bron. Twee gaten gedicht: een **map als bron** gaf via `lees_orox`,
+  `schrijf_orox` én `clip_orox` een rauwe `IsADirectoryError` (de eerste-quad-pull stond
+  buiten de constructie-vangst), en een **leesfout halverwege de stroom** (`EIO`) kwam
+  ofwel rauw naar buiten, ofwel via de schrijf-vangst als "kan niet geschreven worden" —
+  een schrijfmelding voor wat een leesfout is. Geen achtergebleven tijdelijk bestand.
 - Eén foutbeleid in `cache.py` (issue #48, robuustheid; grotendeels **additief**, met één
   door de auteur goedgekeurde fouttype-verschuiving — zie deel c). Vier randen waar de cache
   de belofte "herstel in plaats van de hele run laten crashen" niet dekte, elk gesloten:

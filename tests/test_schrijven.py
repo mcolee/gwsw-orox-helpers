@@ -1,5 +1,6 @@
 """De schrijver geeft een OroX-TTL terug die naar dezelfde RDF-graaf parseert."""
 
+import errno
 import os
 from collections import Counter
 from collections.abc import Iterator
@@ -19,6 +20,7 @@ from rdflib.namespace import OWL, RDF
 
 from conftest import dewoldenhoogeveen_export
 from gwsw_orox_helpers import schrijven
+from gwsw_orox_helpers.clip import clip_orox
 from gwsw_orox_helpers.errors import DatasetError
 from gwsw_orox_helpers.schrijven import (
     STANDAARD_PREFIXEN,
@@ -30,6 +32,9 @@ from gwsw_orox_helpers.schrijven import (
 TTL_DIR = Path(__file__).parent / "fixtures" / "ttl"
 MINI = TTL_DIR / "mini_orox.ttl"
 CP850 = TTL_DIR / "codering_cp850.ttl"
+# Een geldige grenslaag: `clip_orox` leest die vóór de bron, dus een map-als-bron-test
+# moet er langs voordat `lees_orox` aan de beurt is.
+MINI_GRENS = Path(__file__).parent / "fixtures" / "gis" / "mini_grens.geojson"
 
 # De echte voorbeeldexport van Stichting RIONED (Juinen), sinds issue #10 byte-exact als
 # fixture gebundeld; de test hangt daarmee niet meer aan een pad buiten de repo.
@@ -214,6 +219,84 @@ def test_ontbrekende_bron_is_een_dataseterror(tmp_path: Path) -> None:
     """Een bron die er niet is, meldt zich als DatasetError en niet als OSError."""
     with pytest.raises(DatasetError, match="kan niet gelezen worden"):
         schrijf_orox(tmp_path / "bestaat_niet.ttl", tmp_path / "nooit.ttl")
+
+
+def test_map_als_bron_voor_lees_orox_is_een_dataseterror(tmp_path: Path) -> None:
+    """Een map i.p.v. een bestand: de OSError onderweg komt als DatasetError boven.
+
+    `lees_orox` haalt de eerste quad op om de prefixkop te vullen; op een map struikelt de
+    parser daar met een `IsADirectoryError`. Die staat buiten de constructie van de parser
+    (die vangst dekte alleen een ontbrekend bestand), dus zonder de vangst in
+    `_gecontroleerd` glipte de rauwe OSError langs elke `except DatasetError` van de afnemer
+    (issue #49). Net als bij een ontbrekende bron hoort het een `BestandError` te zijn.
+    """
+    map_bron = tmp_path / "een_map"
+    map_bron.mkdir()
+
+    with pytest.raises(DatasetError, match="kan niet gelezen worden"):
+        lees_orox(map_bron)
+
+
+def test_map_als_bron_voor_schrijf_orox_is_een_dataseterror(tmp_path: Path) -> None:
+    """Dezelfde map-als-bron langs `schrijf_orox`: DatasetError, en geen doelmap gemaakt."""
+    map_bron = tmp_path / "een_map"
+    map_bron.mkdir()
+    doel = tmp_path / "uit" / "nooit.ttl"
+
+    with pytest.raises(DatasetError, match="kan niet gelezen worden"):
+        schrijf_orox(map_bron, doel)
+
+    # De lezing faalt op de eerste quad, dus vóór `schrijf_orox_quads` de doelmap maakt.
+    assert not doel.parent.exists()
+
+
+def test_map_als_bron_voor_clip_orox_is_een_dataseterror(tmp_path: Path) -> None:
+    """En langs `clip_orox`: de grenslaag is geldig, de bron is een map -> DatasetError.
+
+    `clip_orox` leest eerst de grenslaag en pas daarna de bron; met een geldige grenslaag
+    valt de fout dus op `lees_orox(bron)` en hoort hij als `BestandError` naar buiten te
+    komen, niet als rauwe `IsADirectoryError`.
+    """
+    map_bron = tmp_path / "een_map"
+    map_bron.mkdir()
+    uit = tmp_path / "uit"
+
+    with pytest.raises(DatasetError, match="kan niet gelezen worden"):
+        clip_orox(map_bron, MINI_GRENS, uit, sleutel="gemeentenaam")
+
+    # De fout valt vóór de schrijfronde, dus de uitmap wordt nooit gevuld.
+    assert not uit.exists()
+
+
+def test_leesfout_halverwege_de_stroom_is_een_dataseterror(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Een OSError midden in de quadstroom komt als DatasetError met de leesmelding boven.
+
+    De parser is lui; een I/O-fout op regel 900.000 (een losgekoppelde schijf, een
+    weggevallen netwerkshare) komt pas boven terwijl de serializer al schrijft. Zonder de
+    OSError-vangst in `_gecontroleerd` zag de afnemer daar ofwel een rauwe OSError, ofwel --
+    via de schrijf-vangst van `schrijf_orox_quads` -- een "kan niet geschreven worden" voor
+    wat in werkelijkheid een leesfout is. Het hoort een `BestandError` te zijn met de
+    leesmelding, en er hoort geen tijdelijk bestand achter te blijven (issue #49).
+    """
+    quads = list(lees_orox(MINI).quads)
+
+    class _EIOLezer:
+        prefixes = {"": "http://sparql.gwsw.nl/repositories/Mini#"}
+
+        def __iter__(self) -> Iterator[pyoxigraph.Quad]:
+            yield quads[0]
+            raise OSError(errno.EIO, "I/O-fout tijdens het streamen")
+
+    monkeypatch.setattr(schrijven.rdfmotor, "ontleed_turtle_bestand", lambda _pad: _EIOLezer())
+    doel = tmp_path / "uit" / "half.ttl"
+
+    with pytest.raises(DatasetError, match="kan niet gelezen worden"):
+        schrijf_orox(MINI, doel)
+
+    assert not doel.exists()
+    assert list(doel.parent.iterdir()) == []
 
 
 def test_kapotte_turtle_is_een_dataseterror(tmp_path: Path) -> None:

@@ -50,8 +50,10 @@ from gwsw_orox_helpers.voortgang import NUL_VOORTGANG, Voortgang
 
 logger = logging.getLogger(__name__)
 
-# Losstaand van de bestandshashes, zodat een test hem kan verzetten.
-LADER_VERSIE = "1"
+# Losstaand van de bestandshashes, zodat een test hem kan verzetten. Bij "2" sinds
+# issue #45: de cache is een vertrouwensgrens geworden (rechtencheck vóór elke
+# `pickle.load`), dus bestaande caches uit vóór die verharding vervallen één keer.
+LADER_VERSIE = "2"
 
 BESTAND_STRUCTUREN = "structuren.pickle"
 BESTAND_GRAAF = "graaf.pickle"
@@ -166,27 +168,69 @@ class LuieGraaf:
         self._graaf: GraafIndex | None = None
 
     def _geladen(self) -> GraafIndex:
-        """Leest de graaf de eerste keer dat er iets uit gevraagd wordt."""
+        """Leest de graaf de eerste keer dat er iets uit gevraagd wordt.
+
+        De graafpickle wordt vóór het depicklen getoetst (issue #45): pickle voert bij
+        het laden code uit, dus een pickle van een vreemde eigenaar of schrijfbaar voor
+        groep of anderen wordt niet geladen maar als "onbruikbaar" behandeld en uit de
+        brondata hersteld -- hetzelfde pad als bij een beschadigde pickle.
+
+        **Terugschrijven alleen naar een vertrouwde map.** Na herstel wordt de graaf
+        teruggeschreven, maar alleen als de map eromheen te vertrouwen is
+        (`_schrijf_indien_vertrouwd`). Was de pickle onvertrouwd, dan is de map eromheen
+        verdacht en zou terugschrijven een verse pickle leggen in een map waar een ander
+        bij kan; dan schrijven we niet en leest de volgende run opnieuw in. Bij een louter
+        beschadigde pickle in een eigen, private map (mode 0o700) is terugschrijven wél
+        veilig en herstelt het de snelle weg -- daar heelt het meteen ook de rechten van
+        het bestand, want `_schrijf_atomair` maakt via `mkstemp` een vers bestand (0o600).
+        """
         if self._graaf is None:
             begin = time.perf_counter()
-            try:
-                with self._pad.open("rb") as bestand:
-                    self._graaf = pickle.load(bestand)
-            except (pickle.UnpicklingError, EOFError, TypeError, AttributeError, OSError) as fout:
+            onvertrouwd = _cachepad_vertrouwd(self._pad)
+            if onvertrouwd is not None:
                 logger.warning(
                     "De graafcache in %s is onbruikbaar (%s); graaf opnieuw "
                     "ingelezen uit de brondata.",
                     self._pad,
-                    fout,
+                    onvertrouwd,
                 )
                 self._graaf = self._herstel()
-                _schrijf_atomair(self._pad, self._graaf)
+                self._schrijf_indien_vertrouwd()
+            else:
+                try:
+                    with self._pad.open("rb") as bestand:
+                        self._graaf = pickle.load(bestand)
+                except (
+                    pickle.UnpicklingError,
+                    EOFError,
+                    TypeError,
+                    AttributeError,
+                    OSError,
+                ) as fout:
+                    logger.warning(
+                        "De graafcache in %s is onbruikbaar (%s); graaf opnieuw "
+                        "ingelezen uit de brondata.",
+                        self._pad,
+                        fout,
+                    )
+                    self._graaf = self._herstel()
+                    self._schrijf_indien_vertrouwd()
             logger.info(
                 "Graaf van schijf gelezen in %.1f s (%d triples).",
                 time.perf_counter() - begin,
                 len(self._graaf),
             )
         return self._graaf
+
+    def _schrijf_indien_vertrouwd(self) -> None:
+        """Schrijft de herstelde graaf terug, maar alleen naar een vertrouwde map.
+
+        De afweging staat in de docstring van `_geladen`: naar een onvertrouwde map
+        (vreemde eigenaar of groep-/wereldschrijfbaar) schrijven we niet terug.
+        """
+        assert self._graaf is not None
+        if _cachepad_vertrouwd(self._pad.parent) is None:
+            _schrijf_atomair(self._pad, self._graaf)
 
     def objects(self, subject: RdfNode, predicate: RdfNode) -> Iterator[RdfNode]:
         """De objecten van (subject, predicate), in eerste-toevoegvolgorde."""
@@ -300,6 +344,48 @@ def standaard_cachemap() -> Path:
     return Path(basis or Path.home() / ".cache") / "gwsw-orox-helpers"
 
 
+def _cachepad_vertrouwd(pad: Path) -> str | None:
+    """Geeft `None` als `pad` te vertrouwen is, anders een korte reden waarom niet.
+
+    De cache leest zijn artefacten met `pickle.load`, en pickle voert bij het laden
+    willekeurige code uit (`__reduce__`). De cachemap en haar bestanden zijn daarmee een
+    vertrouwensgrens: een pad is onvertrouwd als het niet van de huidige gebruiker is
+    (`st_uid != os.getuid()`) of als groep of anderen erin mogen schrijven
+    (`st_mode & 0o022`) -- dan kan een ander de bytes hebben neergelegd of vervangen.
+
+    **Alleen POSIX.** Op niet-POSIX (`os.name != "posix"`, bv. Windows) bestaan `st_uid`
+    en de POSIX-rechtenbits niet in deze vorm; daar is alles vertrouwd en hoort de cache
+    in het gebruikersprofiel te staan (zie de docstring van `laad_met_cache`). Een pad dat
+    nog niet bestaat is vertrouwd: het wordt straks vers met 0o700 aangemaakt.
+    """
+    if os.name != "posix":
+        return None
+    try:
+        status = os.stat(pad)
+    except FileNotFoundError:
+        return None
+    if status.st_uid != os.getuid():
+        return f"{pad} is eigendom van uid {status.st_uid}, niet van de huidige gebruiker"
+    if status.st_mode & 0o022:
+        return f"{pad} is schrijfbaar voor groep of anderen (mode {status.st_mode & 0o777:o})"
+    return None
+
+
+def _maak_cachemap(map_: Path) -> None:
+    """Maakt de cachemap privé (0o700) aan en zet die mode deterministisch.
+
+    `mkdir(mode=...)` past de mode alleen toe op de laatste component en alleen bij
+    aanmaken; een `os.chmod` erachteraan maakt de mode deterministisch, ook als de map al
+    bestond. Die chmod draait alleen op POSIX en alleen als de map van ons is -- op een
+    vreemde map zou hij op een `PermissionError` stuklopen, en dat is dan precies de
+    situatie die `_cachepad_vertrouwd` eerder al had moeten afvangen (géén schrijven in
+    een onvertrouwde map).
+    """
+    map_.mkdir(mode=0o700, parents=True, exist_ok=True)
+    if os.name == "posix" and map_.stat().st_uid == os.getuid():
+        os.chmod(map_, 0o700)
+
+
 def laad_met_cache(
     dataset_path: Path,
     ontology_paths: list[Path] | None = None,
@@ -324,6 +410,15 @@ def laad_met_cache(
     Bij een cachetreffer wordt er niets geparseerd en start er dus geen laadfase:
     een balk die in nul seconden vol schiet zou suggereren dat het inlezen snel was
     in plaats van overgeslagen. De laadfase komt uit `load_dataset` zelf.
+
+    **De cachemap is een vertrouwensgrens** (issue #45). Omdat `pickle.load` bij het laden
+    willekeurige code kan uitvoeren, moet de cachemap een privé, niet-gedeelde map zijn.
+    Vóór het eerste cachecontact toetst deze functie de map met `_cachepad_vertrouwd`: is
+    die van een ander of schrijfbaar voor groep of anderen, dan wordt er niets gelezen en
+    niets geschreven en komt de dataset uit het bestand terug (met een `logging.warning`).
+    Elk pickle-bestand wordt daarnaast apart getoetst vóór het depicklen. Op niet-POSIX
+    (Windows) draait die check niet -- daar hoort de cachemap in het gebruikersprofiel
+    (`%LOCALAPPDATA%`), waar alleen de gebruiker bij kan.
     """
     begin = time.perf_counter()
     if not gebruik_cache:
@@ -333,31 +428,48 @@ def laad_met_cache(
     sleutel = cachesleutel(dataset_path, ontology_paths, fallback_encoding)
     map_ = (cache_dir or standaard_cachemap()) / sleutel
     melding = ""
+    onvertrouwde_map = _cachepad_vertrouwd(map_)
+    if onvertrouwde_map is not None:
+        logger.warning(
+            "Cachemap overgeslagen: %s. Niet gelezen en niet geschreven; uit het "
+            "bestand ingelezen.",
+            onvertrouwde_map,
+        )
+        dataset = load_dataset(dataset_path, ontology_paths, fallback_encoding, voortgang=voortgang)
+        return dataset, CacheUitslag(
+            "bestand", sleutel, time.perf_counter() - begin, onvertrouwde_map
+        )
     pad_structuren = map_ / BESTAND_STRUCTUREN
     pad_graaf = map_ / BESTAND_GRAAF
     if pad_structuren.exists() and pad_graaf.exists():
-        try:
-            with pad_structuren.open("rb") as bestand:
-                velden = pickle.load(bestand)
-        except (pickle.UnpicklingError, EOFError, TypeError, AttributeError) as fout:
-            melding = f"De cache in {map_} is onbruikbaar ({fout}); opnieuw ingelezen."
+        onvertrouwd = _cachepad_vertrouwd(pad_structuren)
+        if onvertrouwd is not None:
+            # De structurenpickle is van een ander of schrijfbaar voor derden: niet
+            # depicklen (pickle voert bij het laden code uit), maar opnieuw inlezen.
+            melding = f"De cache in {map_} is onbruikbaar ({onvertrouwd}); opnieuw ingelezen."
         else:
-            # De structurencache is geldig; de graafcache wordt niet hier al
-            # gelezen (dat kost tot een minuut) maar pas als een check hem
-            # aanraakt. Is die dan beschadigd, dan herstelt LuieGraaf zichzelf
-            # via deze functie in plaats van de hele run te laten crashen.
-            herstel = partial(_herlees_graaf, dataset_path, ontology_paths, fallback_encoding)
-            # `LuieGraaf` is geen GraafIndex-subklasse maar een plaatsvervanger die
-            # alles doorgeeft; het veld verwacht een GraafIndex en krijgt hier zijn gedrag.
-            # Sinds issue #34 draagt hij het leescontract expliciet en vervult hij
-            # `graaf.GraafLezer` structureel, maar dat protocol is niet wat hier gevraagd
-            # wordt: `GwswDataset.graph` staat gepind op de concrete `GraafIndex`
-            # (`tests/test_publieke_api.py`), en dat veld verbreden naar een protocol is
-            # een auteursbeslissing (`CLAUDE.md`, Harde regels; apart geparkeerd). Deze
-            # cast blijft dus staan tot die stap gezet is.
-            luie = cast(GraafIndex, LuieGraaf(pad_graaf, herstel))
-            dataset = replace(GwswDataset(graph=GraafIndex(), **velden), graph=luie)
-            return dataset, CacheUitslag("cache", sleutel, time.perf_counter() - begin)
+            try:
+                with pad_structuren.open("rb") as bestand:
+                    velden = pickle.load(bestand)
+            except (pickle.UnpicklingError, EOFError, TypeError, AttributeError) as fout:
+                melding = f"De cache in {map_} is onbruikbaar ({fout}); opnieuw ingelezen."
+            else:
+                # De structurencache is geldig; de graafcache wordt niet hier al
+                # gelezen (dat kost tot een minuut) maar pas als een check hem
+                # aanraakt. Is die dan beschadigd, dan herstelt LuieGraaf zichzelf
+                # via deze functie in plaats van de hele run te laten crashen.
+                herstel = partial(_herlees_graaf, dataset_path, ontology_paths, fallback_encoding)
+                # `LuieGraaf` is geen GraafIndex-subklasse maar een plaatsvervanger die
+                # alles doorgeeft; het veld verwacht een GraafIndex en krijgt hier zijn gedrag.
+                # Sinds issue #34 draagt hij het leescontract expliciet en vervult hij
+                # `graaf.GraafLezer` structureel, maar dat protocol is niet wat hier gevraagd
+                # wordt: `GwswDataset.graph` staat gepind op de concrete `GraafIndex`
+                # (`tests/test_publieke_api.py`), en dat veld verbreden naar een protocol is
+                # een auteursbeslissing (`CLAUDE.md`, Harde regels; apart geparkeerd). Deze
+                # cast blijft dus staan tot die stap gezet is.
+                luie = cast(GraafIndex, LuieGraaf(pad_graaf, herstel))
+                dataset = replace(GwswDataset(graph=GraafIndex(), **velden), graph=luie)
+                return dataset, CacheUitslag("cache", sleutel, time.perf_counter() - begin)
 
     dataset = load_dataset(dataset_path, ontology_paths, fallback_encoding, voortgang=voortgang)
     _schrijf(map_, dataset)
@@ -403,7 +515,7 @@ def _schrijf_atomair(pad: Path, inhoud: object) -> None:
     door elkaar heen naar dezelfde tijdelijke naam en het laatste `replace()` kon
     het half geschreven bestand van de ander overnemen.
     """
-    pad.parent.mkdir(parents=True, exist_ok=True)
+    _maak_cachemap(pad.parent)
     beschrijving, tijdelijk_pad = tempfile.mkstemp(
         prefix=f"{pad.name}.{os.getpid()}.", suffix=".tijdelijk", dir=pad.parent
     )

@@ -9,6 +9,9 @@ from __future__ import annotations
 
 import inspect
 import logging
+import os
+import pickle
+import stat
 from collections.abc import Callable
 from pathlib import Path
 from types import ModuleType
@@ -20,6 +23,7 @@ from gwsw_orox_helpers import cache as cache_module
 from gwsw_orox_helpers.bronnen import gebundelde_ontologie
 from gwsw_orox_helpers.cache import (
     BESTAND_GRAAF,
+    BESTAND_STRUCTUREN,
     LADERMODULES,
     LuieGraaf,
     cachesleutel,
@@ -339,3 +343,191 @@ def test_de_sleutel_bij_none_hasht_alle_gebundelde_versies(
     zonder_17 = cachesleutel(VOORBEELD, [origineel("1.6")])
     kopie17.write_text("C", encoding="utf-8")
     assert cachesleutel(VOORBEELD, [origineel("1.6")]) == zonder_17
+
+
+# --- De cache als vertrouwensgrens (issue #45) --------------------------------
+#
+# De cache leest zijn artefacten met `pickle.load`, en pickle voert bij het laden
+# willekeurige code uit (`__reduce__`). De cachemap is daarmee een vertrouwensgrens:
+# alleen een map die van ons is en die niet voor groep of anderen schrijfbaar is, mag
+# gelezen worden. De tests hieronder plegen niet-root; op POSIX omzeilt uid 0 de
+# rechtenbits, dus de gevallen die daarop leunen slaan zichzelf dan over.
+
+MAG_RECHTEN_TOETSEN = os.name == "posix" and os.getuid() != 0
+
+
+def test_de_cachemap_krijgt_mode_0o700(tmp_path: Path) -> None:
+    """De aangemaakte cachemap is privé (0o700), niet groep-/wereldleesbaar."""
+    if os.name != "posix":
+        pytest.skip("de rechten-mode betekent alleen iets op POSIX")
+    _, uitslag = laad_met_cache(VOORBEELD, [], cache_dir=tmp_path)
+    map_ = tmp_path / uitslag.sleutel
+    assert map_.is_dir()
+    assert stat.S_IMODE(map_.stat().st_mode) == 0o700
+
+
+def test_een_groepschrijfbare_cachemap_wordt_overgeslagen(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Een cachemap waar groep of anderen in mogen schrijven, wordt niet vertrouwd:
+    niet gelezen én niet geschreven, de dataset komt uit het bestand terug.
+    """
+    if not MAG_RECHTEN_TOETSEN:
+        pytest.skip("root of niet-POSIX omzeilt de rechtenbits")
+    sleutel = cachesleutel(VOORBEELD, [])
+    map_ = tmp_path / sleutel
+    map_.mkdir()
+    os.chmod(map_, 0o770)
+
+    with caplog.at_level(logging.WARNING, logger=cache_module.__name__):
+        dataset, uitslag = laad_met_cache(VOORBEELD, [], cache_dir=tmp_path)
+
+    assert dataset.nodes
+    assert uitslag.bron == "bestand"
+    assert list(map_.glob("*.pickle")) == [], "op een onvertrouwde map wordt niets geschreven"
+    assert any("schrijfbaar" in bericht for bericht in caplog.messages)
+
+
+def test_een_cachemap_van_een_vreemde_eigenaar_wordt_overgeslagen(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Een cachemap die niet van de huidige gebruiker is, wordt niet vertrouwd.
+
+    We simuleren de vreemde eigenaar door onze `os.getuid` te laten afwijken van de
+    werkelijke eigenaar van de (door ons aangemaakte) map.
+    """
+    if os.name != "posix":
+        pytest.skip("de eigenaarcheck betekent alleen iets op POSIX")
+    sleutel = cachesleutel(VOORBEELD, [])
+    map_ = tmp_path / sleutel
+    map_.mkdir(mode=0o700)
+    echte_uid = os.getuid()  # vóór de patch vastleggen, anders recurseert de lambda
+    monkeypatch.setattr(cache_module.os, "getuid", lambda: echte_uid + 1)
+
+    with caplog.at_level(logging.WARNING, logger=cache_module.__name__):
+        dataset, uitslag = laad_met_cache(VOORBEELD, [], cache_dir=tmp_path)
+
+    assert dataset.nodes
+    assert uitslag.bron == "bestand"
+    assert list(map_.glob("*.pickle")) == []
+    assert any("eigendom van uid" in bericht for bericht in caplog.messages)
+
+
+def test_een_onvertrouwde_structurenpickle_wordt_niet_geladen(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Een structurenpickle met groep-/wereldschrijfrechten wordt niet gedepickled.
+
+    We bewijzen het hard: `pickle.load` mag op dit pad niet aangeroepen worden. In
+    plaats daarvan wordt opnieuw uit het bestand ingelezen.
+    """
+    if not MAG_RECHTEN_TOETSEN:
+        pytest.skip("root of niet-POSIX omzeilt de rechtenbits")
+    laad_met_cache(VOORBEELD, [], cache_dir=tmp_path)
+    sleutel = cachesleutel(VOORBEELD, [])
+    pad_structuren = tmp_path / sleutel / BESTAND_STRUCTUREN
+    assert pad_structuren.exists()
+    os.chmod(pad_structuren, 0o666)
+
+    geroepen: list[bool] = []
+    echte_load = pickle.load
+
+    def spion(*args: object, **kwargs: object) -> object:
+        geroepen.append(True)
+        return echte_load(*args, **kwargs)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(cache_module.pickle, "load", spion)
+
+    dataset, uitslag = laad_met_cache(VOORBEELD, [], cache_dir=tmp_path)
+
+    assert dataset.nodes
+    assert uitslag.bron == "bestand"
+    assert geroepen == [], "een onvertrouwde pickle mag niet gedepickled worden"
+
+
+def test_op_niet_posix_wordt_de_rechtencheck_overgeslagen(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Op Windows (`os.name != 'posix'`) betekenen uid en de bits niets: de check slaat
+    over en een map die op POSIX onvertrouwd zou zijn (0o777) geldt daar als vertrouwd.
+
+    We toetsen de twee helpers rechtstreeks en niet de hele `laad_met_cache`, want
+    `monkeypatch.setattr(os, "name", "nt")` zet ook `pathlib` op `WindowsPath`: een nieuw
+    `Path(...)` (zoals `cachesleutel` er intern maakt) kan de Linux-bronbestanden dan niet
+    meer lezen. De helpers krijgen een bestaande `PosixPath` mee en roepen zelf geen
+    `Path(...)` aan, dus die draaien wel onder de gefakete `os.name`.
+    """
+    map_ = tmp_path / "sleutel"
+    map_.mkdir()
+    map_.chmod(0o777)  # op POSIX onvertrouwd (wereldschrijfbaar)
+
+    monkeypatch.setattr(os, "name", "nt")
+    assert cache_module._cachepad_vertrouwd(map_) is None, "op niet-POSIX is alles vertrouwd"
+
+    nieuwe_map = tmp_path / "vers"
+    cache_module._maak_cachemap(nieuwe_map)  # mag niet crashen en slaat de chmod over
+    assert nieuwe_map.is_dir()
+
+
+def test_een_geplante_reduce_payload_draait_niet(tmp_path: Path) -> None:
+    """De repro uit issue #45: een pickle met een `__reduce__`-payload, geplant met
+    0o666, mag zijn payload niet uitvoeren -- het payloadbestand ontstaat niet.
+    """
+    if not MAG_RECHTEN_TOETSEN:
+        pytest.skip("root of niet-POSIX omzeilt de rechtenbits")
+    doelwit = tmp_path / "GEPWNED"
+
+    class Aanval:
+        def __reduce__(self) -> tuple[Callable[[str], int], tuple[str]]:
+            return (os.system, (f"touch {doelwit}",))
+
+    sleutel = cachesleutel(VOORBEELD, [])
+    map_ = tmp_path / sleutel
+    map_.mkdir()
+    with (map_ / BESTAND_STRUCTUREN).open("wb") as fh:
+        pickle.dump(Aanval(), fh)
+    with (map_ / BESTAND_GRAAF).open("wb") as fh:
+        pickle.dump({}, fh)
+    os.chmod(map_ / BESTAND_STRUCTUREN, 0o666)
+    os.chmod(map_ / BESTAND_GRAAF, 0o666)
+
+    dataset, uitslag = laad_met_cache(VOORBEELD, [], cache_dir=tmp_path)
+
+    assert dataset.nodes
+    assert uitslag.bron == "bestand"
+    assert not doelwit.exists(), "de payload mag niet gedraaid hebben"
+
+
+def test_een_onvertrouwde_graafpickle_wordt_hersteld_zonder_terug_te_schrijven(
+    tmp_path: Path,
+) -> None:
+    """De luie graafpickle wordt vóór het depicklen getoetst; onvertrouwd -> herstel.
+
+    En de keerzijde die de docstring van `LuieGraaf._geladen` vastlegt: staat de pickle
+    in een onvertrouwde map, dan schrijft het herstel niet terug (dat zou een verse pickle
+    in een map leggen waar een ander bij kan). De originele pickle blijft dus ongewijzigd.
+    """
+    if not MAG_RECHTEN_TOETSEN:
+        pytest.skip("root of niet-POSIX omzeilt de rechtenbits")
+    map_ = tmp_path / "sleutel"
+    map_.mkdir()
+    pad_graaf = map_ / BESTAND_GRAAF
+    with pad_graaf.open("wb") as fh:
+        pickle.dump(load_dataset(VOORBEELD, []).graph, fh)
+    os.chmod(pad_graaf, 0o666)
+    os.chmod(map_, 0o770)  # de map is onvertrouwd
+
+    hersteld = load_dataset(VOORBEELD, []).graph
+    aanroepen: list[bool] = []
+
+    def herstel() -> GraafIndex:
+        aanroepen.append(True)
+        return hersteld
+
+    luie = LuieGraaf(pad_graaf, herstel)
+    assert len(luie) == len(hersteld)  # bevraagt de graaf, dus laadt/hersteltt hem
+
+    assert aanroepen == [True], "de onvertrouwde pickle is niet gedepickled maar hersteld"
+    assert stat.S_IMODE(pad_graaf.stat().st_mode) == 0o666, (
+        "naar een onvertrouwde map wordt niet teruggeschreven"
+    )

@@ -1,6 +1,29 @@
 # Changelog
 
 ## [Unreleased]
+- De cache is een vertrouwensgrens geworden (issue #45, security; **additief** — geen
+  bestaande signatuur, retourvorm of gedrag van `laad_met_cache`, `cachesleutel`,
+  `CacheUitslag` of `LuieGraaf` gewijzigd, alleen nieuwe privéhelpers). De cache leest zijn
+  artefacten met `pickle.load`, dat bij het laden willekeurige code uitvoert (`__reduce__`),
+  terwijl de cachemap tot nu toe kaal en groep-/wereldschrijfbaar (`drwxrwxr-x`) werd
+  aangemaakt: een geplant `structuren.pickle` kon zo een payload draaien vóór enige
+  validatie. Nu maakt de package de cachemap privé aan (`mkdir(mode=0o700)` + een `os.chmod`
+  op de eigen map, POSIX-only) en toetst hij vóór élke `pickle.load` of het pad te
+  vertrouwen is (`_cachepad_vertrouwd`: `st_uid != os.getuid()` of `st_mode & 0o022` →
+  onvertrouwd). Een onvertrouwde cachemap wordt overgeslagen (niet gelezen én niet
+  geschreven, dataset uit het bestand met een `logging.warning`); een onvertrouwd
+  cachebestand (structuren of de luie graafpickle) geldt als "onbruikbaar" en leidt tot
+  herinlezen. `LuieGraaf._geladen` schrijft de herstelde graaf alleen terug naar een
+  vertrouwde map — was de pickle onvertrouwd, dan is de map eromheen verdacht en schrijven we
+  niet terug. Op niet-POSIX (Windows) draait de check niet; de cachemap hoort daar in het
+  gebruikersprofiel (`%LOCALAPPDATA%`). `LADER_VERSIE` gaat van `"1"` naar `"2"`, dus
+  bestaande caches uit vóór deze verharding vervallen één keer. Bewust **buiten scope**
+  (auteursbeslissing 04-09-2026): HMAC over de bytes of een ander, robuuster cacheformaat.
+  Nieuwe tests in `tests/test_cache.py` (map-mode 0o700; onvertrouwde map → overslaan +
+  niets geschreven; onvertrouwde pickle → `pickle.load` niet aangeroepen; de `__reduce__`-repro
+  draait niet; niet-POSIX slaat de check over; de graafpickle-terugval schrijft niet naar een
+  onvertrouwde map). README en de docstring van `laad_met_cache` beschrijven de cachemap nu
+  als vertrouwde, niet-gedeelde map.
 - Sdist-hygiëne plus een verpakkingsbewaker in de poort (issue #44; config/tests/scripts,
   **additief** — geen regel `src/**.py` geraakt, geen contract dat nlriochecker importeert).
   `pyproject.toml` kreeg `[tool.hatch.build.targets.sdist]` met een expliciete

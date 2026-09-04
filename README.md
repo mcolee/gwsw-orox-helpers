@@ -32,6 +32,13 @@ Drie bewerkingen op een OroX-export, elk uit één ingang.
 klassenhiërarchie, met de GML-geometrie als shapely-objecten. Zonder opgave leest het met de gebundelde
 GWSW-ontologie (default 1.6). `laad_met_cache` maakt herladen vrijwel gratis.
 
+De cache legt de gelezen dataset weg als `pickle` onder `cache_dir` (standaard `$XDG_CACHE_HOME` of
+`~/.cache/gwsw-orox-helpers`). Omdat het teruglezen van een `pickle` code kan uitvoeren, is de cachemap een
+**vertrouwde, niet-gedeelde map**: de package maakt hem privé aan (mode `0o700`) en slaat het lezen én schrijven
+over — met een waarschuwing — als de map of een cachebestand van een andere gebruiker is of schrijfbaar is voor
+groep of anderen; dan wordt gewoon uit het bestand ingelezen. Op Windows draait die eigenaar- en rechtencheck niet;
+zet `cache_dir` daar in het gebruikersprofiel (`%LOCALAPPDATA%`) en niet op een gedeelde locatie.
+
 **Schrijven** — `schrijf_orox` regenereert een export van bestand naar bestand: niet byte-gelijk aan de bron, wel
 graaf-gelijk (isomorf). Het schrijft via een tijdelijk bestand en hernoemt pas bij succes, zodat een fout halverwege
 geen afgekapte export achterlaat.

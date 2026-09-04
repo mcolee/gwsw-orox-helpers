@@ -315,9 +315,10 @@ poort vangt een omzeilde cap (`pip install --no-deps`, een conda-omgeving, een
 handmatige upgrade) met een leesbare `MotorError` — sinds issue #31 een eigen familie
 onder `DatasetError`, want dit is de enige fout van de package die niet over invoer gaat
 maar over de installatie eronder. De poort valt **bij het importeren
-van `rdfmotor`, één keer**: dat kost niets in de hete lus, en aan de aanroepkant zou de
-fout in de `except Exception` van `bestand._parse` belanden en er als "geen geldige
-Turtle" uitkomen. Beide plekken worden aan elkaar geknoopt door
+van `rdfmotor`, één keer**: dat kost niets in de hete lus, en aan de aanroepkant zou een
+`MotorError` niet in de smalle vangst van `bestand._parse` (`MOTORFOUTEN` plus `TypeError`)
+vallen en dus rauw naar buiten komen op de plek waar de eerste quad opgehaald wordt in
+plaats van waar de aanroep staat. Beide plekken worden aan elkaar geknoopt door
 `test_de_reeks_is_dezelfde_als_de_cap_in_pyproject`.
 
 Wat er **niet** doorheen gaat, is even bewust: de term-fabrieken (`NamedNode`,

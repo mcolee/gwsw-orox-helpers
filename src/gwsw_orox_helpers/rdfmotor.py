@@ -27,8 +27,10 @@ hij kan omzeild worden (`pip install --no-deps`, een conda-omgeving, een handmat
 upgrade in een bestaande venv) en dan is er niets meer dat waarschuwt. De poort hieronder
 is die waarschuwing. Ze staat **bij het importeren van deze module en niet per aanroep**,
 om twee redenen. Ze kost dan niets in de hete lus. En ze valt vóór het eerste bestand:
-een fout bij de aanroep zou in de `except Exception` van `bestand._parse` belanden en er
-als "geen geldige Turtle" uitkomen -- precies de misleiding die deze module wegneemt.
+een `MotorError` zit niet in de smalle vangst van `bestand._parse` (`MOTORFOUTEN` plus
+`TypeError`) en zou per aanroep dus rauw naar buiten komen op de plek waar de eerste quad
+opgehaald wordt in plaats van waar de aanroep staat. Bij het importeren valt de poort
+vóór dat alles en blijft daarom de juiste plek.
 `ONDERSTEUNDE_REEKS` en de cap worden aan elkaar geknoopt door
 `test_de_reeks_is_dezelfde_als_de_cap_in_pyproject`, zodat ze niet uit elkaar lopen.
 

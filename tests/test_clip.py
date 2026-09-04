@@ -1057,17 +1057,20 @@ def test_onleesbare_grenslaag_is_een_dataseterror(tmp_path: Path) -> None:
 
 
 def test_diep_geneste_grenslaag_is_een_dataseterror(tmp_path: Path) -> None:
-    """20000x `[` laat `json.loads` een kale `RecursionError` gooien (issue #22).
+    """20000x `[` laat `json.loads` op de diepte struikelen (issue #22).
 
-    Die ontsnapte uit de publieke `clip_orox`, terwijl het hele grenzenpad `DatasetError`
-    belooft. `pytest.raises(DatasetError)` legt dat allebei vast: hij faalt zowel als er
-    niets vliegt als wanneer de `RecursionError` er kaal doorheen komt.
+    De kale fout ontsnapte uit de publieke `clip_orox`, terwijl het hele grenzenpad
+    `DatasetError` belooft. `pytest.raises(DatasetError)` legt dat allebei vast: hij faalt
+    zowel als er niets vliegt als wanneer de fout er kaal doorheen komt. Het oorzaaktype
+    verschilt per interpreter -- CPython <=3.13 laat de C-scanner een `RecursionError`
+    gooien, 3.14 meldt de diepte als een `JSONDecodeError` -- maar dat is niet het contract:
+    het contract is de `DatasetError`, niet het onderliggende oorzaaktype.
     """
     pad = tmp_path / "grens.geojson"
     pad.write_text("[" * 20000, encoding="utf-8")
     with pytest.raises(DatasetError, match="geen leesbare GeoJSON") as gevangen:
         clip_orox(MINI, pad, tmp_path / "uit", sleutel="naam")
-    assert isinstance(gevangen.value.__cause__, RecursionError)
+    assert isinstance(gevangen.value.__cause__, (RecursionError, json.JSONDecodeError))
 
 
 def test_grenslaag_zonder_vlakken_is_een_dataseterror(tmp_path: Path) -> None:

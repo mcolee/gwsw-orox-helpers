@@ -1,6 +1,11 @@
 # Changelog
 
 ## [Unreleased]
+- CI toetst nu ook op Python 3.14 (`toets.yml`-matrix `["3.12", "3.13", "3.14"]`), de
+  dekking wordt met takdekking gemeten (`[tool.coverage.run] branch = true`) en de tot dan
+  ongedekte opruim-tak van `cache._schrijf_atomair` (een afgebroken schrijf verwijdert het
+  tijdelijke bestand) heeft een test (issue #54, config/tests; **additief** — geen bestaande
+  signatuur, retourvorm of gedrag geraakt). De dekkingsdrempel blijft 95 %.
 - Lagentekening compleet en bewaakt: de ontbrekende randen `bestand -> namen`,
   `cache -> bronnen` en `cache -> errors` staan nu in `docs/architectuur.md` (en `namen` in
   de docstring van `bestand.py`), en een nieuwe wortel-AST-test

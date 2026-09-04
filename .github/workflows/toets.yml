@@ -11,8 +11,8 @@ on:
   # commit aan, zodat een release door exact dezelfde vijf stappen (plus de zesde
   # verpakkingsbewaker) gaat als élke push op `main`/`dev`. De `push`- en
   # `pull_request`-triggers, de matrix en de jobnaam blijven ongewijzigd — de
-  # branchbeveiliging op `main` hangt aan de checknamen `poort (3.12)` en `poort (3.13)`,
-  # en die mogen niet verschuiven.
+  # branchbeveiliging op `main` hangt aan de checknamen `poort (3.12)`, `poort (3.13)` en
+  # `poort (3.14)`, en die mogen niet verschuiven.
   workflow_call:
 
 # Een nieuwe push op dezelfde ref maakt de lopende run overbodig: annuleer hem in plaats
@@ -25,13 +25,15 @@ jobs:
   poort:
     runs-on: ubuntu-latest
     strategy:
-      # Beide interpreters afmaken; een rode 3.13 mag de 3.12-uitslag niet wegnemen.
+      # Alle drie de interpreters afmaken; een rode 3.13 of 3.14 mag de 3.12-uitslag niet
+      # wegnemen.
       fail-fast: false
       matrix:
-        # `requires-python = ">=3.12"` wordt zo op de onder- én bovengrens getoetst in
-        # plaats van op een toevallige interpreter. Kost 2x de runtime van één leg;
-        # de cache en het annuleren van superseded runs hierboven betalen dat terug.
-        python-version: ["3.12", "3.13"]
+        # `requires-python = ">=3.12"` wordt zo op de ondergrens (3.12) én de bovengrens
+        # (3.14, de nieuwste gedragen interpreter) getoetst in plaats van op een toevallige
+        # interpreter. Kost 3x de runtime van één leg; de cache en het annuleren van
+        # superseded runs hierboven betalen dat terug.
+        python-version: ["3.12", "3.13", "3.14"]
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v5

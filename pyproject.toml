@@ -122,6 +122,12 @@ disallow_untyped_defs = true
 # vlag kost daar niets en bewaakt hem meteen.
 warn_unused_ignores = true
 
+[tool.coverage.run]
+# Takdekking (`has_arcs`), niet alleen regeldekking: zo telt een `if`/`except` die wel
+# gedraaid wordt maar met maar één uitkomst als ongedekte tak. De poort meet de drempel
+# hieronder daarmee (issue #54).
+branch = true
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 # `zwaar` draait tegen exports van honderden megabytes die niet in de repo zitten; die

@@ -703,3 +703,33 @@ def test_source_op_een_treffer_is_het_gevraagde_pad(tmp_path: Path) -> None:
     assert eerste.sleutel == tweede.sleutel
     assert koud.source == map_a / "mini.ttl"
     assert warm.source == map_b / "mini.ttl"
+
+
+# --- De atomische schrijfweg (`_schrijf_atomair`) ------------------------------
+
+
+def test_schrijf_atomair_ruimt_het_tijdelijke_bestand_op_bij_een_afgebroken_schrijf(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """De opruim-tak van `_schrijf_atomair`: een afgebroken schrijf laat niets half achter.
+
+    `_schrijf_atomair` schrijft eerst naar een `mkstemp`-bestand en hernoemt dat pas
+    atomisch naar de doelnaam, zodat een lezer nooit een half geschreven bestand als
+    geldige cache ziet. Breekt het schrijven af -- hier een `KeyboardInterrupt` in
+    `pickle.dump`, precies de "afgebroken schrijfactie" uit de docstring -- dan vangt de
+    brede `except BaseException` hem op, verwijdert het tijdelijke bestand en gooit de fout
+    door. De `except` is bewust op `BaseException` en niet op `Exception`: juist een
+    Ctrl-C midden in de schrijf mag geen half bestand achterlaten.
+    """
+    pad = tmp_path / BESTAND_GRAAF
+
+    def afgebroken_dump(*args: object, **kwargs: object) -> None:
+        raise KeyboardInterrupt("afgebroken tijdens het schrijven")
+
+    monkeypatch.setattr(cache_module.pickle, "dump", afgebroken_dump)
+
+    with pytest.raises(KeyboardInterrupt):
+        cache_module._schrijf_atomair(pad, {"iets": 1})
+
+    assert not pad.exists(), "de atomische hernoeming mag niet gebeurd zijn"
+    assert list(tmp_path.glob("*.tijdelijk")) == [], "het tijdelijke bestand is opgeruimd"

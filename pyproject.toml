@@ -57,6 +57,29 @@ dev = [
 [tool.hatch.build.targets.wheel]
 packages = ["src/gwsw_orox_helpers"]
 
+# Expliciete allowlist voor de bron-tarbal (issue #44). Zonder deze sectie nam de sdist de
+# hele werkboom mee -- agent-tooling (`.claude/`), CI (`.github/`), `CLAUDE.md`, `uv.lock`,
+# `docs/agents/` en `manifesto.md`. `only-include` laat er precies de bron, de tests, de
+# scripts, de architectuurschets en de PyPI-bestanden in. De gebundelde ontologieën en de
+# testfixtures reizen mee omdat ze onder `src/` respectievelijk `tests/` vallen; de wheel
+# blijft ongewijzigd (die heeft zijn eigen `wheel`-target hierboven).
+[tool.hatch.build.targets.sdist]
+only-include = [
+    "src",
+    "tests",
+    "scripts",
+    "docs/architectuur.md",
+    "README.md",
+    "CHANGELOG.md",
+    "LICENSE",
+    "pyproject.toml",
+]
+# Kanttekening: hatchling (1.32) `force_include`t de projecteigen `.gitignore` altijd in de
+# sdist -- een `exclude` haalt hem er niet uit, want force-include wint. Dat is een gewoon,
+# ongevaarlijk sdist-bestand (elke hatchling-sdist draagt het) en geen agent-tooling; de
+# drifttest in `tests/test_sdist.py` verbiedt hem daarom niet, en de §3-controle van issue
+# #44 (`\.claude|CLAUDE\.md|uv\.lock|\.github`) raakt hem evenmin.
+
 [tool.ruff]
 line-length = 100
 src = ["src", "tests"]

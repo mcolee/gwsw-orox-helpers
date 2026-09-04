@@ -17,6 +17,7 @@ import rdflib
 from rdflib.compare import isomorphic
 from rdflib.namespace import OWL, RDF
 
+from conftest import dewoldenhoogeveen_export
 from gwsw_orox_helpers import schrijven
 from gwsw_orox_helpers.errors import DatasetError
 from gwsw_orox_helpers.schrijven import (
@@ -33,8 +34,9 @@ CP850 = TTL_DIR / "codering_cp850.ttl"
 # De echte voorbeeldexport van Stichting RIONED (Juinen), sinds issue #10 byte-exact als
 # fixture gebundeld; de test hangt daarmee niet meer aan een pad buiten de repo.
 JUINEN = TTL_DIR / "juinen_voorbeeld_v1_6.ttl"
-# De export van De Wolden en Hoogeveen: 112 MB, ook niet getrackt (marker `zwaar`).
-DEWOLDEN = Path("/home/martin/nlriochecker/data/gwsw_orox_ttl/dewoldenhoogeveen_orox.ttl")
+# De export van De Wolden en Hoogeveen: 112 MB, ook niet getrackt (marker `zwaar`). Het pad
+# komt uit `conftest` (thuismap of `GWSW_OROX_FIXTUREPAD`), niet meer hard uit deze regel.
+DEWOLDEN = dewoldenhoogeveen_export()
 
 RDF_TYPE = "http://www.w3.org/1999/02/22-rdf-syntax-ns#type"
 GWSW_BASIS = "http://data.gwsw.nl/"

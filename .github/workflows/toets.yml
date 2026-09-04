@@ -41,3 +41,10 @@ jobs:
       # pytest-cov komt uit de gelockte dev-groep, niet meer ongepind van PyPI via
       # `--with`; uv synct de dev-groep standaard mee.
       - run: uv run pytest -q --cov=gwsw_orox_helpers --cov-fail-under=95
+      # Zesde stap, ná de vijf poortstappen: bouw wheel én sdist en laat er twee
+      # verpakkingsbewakers overheen. `twine check` toetst de metadata en
+      # `check-wheel-contents` de wheel-inhoud; samen borgen ze dat een release geen
+      # agent-tooling of lokale paden meeneemt (issue #44). `uvx` haalt de twee tools los
+      # van de gelockte set. De vijf stappen hierboven blijven de poort; dit is een bewaker
+      # ernaast.
+      - run: uv build && uvx twine check dist/* && uvx check-wheel-contents dist/*.whl

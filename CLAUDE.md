@@ -63,7 +63,10 @@ Eerste afnemer: nlriochecker. Nederlandse identifiers, GWSW-conform.
   `uv run` volstaat, `--group dev` is niet nodig. Zo draait de dekkingsstap uit de
   gelockte set in plaats van elke keer een ongepinde download.
   Dezelfde vijf staan in `.github/workflows/toets.yml`; wijkt de een af, dan wijken ze
-  allebei af. Draai hem bij elke commit die `src/**.py` raakt en **lees de uitvoer** —
+  allebei af. CI draait daarnaast, ná die vijf, `uv build && uvx twine check dist/* && uvx
+  check-wheel-contents dist/*.whl` als sdist-/wheel-bewaker (issue #44) — een zesde stap die
+  de vijf niet raakt en die je lokaal alleen bij een packaging-wijziging hoeft te draaien.
+  Draai hem bij elke commit die `src/**.py` raakt en **lees de uitvoer** —
   "de tests draaiden" is geen bewijs, de geplakte uitvoer wel. Let op: `ruff format
   --check .` controleert óók Python-codeblokken in Markdown; een README-only commit kan
   de poort dus rood zetten (gebeurde 27-08), draai die check ook bij docs met codeblokken.

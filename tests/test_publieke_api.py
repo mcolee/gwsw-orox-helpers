@@ -11,8 +11,9 @@ namen op vervolgregels en die mist een regelgerichte grep (zo ontbraken de vier
     python3 - <<'PY'
     import ast, pathlib, collections
     namen = collections.defaultdict(set)
-    for wortel in ("/home/martin/nlriochecker/src", "/home/martin/nlriochecker/tests"):
-        for pad in pathlib.Path(wortel).rglob("*.py"):
+    basis = pathlib.Path.home() / "nlriochecker"  # of $NLRIOCHECKER
+    for wortel in (basis / "src", basis / "tests"):
+        for pad in wortel.rglob("*.py"):
             for knoop in ast.walk(ast.parse(pad.read_text(encoding="utf-8"))):
                 if not isinstance(knoop, ast.ImportFrom):
                     continue

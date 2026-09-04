@@ -59,8 +59,10 @@ WORTEL = Path(__file__).resolve().parents[1]
 
 # Dezelfde twee bestanden als de `zwaar`-tests in `tests/test_schrijven.py` en
 # `tests/test_clip.py`: de 112 MB-export van De Wolden en Hoogeveen (niet getrackt) en
-# de gemeentegrenzen die er in deze repo bij horen.
-BRON = Path("/home/martin/nlriochecker/data/gwsw_orox_ttl/dewoldenhoogeveen_orox.ttl")
+# de gemeentegrenzen die er in deze repo bij horen. Het exportpad staat standaard onder de
+# thuismap en is te overschrijven met GWSW_OROX_FIXTUREPAD (issue #44), net als bij de tests.
+_EXPORT_ONDER_HOME = Path("nlriochecker/data/gwsw_orox_ttl/dewoldenhoogeveen_orox.ttl")
+BRON = Path(os.environ.get("GWSW_OROX_FIXTUREPAD") or Path.home() / _EXPORT_ONDER_HOME)
 GRENZEN = WORTEL / "tests" / "fixtures" / "gis" / "gemeentegrenzen_dewoldenhoogeveen.geojson"
 SLEUTEL = "gemeentenaam"
 # Deze BrutIS-export is geen zuivere UTF-8 (cp850-bytes in een straatnaam); nlriochecker

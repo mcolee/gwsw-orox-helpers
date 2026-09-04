@@ -60,6 +60,7 @@ from __future__ import annotations
 
 import argparse
 import gc
+import os
 import resource
 import statistics
 import sys
@@ -69,9 +70,11 @@ from pathlib import Path
 from gwsw_orox_helpers.dataset import GwswDataset, load_dataset
 
 # Dezelfde export als `scripts/benchmark.py` en de `zwaar`-tests: De Wolden en Hoogeveen,
-# 112 MB, niet getrackt. De BrutIS-export is geen zuivere UTF-8 (cp850-bytes in een
-# straatnaam), vandaar de terugval.
-BRON = Path("/home/martin/nlriochecker/data/gwsw_orox_ttl/dewoldenhoogeveen_orox.ttl")
+# 112 MB, niet getrackt. Standaard onder de thuismap, te overschrijven met
+# GWSW_OROX_FIXTUREPAD (issue #44). De BrutIS-export is geen zuivere UTF-8 (cp850-bytes in
+# een straatnaam), vandaar de terugval.
+_EXPORT_ONDER_HOME = Path("nlriochecker/data/gwsw_orox_ttl/dewoldenhoogeveen_orox.ttl")
+BRON = Path(os.environ.get("GWSW_OROX_FIXTUREPAD") or Path.home() / _EXPORT_ONDER_HOME)
 FALLBACK_ENCODING = "cp850"
 
 # De standaardwortels van deze meting -- een default van dit script, geen constante van

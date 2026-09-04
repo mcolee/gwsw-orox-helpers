@@ -17,6 +17,7 @@ import rdflib
 from rdflib.compare import isomorphic
 from rdflib.namespace import RDF
 
+from conftest import dewoldenhoogeveen_export
 from gwsw_orox_helpers.clip import clip_orox, merge_orox
 from gwsw_orox_helpers.errors import DatasetError
 
@@ -33,8 +34,9 @@ MINI_GRENS = GIS_DIR / "mini_grens.geojson"
 # daarom een eigen grensfixture die zijn eigen omhullende in tweeen deelt.
 JUINEN = TTL_DIR / "juinen_voorbeeld_v1_6.ttl"
 JUINEN_GRENS = GIS_DIR / "juinen_grens.geojson"
-# De export van De Wolden en Hoogeveen: 112 MB, ook niet getrackt (marker `zwaar`).
-DEWOLDEN = Path("/home/martin/nlriochecker/data/gwsw_orox_ttl/dewoldenhoogeveen_orox.ttl")
+# De export van De Wolden en Hoogeveen: 112 MB, ook niet getrackt (marker `zwaar`). Het pad
+# komt uit `conftest` (thuismap of `GWSW_OROX_FIXTUREPAD`), niet meer hard uit deze regel.
+DEWOLDEN = dewoldenhoogeveen_export()
 DEWOLDEN_GRENS = GIS_DIR / "gemeentegrenzen_dewoldenhoogeveen.geojson"
 
 MINI_BASIS = "http://sparql.gwsw.nl/repositories/Mini#"

@@ -42,6 +42,7 @@ als `scripts/benchmark.py`, dat zich meldt en met code 0 eindigt in plaats van t
 from __future__ import annotations
 
 import argparse
+import os
 import re
 import statistics
 import time
@@ -63,9 +64,11 @@ type Meetkunde = Point | LineString | Polygon
 type Lezer = Callable[[str], tuple[Meetkunde, list[float | None]]]
 
 # Dezelfde export als `scripts/benchmark.py` en de `zwaar`-tests: De Wolden en Hoogeveen,
-# 112 MB, niet getrackt. De BrutIS-export is geen zuivere UTF-8 (cp850-bytes in een
-# straatnaam), vandaar de terugval.
-BRON = Path("/home/martin/nlriochecker/data/gwsw_orox_ttl/dewoldenhoogeveen_orox.ttl")
+# 112 MB, niet getrackt. Standaard onder de thuismap, te overschrijven met
+# GWSW_OROX_FIXTUREPAD (issue #44). De BrutIS-export is geen zuivere UTF-8 (cp850-bytes in
+# een straatnaam), vandaar de terugval.
+_EXPORT_ONDER_HOME = Path("nlriochecker/data/gwsw_orox_ttl/dewoldenhoogeveen_orox.ttl")
+BRON = Path(os.environ.get("GWSW_OROX_FIXTUREPAD") or Path.home() / _EXPORT_ONDER_HOME)
 FALLBACK_ENCODING = "cp850"
 
 HERHALINGEN = 3

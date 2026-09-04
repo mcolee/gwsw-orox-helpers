@@ -1,6 +1,27 @@
 # Changelog
 
 ## [Unreleased]
+- Sdist-hygiëne plus een verpakkingsbewaker in de poort (issue #44; config/tests/scripts,
+  **additief** — geen regel `src/**.py` geraakt, geen contract dat nlriochecker importeert).
+  `pyproject.toml` kreeg `[tool.hatch.build.targets.sdist]` met een expliciete
+  `only-include`-allowlist (`src`, `tests`, `scripts`, `docs/architectuur.md`, `README.md`,
+  `CHANGELOG.md`, `LICENSE`, `pyproject.toml`); de sdist droeg tot nu toe de hele werkboom —
+  `.claude/`, `CLAUDE.md`, `uv.lock`, `.github/`, `docs/agents/`, `manifesto.md`, en de
+  hard gespelde thuismap-paden die de scripts en drie testbestanden droegen (122
+  bestanden, 1.185.400 bytes). De wheel blijft byte-identiek (36 bestanden, eigen
+  `wheel`-target). Kanttekening: hatchling 1.32 `force_include`t de projecteigen
+  `.gitignore` altijd in de sdist en geen `pyproject.toml`-optie zet dat uit — een gewoon,
+  ongevaarlijk sdist-bestand, buiten de §3-controle van het issue en de drifttest gelaten.
+  `.github/workflows/toets.yml` draait ná de vijf poortstappen een zesde stap
+  `uv build && uvx twine check dist/* && uvx check-wheel-contents dist/*.whl` als
+  sdist-/wheel-bewaker; `CLAUDE.md` (Werkwijze) noemt die stap nu. De vier
+  benchmarkscripts en `tests/test_clip.py`/`tests/test_schrijven.py` lezen het pad naar de
+  niet-getrackte 112 MB-export voortaan uit `Path.home()` met een override via
+  `GWSW_OROX_FIXTUREPAD` (voor de tests op één plek in `tests/conftest.py`); de `zwaar`-tests
+  slaan zichzelf net als voorheen over als het bestand ontbreekt. Nieuw:
+  `tests/test_sdist.py`, dat `uv build --sdist` in een `tmp_path` draait en de tar-listing
+  toetst — de zeven verboden vormen eruit, de gebundelde 1.6-ontologie plus `README.md`,
+  `LICENSE` en `pyproject.toml` erin.
 - `README.md` als PyPI-landingspagina (issue #43; docs, **additief** — geen regel
   `src/**.py` en geen `pyproject.toml` geraakt). Alle relatieve links (badges naar `LICENSE`
   en `pyproject.toml`, en de verwijzingen naar `CHANGELOG.md`, `docs/architectuur.md` en

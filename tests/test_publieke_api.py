@@ -265,6 +265,10 @@ HANDTEKENINGEN: dict[str, str] = {
         "koppelingsherstel: 'Koppelingsherstel' = "
         "Koppelingsherstel(koppelingen=0, hulpstukken=0)) -> None"
     ),
+    # Additief sinds issue #39: het drieveldige type dat `GwswDataset.gwsw_versie` teruggeeft.
+    # De property zelf staat niet in dit dict -- `inspect.signature` faalt op een property --
+    # maar in `test_de_publieke_leesweg_naar_de_gwsw_versie_ligt_vast` hieronder.
+    "dataset.GwswVersie": "(basis: 'str', versie: 'str', gedetecteerd: 'bool') -> None",
     "dataset.Node": (
         "(uri: 'str', label: 'str', types: 'frozenset[str]', orientation: 'str | None', "
         "orientation_types: 'frozenset[str]', point: 'Point | None', z: 'float | None', "
@@ -431,6 +435,7 @@ VELDEN: dict[str, tuple[str, ...]] = {
         "z_values",
         "vulwaarden",
     ),
+    "dataset.GwswVersie": ("basis", "versie", "gedetecteerd"),
     "dataset.Aspect": ("kind", "value", "reference", "inwinning"),
     "dataset.Inwinning": ("wijze", "datum"),
     "dataset.Vulwaarde": ("kind", "value"),
@@ -467,6 +472,20 @@ def test_velden_liggen_vast(naam: str) -> None:
 @pytest.mark.parametrize("naam", sorted(CONSTANTEN))
 def test_constante_ligt_vast(naam: str) -> None:
     assert str(_op(naam)) == CONSTANTEN[naam]
+
+
+def test_de_publieke_leesweg_naar_de_gwsw_versie_ligt_vast() -> None:
+    """De property `gwsw_versie` en het type `GwswVersie` zijn publiek (issue #39).
+
+    De handtekening van `GwswVersie` en zijn velden staan in `HANDTEKENINGEN`/`VELDEN`
+    hierboven; een property gaat daar niet door (`inspect.signature` faalt erop), dus
+    staat hij hier. `getattr_static` leest hem zonder hem te draaien.
+    """
+    assert "GwswVersie" in dataset.__all__
+    prop = inspect.getattr_static(dataset.GwswDataset, "gwsw_versie")
+    assert isinstance(prop, property)
+    assert prop.fget is not None
+    assert _handtekening(prop.fget) == "(self) -> 'GwswVersie'"
 
 
 def test_uitzonderingen_houden_hun_plaats_in_de_hierarchie() -> None:

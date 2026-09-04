@@ -202,3 +202,91 @@ def test_cachesleutel_verschilt_per_versie() -> None:
     from gwsw_orox_helpers.cache import cachesleutel
 
     assert cachesleutel(TTL16) != cachesleutel(TTL17)
+
+
+# --------------------------------------------------------------------------------------
+# De publieke leesweg naar de versie: `GwswDataset.gwsw_versie` (issue #39)
+# --------------------------------------------------------------------------------------
+
+
+def test_versie_uit_basis_geeft_het_versienummer() -> None:
+    """De totale tegenhanger van `versie_van_basis`: één taal voor `bronnen` en de property."""
+    assert namen.versie_uit_basis(BASIS_16) == "1.6"
+    assert namen.versie_uit_basis(BASIS_17) == "1.7"
+    with pytest.raises(ValueError, match="geen GWSW-basis"):
+        namen.versie_uit_basis("http://example.org/")
+
+
+def test_gwsw_versie_op_de_16_en_17_fixtures() -> None:
+    """De gedetecteerde versie van een gebundelde fixture, met de drie tekens (issue #39)."""
+    from gwsw_orox_helpers.dataset import GwswVersie, load_dataset
+
+    assert load_dataset(TTL16).gwsw_versie == GwswVersie(BASIS_16, "1.6", True)
+    assert load_dataset(TTL17).gwsw_versie == GwswVersie(BASIS_17, "1.7", True)
+
+
+def test_gwsw_versie_valt_terug_zonder_gwsw_typen(tmp_path: Path) -> None:
+    """Geen enkele GWSW-getypeerde knoop of streng is per definitie de terugval (issue #39).
+
+    De put wordt structureel aan haar puntgeometrie herkend, maar draagt zelf een eigen,
+    niet-GWSW `rdf:type`. `gwsw_versie` leidt de basis -- net als `_basis` -- af uit de
+    typen van de knopen en strengen, dus valt hij hier terug op de gepinde 1.6-basis met
+    `gedetecteerd=False`. De `_parse`-terugval op een bron zónder enkele GWSW-marker (de
+    `logging.warning`) staat apart in `test_parse_zonder_herkenbare_versie...`; die bron
+    levert per definitie nul knopen op en is dus niet dezelfde als deze.
+    """
+    from gwsw_orox_helpers.dataset import GwswVersie, load_dataset
+
+    bron = (
+        "@prefix rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .\n"
+        "@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .\n"
+        "@prefix geo: <http://www.opengis.net/ont/geosparql#> .\n"
+        f"@prefix gwsw: <{BASIS_16}> .\n"
+        "@prefix : <http://example.org/toets#> .\n\n"
+        ':Ding rdf:type <http://example.org/toets#EigenType> ; rdfs:label "D" ;\n'
+        "    gwsw:hasAspect :Ding_ori .\n"
+        ":Ding_ori gwsw:hasAspect [ rdf:type gwsw:Punt ; gwsw:hasValue "
+        '"<gml:Point xmlns:gml=\\"http://www.opengis.net/gml\\">'
+        '<gml:pos>1000.0 2000.0</gml:pos></gml:Point>"^^geo:gmlLiteral ] .\n'
+    )
+    pad = tmp_path / "geen_gwsw_typen.ttl"
+    pad.write_text(bron, encoding="utf-8")
+
+    dataset = load_dataset(pad, ontology_paths=[])
+
+    assert dataset.nodes, "voorwaarde: de put is structureel aan haar punt herkend"
+    assert not any(
+        typ.startswith(BASIS_16) for node in dataset.nodes.values() for typ in node.types
+    ), "voorwaarde: geen enkele knoop draagt een GWSW-type"
+    assert dataset.gwsw_versie == GwswVersie(BASIS_16, "1.6", False)
+
+
+def test_gwsw_versie_laadt_de_luie_graaf_niet(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """De vlag mag op het cachepad de graafpickle niet aanraken (issue #39).
+
+    Dezelfde bewaker als `test_de_luie_graaf_geeft_...` in `tests/test_cache.py`: een
+    cachetreffer levert een `LuieGraaf`, en het lezen van `gwsw_versie` -- dat via de typen
+    van de al gepicklede knopen en strengen loopt -- hoort de graaf (tientallen seconden en
+    honderden MB) niet van schijf te trekken. Het laadmoment is aan de logregel van
+    `_geladen` af te lezen.
+    """
+    from gwsw_orox_helpers import cache as cache_module
+    from gwsw_orox_helpers.cache import LuieGraaf, laad_met_cache
+
+    laad_met_cache(TTL16, [], cache_dir=tmp_path)
+    with caplog.at_level(logging.INFO, logger=cache_module.__name__):
+        warm, uitslag = laad_met_cache(TTL16, [], cache_dir=tmp_path)
+        assert uitslag.bron == "cache"
+        assert isinstance(warm.graph, LuieGraaf)
+
+        versie = warm.gwsw_versie
+
+        assert versie == warm.gwsw_versie  # gememoiseerd: hetzelfde antwoord
+        assert versie.versie == "1.6"
+        assert versie.gedetecteerd is True
+        assert sum("Graaf van schijf gelezen" in bericht for bericht in caplog.messages) == 0
+        # Tekst-onafhankelijke tegenhanger: `_graaf` is een echte instance-var uit `__init__`
+        # (geen `__getattr__`-omweg) en blijft `None` zolang de pickle niet gelezen is.
+        assert warm.graph._graaf is None

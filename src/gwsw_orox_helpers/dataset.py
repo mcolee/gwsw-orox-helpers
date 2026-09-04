@@ -111,7 +111,14 @@ from gwsw_orox_helpers.klassen import (
     _klassefuncties,
     _subclass_closure,
 )
-from gwsw_orox_helpers.namen import GWSW, _short, _uri, basis_uit_iri, versie_van_basis
+from gwsw_orox_helpers.namen import (
+    GWSW,
+    _short,
+    _uri,
+    basis_uit_iri,
+    versie_uit_basis,
+    versie_van_basis,
+)
 from gwsw_orox_helpers.voortgang import NUL_VOORTGANG, Voortgang
 
 _logger = logging.getLogger(__name__)
@@ -159,6 +166,7 @@ __all__ = [
     "DecodeFallback",
     "GeometryError",
     "GwswDataset",
+    "GwswVersie",
     "Inwinning",
     "Koppelingsherstel",
     "Node",
@@ -175,6 +183,30 @@ __all__ = [
     "part_holders_of",
     "parts_of",
 ]
+
+
+@dataclass(frozen=True)
+class GwswVersie:
+    """De GWSW-versie waarop een dataset gelezen is (issue #39).
+
+    Drie tekens, alle drie afgeleid en geen van alle een init-veld op `GwswDataset`:
+    `basis` is de namespace (bv. `http://data.gwsw.nl/1.7/totaal/`), `versie` het
+    versienummer daaruit (`"1.6"`, `"1.7"`; via `namen.versie_uit_basis`, hetzelfde
+    patroon als `bronnen.GEBUNDELDE_VERSIES`) en `gedetecteerd` of een knoop of streng van de
+    dataset een GWSW-type droeg waaruit die basis is afgeleid (`True`) dan wel geen enkele --
+    de terugval op de gepinde 1.6-basis (`False`). Dit is wat een afnemer die geen internals
+    mag aanraken (`nlriochecker`) in zijn rapportkop kan tonen.
+
+    Let wel: de vlag is de leesweg van `gwsw_versie` (typen van knopen en strengen, zodat het
+    cachepad de graafpickle niet laadt), niet die van `bestand._parse` (prefix en IRI-scan).
+    Een dataset waarvan de bron wél een GWSW-basis droeg maar geen enkel object een
+    GWSW-eigentype, meldt hier de terugval; de `_parse`-terugval (`logging.warning`) komt
+    alleen voor bij een bron zonder enige GWSW-marker, en die laadt niet.
+    """
+
+    basis: str
+    versie: str
+    gedetecteerd: bool
 
 
 @dataclass(frozen=True)
@@ -232,29 +264,36 @@ class GwswDataset:
     _types_memo: dict[str, frozenset[str]] = field(
         default_factory=dict, init=False, repr=False, compare=False
     )
-    # De gedetecteerde GWSW-basis van deze dataset (issue #32), gememoiseerd. Hij hoort bij
+    # De gedetecteerde GWSW-versie van deze dataset (issue #39), gememoiseerd. Hij hoort bij
     # de gepinde `dataset.GWSW`-constante géén tweede *veld* op `GwswDataset` te worden: de
     # dataclass-handtekening en de veldenlijst staan in `tests/test_publieke_api.py` letterlijk
     # vast, en een init-veld erbij zou die breken. Daarom een `init=False`-memo, net als
-    # `_types_memo`: hij telt niet mee in de handtekening en wordt niet gepickeld. `closure`
-    # en `is_connection_class` lezen hem in plaats van uit `self.graph` -- dat laatste zou op
-    # het luie cachepad (`cache.LuieGraaf`) de graafpickle van schijf trekken voor een run die
-    # de graaf verder niet aanraakt. De basis komt daarom uit de typen van de knopen en
-    # strengen, die al in het geheugen staan en dezelfde versie dragen als de graaf.
-    _gwsw_basis_memo: list[str] = field(default_factory=list, init=False, repr=False, compare=False)
+    # `_types_memo`: hij telt niet mee in de handtekening en wordt niet gepickeld. De publieke
+    # leesweg is de property `gwsw_versie`; `_basis` (voor `closure`/`is_connection_class`)
+    # leest hem voor de basis. Bewust niet uit `self.graph.gwsw_basis`: op het luie cachepad
+    # (`cache.LuieGraaf`) zou die attribuuttoegang de graafpickle van schijf trekken voor een
+    # run die de graaf verder niet aanraakt. De basis komt daarom uit de typen van de knopen
+    # en strengen, die al in het geheugen staan en dezelfde versie dragen als de graaf.
+    _gwsw_versie_memo: list[GwswVersie] = field(
+        default_factory=list, init=False, repr=False, compare=False
+    )
 
     @property
-    def _basis(self) -> str:
-        """De GWSW-basis van deze dataset, afgeleid uit de typen van haar objecten.
+    def gwsw_versie(self) -> GwswVersie:
+        """De GWSW-versie waarop deze dataset gelezen is; de publieke leesweg (issue #39).
 
-        Gememoiseerd, en bewust niet uit `self.graph.gwsw_basis`: op een cachetreffer is
-        `self.graph` een `cache.LuieGraaf` en zou die attribuuttoegang de graafpickle laden.
-        De typen van de knopen en strengen staan al in het geheugen en dragen dezelfde basis;
-        de eerste GWSW-getypeerde daarvan levert haar. Zonder zo'n type (een dataset zonder
-        enkele GWSW-klasse) valt hij terug op de gepinde 1.6-basis.
+        Gememoiseerd, en afgeleid uit de typen van de knopen en strengen -- niet uit
+        `self.graph.gwsw_basis`: op een cachetreffer is `self.graph` een `cache.LuieGraaf`
+        en zou die attribuuttoegang de graafpickle laden. De knopen en strengen staan al in
+        het geheugen (ze worden mee gepickeld, de graaf niet) en dragen dezelfde basis; de
+        eerste GWSW-getypeerde daarvan levert haar (`gedetecteerd=True`). Draagt geen enkele
+        knoop of streng een GWSW-type -- een dataset zonder enige GWSW-klasse -- dan is dat
+        per definitie de terugval op de gepinde 1.6-basis (`gedetecteerd=False`). Het
+        versienummer komt via `namen.versie_uit_basis`, zodat basis en cijfer dezelfde tekens
+        spreken als `bronnen.GEBUNDELDE_VERSIES`.
         """
-        if not self._gwsw_basis_memo:
-            gevonden = GWSW
+        if not self._gwsw_versie_memo:
+            gevonden: str | None = None
             for objecten in (self.nodes.values(), self.conduits.values()):
                 for obj in objecten:
                     treffer = next(
@@ -266,8 +305,24 @@ class GwswDataset:
                 else:
                     continue
                 break
-            self._gwsw_basis_memo.append(gevonden)
-        return self._gwsw_basis_memo[0]
+            basis = gevonden if gevonden is not None else GWSW
+            self._gwsw_versie_memo.append(
+                GwswVersie(
+                    basis=basis,
+                    versie=versie_uit_basis(basis),
+                    gedetecteerd=gevonden is not None,
+                )
+            )
+        return self._gwsw_versie_memo[0]
+
+    @property
+    def _basis(self) -> str:
+        """De GWSW-basis van deze dataset; interne leesweg voor `closure`/`is_connection_class`.
+
+        De publieke leesweg is `gwsw_versie`; dit is `gwsw_versie.basis`. Zie die property
+        voor waarom de basis uit de typen van de objecten komt en niet uit `self.graph`.
+        """
+        return self.gwsw_versie.basis
 
     def is_a(self, uri: str, root: str) -> bool:
         """Geeft aan of dit domeinobject van het type `root` of een subklasse is.

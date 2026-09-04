@@ -25,7 +25,11 @@ Eerste afnemer: nlriochecker. Nederlandse identifiers, GWSW-conform.
   versie die bij de gedetecteerde basis hoort. Een bron zonder herkenbare versie valt terug
   op 1.6 **met een `logging.warning`** (nooit stil); een gedetecteerde maar niet-gebundelde
   versie (bv. 1.8) leest met de gevonden termenset maar valt voor de ontologie terug op de
-  1.6-bundel, ook met een melding.
+  1.6-bundel, ook met een melding. De **publieke leesweg** naar die versie is de
+  gememoiseerde property `GwswDataset.gwsw_versie` (issue #39; het drieveldige `GwswVersie`:
+  `basis`, `versie`, `gedetecteerd`), niet het interne `_basis`; ze leidt de versie net als
+  `_basis` af uit de typen van de knopen en strengen, zodat het luie cachepad de graafpickle
+  niet hoeft te laden.
 
   Dit is de enige plek waar de versienummers als projectafspraak staan;
   `test_indexversie_staat_in_claude_md` leest per gebundelde index het `versie=`-deel hier

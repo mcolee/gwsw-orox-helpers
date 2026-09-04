@@ -136,6 +136,23 @@ def versie_van_basis(basis: str) -> str | None:
     return match.group(1) if match is not None else None
 
 
+def versie_uit_basis(basis: str) -> str:
+    """Het versienummer uit een GWSW-basis (`.../1.7/totaal/` -> `"1.7"`).
+
+    De totale tegenhanger van `versie_van_basis`: die geeft `None` voor een IRI buiten het
+    patroon `data.gwsw.nl/(\\d+\\.\\d+)/totaal/`, deze eist de basis-vorm. Bedoeld voor een
+    basis die al uit `basis_uit_iri`/`basis_uit_prefixen`/de gepinde `GWSW` komt en dus per
+    constructie het patroon volgt, zodat `GwswDataset.gwsw_versie` en
+    `bronnen.GEBUNDELDE_VERSIES` dezelfde tekens spreken. Een tekst die geen GWSW-basis is,
+    is een programmeerfout en geeft `ValueError`. Deelt de regex van `versie_van_basis`, zodat
+    de package het versienummer op één plek uit een basis haalt.
+    """
+    versie = versie_van_basis(basis)
+    if versie is None:
+        raise ValueError(f"{basis!r} is geen GWSW-basis-IRI")
+    return versie
+
+
 def basis_uit_iri(iri: str) -> str | None:
     """De GWSW-basis waarin deze IRI valt, of None als het geen GWSW-IRI is.
 

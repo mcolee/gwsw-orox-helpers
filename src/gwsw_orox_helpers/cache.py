@@ -45,6 +45,7 @@ from gwsw_orox_helpers import ontologie as ontologie_module
 from gwsw_orox_helpers import rdfmotor as rdfmotor_module
 from gwsw_orox_helpers.bronnen import GEBUNDELDE_VERSIES, gebundelde_ontologie_voor
 from gwsw_orox_helpers.dataset import GwswDataset, load_dataset, ontologiepaden
+from gwsw_orox_helpers.errors import BestandError
 from gwsw_orox_helpers.graaf import GraafIndex
 from gwsw_orox_helpers.voortgang import NUL_VOORTGANG, Voortgang
 
@@ -57,6 +58,18 @@ LADER_VERSIE = "2"
 
 BESTAND_STRUCTUREN = "structuren.pickle"
 BESTAND_GRAAF = "graaf.pickle"
+
+# Eén foutbeleid rond beide `pickle.load`-plekken (issue #48). `pickle.load` is in feite een
+# bytecode-interpreter: een onbruikbare pickle kan bij het laden vrijwel elke uitzondering
+# gooien. De fuzz uit #48 vond naast `UnpicklingError` ook `ValueError` (een vreemd
+# protocolbyte), `UnicodeDecodeError` en `OSError`; een opgesomde tuple is daarmee per
+# definitie incompleet en zou vals vertrouwen geven. "Onbruikbaar" betekent gewoon: het
+# laden gaf geen bruikbaar object, hoe dan ook -- en dan is herinlezen het juiste antwoord.
+# Daarom vangen we breed op `Exception` (nooit `BaseException`: `KeyboardInterrupt` en
+# `SystemExit` horen door te lopen). De rechtencheck vóór het laden (`_cachepad_vertrouwd`,
+# issue #45) blijft de bewaker tegen kwaadaardige `__reduce__`-payloads; dit beleid gaat
+# alleen over welk fouttype "onbruikbaar" dekt.
+_PICKLE_FOUTEN: type[Exception] = Exception
 
 # "De lader" is niet één bestand maar de hele leeslaag: `dataset` biedt hem aan,
 # `bestand` maakt van een TTL-bestand een gevulde index, `inlezen` leest die index uit,
@@ -200,13 +213,7 @@ class LuieGraaf:
                 try:
                     with self._pad.open("rb") as bestand:
                         self._graaf = pickle.load(bestand)
-                except (
-                    pickle.UnpicklingError,
-                    EOFError,
-                    TypeError,
-                    AttributeError,
-                    OSError,
-                ) as fout:
+                except _PICKLE_FOUTEN as fout:
                     logger.warning(
                         "De graafcache in %s is onbruikbaar (%s); graaf opnieuw "
                         "ingelezen uit de brondata.",
@@ -230,7 +237,20 @@ class LuieGraaf:
         """
         assert self._graaf is not None
         if _cachepad_vertrouwd(self._pad.parent) is None:
-            _schrijf_atomair(self._pad, self._graaf)
+            # De graaf is al hersteld en in het geheugen; lukt het terugschrijven niet (een
+            # read-only mount, een volle schijf), dan is dat een gemiste versnelling en geen
+            # fout (issue #48, deel b). Zonder dit vangnet zou die `OSError` kaal uit
+            # `_geladen` ontsnappen op het moment dat een check de graaf voor het eerst
+            # aanraakt -- precies het pad dat `LuieGraaf` juist zonder crash moet afhandelen.
+            try:
+                _schrijf_atomair(self._pad, self._graaf)
+            except OSError as fout:
+                logger.warning(
+                    "De herstelde graafcache kon niet naar %s weggeschreven worden (%s); "
+                    "de volgende run leest hem opnieuw in.",
+                    self._pad,
+                    fout,
+                )
 
     def objects(self, subject: RdfNode, predicate: RdfNode) -> Iterator[RdfNode]:
         """De objecten van (subject, predicate), in eerste-toevoegvolgorde."""
@@ -330,11 +350,24 @@ def _te_hashen_ontologiepaden(ontology_paths: list[Path] | None) -> list[Path]:
 
 
 def _bestandshash(pad: Path) -> str:
-    """De sha256 van een bestand, in blokken gelezen."""
+    """De sha256 van een bestand, in blokken gelezen.
+
+    Komt het bestand niet door het besturingssysteem (het bestaat niet, de rechten
+    ontbreken, een leesfout), dan gooit dit een `BestandError` met precies dezelfde tekst
+    als `bestand._parse` (issue #48, deel c). `cachesleutel` -- en dus `laad_met_cache` --
+    berekent de hash vóór de eigenlijke lezing; zonder deze vertaling gooide een ontbrekend
+    bestand mét `gebruik_cache=True` een rauwe `OSError` (`FileNotFoundError`), terwijl
+    dezelfde aanroep zónder cache al langs `load_dataset` een `BestandError` gaf. Nu is het
+    contract gelijk, ongeacht `gebruik_cache`. `BestandError` is een `DatasetError` en geen
+    `OSError`-subtype -- de door de auteur goedgekeurde fouttype-verschuiving (CHANGELOG).
+    """
     haas = sha256()
-    with pad.open("rb") as bestand:
-        for blok in iter(lambda: bestand.read(1 << 20), b""):
-            haas.update(blok)
+    try:
+        with pad.open("rb") as bestand:
+            for blok in iter(lambda: bestand.read(1 << 20), b""):
+                haas.update(blok)
+    except OSError as error:
+        raise BestandError(f"{pad}: bestand kan niet gelezen worden ({error}).") from error
     return haas.hexdigest()
 
 
@@ -451,7 +484,14 @@ def laad_met_cache(
             try:
                 with pad_structuren.open("rb") as bestand:
                     velden = pickle.load(bestand)
-            except (pickle.UnpicklingError, EOFError, TypeError, AttributeError) as fout:
+                # Onder hetzelfde foutbeleid (issue #48): een pickle die wél laadt maar geen
+                # bruikbare velden geeft -- een niet-mapping, of verkeerde/ontbrekende sleutels
+                # na een bitflip die de pickle structureel heel liet -- is even onbruikbaar
+                # als een die `pickle.load` al liet struikelen. De `**velden`-heropbouw van de
+                # dataset staat daarom binnen deze `try`; anders zou zo'n pickle een `TypeError`
+                # buiten het vangnet gooien (de fuzz vond dat: 7/300 op de structurenpickle).
+                gecachet = GwswDataset(graph=GraafIndex(), **velden)
+            except _PICKLE_FOUTEN as fout:
                 melding = f"De cache in {map_} is onbruikbaar ({fout}); opnieuw ingelezen."
             else:
                 # De structurencache is geldig; de graafcache wordt niet hier al
@@ -468,11 +508,32 @@ def laad_met_cache(
                 # een auteursbeslissing (`CLAUDE.md`, Harde regels; apart geparkeerd). Deze
                 # cast blijft dus staan tot die stap gezet is.
                 luie = cast(GraafIndex, LuieGraaf(pad_graaf, herstel))
-                dataset = replace(GwswDataset(graph=GraafIndex(), **velden), graph=luie)
+                # `source` (en bij een expliciete ontologieopgave ook `ontologies`) komt uit
+                # de pickle van de éérste lezing. De sleutel hasht alleen `pad.name`, dus een
+                # gelijknamig, inhoudsgelijk bestand uit een andere map treft dezelfde cache;
+                # zonder deze correctie zou `ds.source` naar het pad van die eerste lezing
+                # wijzen (issue #48, deel d). We zetten het terug op het gevraagde pad, zoals
+                # `load_dataset` op een misser doet.
+                dataset = replace(gecachet, graph=luie, source=Path(dataset_path))
+                if ontology_paths is not None:
+                    dataset = replace(dataset, ontologies=tuple(ontologiepaden(ontology_paths)))
                 return dataset, CacheUitslag("cache", sleutel, time.perf_counter() - begin)
 
     dataset = load_dataset(dataset_path, ontology_paths, fallback_encoding, voortgang=voortgang)
-    _schrijf(map_, dataset)
+    # De lezing is al geslaagd; kan de cache niet weggeschreven worden (een read-only
+    # cachemap, een volle schijf), dan is dat geen fout maar een gemiste versnelling voor de
+    # volgende run (issue #48, deel b). Melden en doorgaan i.p.v. de hele run laten crashen
+    # ná een geslaagde lezing.
+    try:
+        _schrijf(map_, dataset)
+    except OSError as fout:
+        logger.warning(
+            "De cache in %s kon niet weggeschreven worden (%s); de volgende run leest opnieuw in.",
+            map_,
+            fout,
+        )
+        schrijffout = f"De cache in {map_} kon niet weggeschreven worden ({fout})."
+        melding = f"{melding} {schrijffout}".strip() if melding else schrijffout
     return dataset, CacheUitslag("bestand", sleutel, time.perf_counter() - begin, melding)
 
 

@@ -30,6 +30,7 @@ from gwsw_orox_helpers.cache import (
     laad_met_cache,
 )
 from gwsw_orox_helpers.dataset import load_dataset
+from gwsw_orox_helpers.errors import BestandError
 from gwsw_orox_helpers.graaf import GraafIndex
 from gwsw_orox_helpers.namen import GWSW, RDF, RDFS
 
@@ -531,3 +532,166 @@ def test_een_onvertrouwde_graafpickle_wordt_hersteld_zonder_terug_te_schrijven(
     assert stat.S_IMODE(pad_graaf.stat().st_mode) == 0o666, (
         "naar een onvertrouwde map wordt niet teruggeschreven"
     )
+
+
+# --- Eén foutbeleid in cache.py (issue #48) ------------------------------------
+#
+# Vier randen waar `cache.py` de belofte "herstel in plaats van crashen" niet dekte:
+# (a) een pickle die geen `UnpicklingError` maar bv. een `ValueError` gooit, (b) een
+# niet-schrijfbare cachemap ná een geslaagde lezing, (c) `_bestandshash` op een ontbrekend
+# bestand mét cache aan, (d) `source` op een cachetreffer uit een gelijknamig bestand.
+
+
+def test_een_inhoudelijk_beschadigde_structurenpickle_leidt_tot_herinlezen(
+    tmp_path: Path,
+) -> None:
+    """Deel a: een structurenpickle die geen `UnpicklingError` maar een `ValueError` gooit.
+
+    `b"\\x80\\x08..."` is protocol 8 en laat `pickle.load` een `ValueError: unsupported
+    pickle protocol` gooien -- een fout die de oude, smalle except-lijst (die alleen
+    `UnpicklingError`, `EOFError`, `TypeError`, `AttributeError` ving) liet ontsnappen.
+    Onder één foutbeleid geldt zo'n pickle net zo goed als "onbruikbaar" en valt de lezing
+    terug op het bestand.
+    """
+    laad_met_cache(VOORBEELD, [], cache_dir=tmp_path)
+    sleutel = cachesleutel(VOORBEELD, [])
+    pad_structuren = tmp_path / sleutel / BESTAND_STRUCTUREN
+    assert pad_structuren.exists()
+    pad_structuren.write_bytes(b"\x80\x08dit is protocol acht")
+
+    dataset, uitslag = laad_met_cache(VOORBEELD, [], cache_dir=tmp_path)
+
+    assert dataset.nodes
+    assert uitslag.bron == "bestand"
+    assert "cache" in uitslag.melding.lower()
+
+
+def test_een_inhoudelijk_beschadigde_graafpickle_herstelt_zichzelf(tmp_path: Path) -> None:
+    """Deel a, graafkant: dezelfde vreemde pickle op de luie graafcache herstelt zichzelf.
+
+    De structurencache blijft geldig, dus `laad_met_cache` meldt een schone treffer; pas een
+    aanraking van `dataset.graph` leest de graafpickle, en die is nu onbruikbaar op een
+    manier die de oude lijst niet ving. Het herstel leest de graaf alsnog uit de brondata.
+    """
+    laad_met_cache(VOORBEELD, [], cache_dir=tmp_path)
+    graafbestanden = list(tmp_path.rglob(BESTAND_GRAAF))
+    assert graafbestanden, "de graafcache had al moeten bestaan"
+    graafbestanden[0].write_bytes(b"\x80\x08dit is protocol acht")
+
+    dataset, uitslag = laad_met_cache(VOORBEELD, [], cache_dir=tmp_path)
+    assert uitslag.bron == "cache"  # de structurencache was intact
+
+    vers = load_dataset(VOORBEELD, [])
+    assert len(dataset.graph) == len(vers.graph)  # geen crash, en de juiste graaf
+
+
+def test_een_structurenpickle_die_laadt_maar_geen_dataset_geeft_valt_terug(
+    tmp_path: Path,
+) -> None:
+    """Deel a, vervolg: een pickle die wél laadt maar geen bruikbare velden oplevert.
+
+    Een lijst pickelt en depickelt prima, maar `GwswDataset(graph=..., **[...])` is geen
+    geldige heropbouw. De fuzz vond dat zulke gevallen (7/300 op de structurenpickle) een
+    `TypeError` buiten het oude vangnet gooiden; de heropbouw staat nu binnen dezelfde `try`,
+    zodat ze net zo goed als "onbruikbaar" terugvallen op herinlezen.
+    """
+    laad_met_cache(VOORBEELD, [], cache_dir=tmp_path)
+    sleutel = cachesleutel(VOORBEELD, [])
+    pad_structuren = tmp_path / sleutel / BESTAND_STRUCTUREN
+    assert pad_structuren.exists()
+    with pad_structuren.open("wb") as fh:
+        pickle.dump([1, 2, 3], fh)  # laadt prima, maar `**[...]` is geen mapping
+
+    dataset, uitslag = laad_met_cache(VOORBEELD, [], cache_dir=tmp_path)
+
+    assert dataset.nodes
+    assert uitslag.bron == "bestand"
+    assert "cache" in uitslag.melding.lower()
+
+
+def test_een_niet_schrijfbare_cachemap_geeft_een_melding_geen_crash(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Deel b: een cachemap (mode 0o500) is vertrouwd -- geen groep-/wereldschrijf -- maar
+    niet schrijfbaar. Na een geslaagde lezing loopt de schrijfstap op een `PermissionError`;
+    die mag niet crashen maar een `logger.warning` en een `CacheUitslag.melding` geven.
+    """
+    if not MAG_RECHTEN_TOETSEN:
+        pytest.skip("root of niet-POSIX omzeilt de rechtenbits")
+    cache_dir = tmp_path / "cache"
+    cache_dir.mkdir(mode=0o500)  # eigen map, alleen lezen: vertrouwd maar niet schrijfbaar
+    try:
+        with caplog.at_level(logging.WARNING, logger=cache_module.__name__):
+            dataset, uitslag = laad_met_cache(VOORBEELD, [], cache_dir=cache_dir)
+
+        assert dataset.nodes
+        assert uitslag.bron == "bestand"
+        assert uitslag.melding, "een niet-schrijfbare cachemap hoort een melding te geven"
+        assert any("weggeschreven" in bericht for bericht in caplog.messages)
+        assert list(cache_dir.rglob("*.pickle")) == []
+    finally:
+        os.chmod(cache_dir, 0o700)  # zodat pytest de tmp_path weer kan opruimen
+
+
+def test_de_luie_graaf_crasht_niet_als_terugschrijven_faalt(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Deel b, graafkant: herstelt de luie graaf zich maar faalt het terugschrijven (een
+    volle schijf, een read-only mount), dan is dat een melding en geen crash.
+
+    Het terugschrijven wordt met een `OSError` doorgeprikt; zonder vangnet zou die kale
+    uit `_geladen` ontsnappen op het moment dat een check de graaf voor het eerst aanraakt.
+    """
+    map_ = tmp_path / "sleutel"
+    map_.mkdir(mode=0o700)
+    pad_graaf = map_ / BESTAND_GRAAF
+    pad_graaf.write_bytes(b"dit is geen pickle")  # onbruikbaar -> herstel + terugschrijven
+    hersteld = load_dataset(VOORBEELD, []).graph
+
+    def valende_schrijf(pad: Path, inhoud: object) -> None:
+        raise OSError("schijf vol")
+
+    monkeypatch.setattr(cache_module, "_schrijf_atomair", valende_schrijf)
+
+    luie = LuieGraaf(pad_graaf, lambda: hersteld)
+    with caplog.at_level(logging.WARNING, logger=cache_module.__name__):
+        assert len(luie) == len(hersteld)  # herstelt en crasht niet op de mislukte schrijf
+
+    assert any("weggeschreven" in bericht for bericht in caplog.messages)
+
+
+def test_een_ontbrekend_bestand_geeft_bestanderror_ook_met_cache_aan(tmp_path: Path) -> None:
+    """Deel c: met `gebruik_cache=True` liep de sleutelberekening (`_bestandshash`) op een
+    ontbrekend bestand vroeger op een rauwe `FileNotFoundError`. Nu is het -- net als op de
+    directe leesweg (`bestand._parse`) -- een `BestandError`, ongeacht `gebruik_cache`.
+    """
+    ontbreekt = tmp_path / "bestaat_niet.ttl"
+    with pytest.raises(BestandError, match="kan niet gelezen worden"):
+        laad_met_cache(ontbreekt, [], cache_dir=tmp_path, gebruik_cache=True)
+    # En dezelfde fout op de weg zonder cache, zodat het contract gelijk is.
+    with pytest.raises(BestandError, match="kan niet gelezen worden"):
+        laad_met_cache(ontbreekt, [], cache_dir=tmp_path, gebruik_cache=False)
+
+
+def test_source_op_een_treffer_is_het_gevraagde_pad(tmp_path: Path) -> None:
+    """Deel d: de sleutel hasht alleen de bestandsnaam, dus een gelijknamig, inhoudsgelijk
+    bestand uit een andere map treft dezelfde cache. `source` hoort dan het gevraagde pad te
+    zijn en niet dat van de eerste lezing, dat uit de pickle zou komen.
+    """
+    inhoud = VOORBEELD.read_bytes()
+    map_a = tmp_path / "projectA"
+    map_b = tmp_path / "projectB"
+    map_a.mkdir()
+    map_b.mkdir()
+    (map_a / "mini.ttl").write_bytes(inhoud)
+    (map_b / "mini.ttl").write_bytes(inhoud)
+    cache = tmp_path / "cache"
+
+    koud, eerste = laad_met_cache(map_a / "mini.ttl", [], cache_dir=cache)
+    warm, tweede = laad_met_cache(map_b / "mini.ttl", [], cache_dir=cache)
+
+    assert eerste.bron == "bestand"
+    assert tweede.bron == "cache", "gelijke naam en inhoud horen dezelfde cache te treffen"
+    assert eerste.sleutel == tweede.sleutel
+    assert koud.source == map_a / "mini.ttl"
+    assert warm.source == map_b / "mini.ttl"

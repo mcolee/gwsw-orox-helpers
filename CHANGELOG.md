@@ -1,6 +1,50 @@
 # Changelog
 
 ## [Unreleased]
+- Eén foutbeleid in `cache.py` (issue #48, robuustheid; grotendeels **additief**, met één
+  door de auteur goedgekeurde fouttype-verschuiving — zie deel c). Vier randen waar de cache
+  de belofte "herstel in plaats van de hele run laten crashen" niet dekte, elk gesloten:
+  - **(a) Eén beleid rond beide `pickle.load`-plekken.** De twee sites vingen elk een eigen,
+    smalle tuple (`LuieGraaf._geladen` mét, de structurenlezing in `laad_met_cache` zónder
+    `OSError`), en geen van beide ving `ValueError`/`UnicodeDecodeError`/`MemoryError` — een
+    fuzz (3 bytes, 300×) liet honderden ongevangen fouten ontsnappen en `b"\x80\x08…"` gaf
+    een rauwe `ValueError: unsupported pickle protocol`. Beide plekken vangen nu op de
+    module-constante `_PICKLE_FOUTEN` (= `Exception`): `pickle.load` is in feite een
+    bytecode-interpreter, dus een opgesomde tuple is per definitie incompleet en "onbruikbaar"
+    betekent gewoon "gaf geen bruikbaar object". `BaseException` blijft buiten (`KeyboardInterrupt`/
+    `SystemExit` lopen door); de rechtencheck van issue #45 blijft de bewaker tegen
+    `__reduce__`-payloads. **Additief** — een beschadigde pickle viel al terug op herinlezen,
+    nu doet elke soort beschadiging dat.
+  - **(b) De schrijfpaden crashen niet meer ná een geslaagde lezing.** `_schrijf` in
+    `laad_met_cache` en `_schrijf_atomair` in `LuieGraaf._schrijf_indien_vertrouwd` staan in
+    `try/except OSError` met een `logger.warning`; `laad_met_cache` zet de melding ook in
+    `CacheUitslag.melding`. Een read-only cachemap (mode 0o500 — vertrouwd, want geen
+    groep-/wereldschrijf) gaf tot nu toe een `PermissionError` ná een geslaagde
+    `load_dataset`; nu een melding en een gemiste versnelling. **Additief** — geen bestaande
+    signatuur of retourvorm geraakt.
+  - **(c) `_bestandshash` gooit `BestandError` op een onleesbaar bestand** (`except OSError →
+    BestandError`, dezelfde tekst als `bestand._parse`, alle OSError-varianten). Dit is de
+    door de auteur goedgekeurde fouttype-verschuiving (04-09-2026): **`laad_met_cache` gooit
+    bij een onleesbaar dataset- of ontologiebestand nu een `BestandError` in plaats van een
+    rauwe `OSError`.** `cachesleutel` hasht de invoer vóór de eigenlijke lezing, dus met
+    `gebruik_cache=True` ontsnapte een `FileNotFoundError` terwijl dezelfde aanroep zónder
+    cache al langs `load_dataset` een `BestandError` gaf; dat contract is nu gelijk, ongeacht
+    `gebruik_cache`. `BestandError` is een `DatasetError` en **geen** `OSError`-subtype;
+    nlriochecker vangt rond `laad_met_cache` nergens `OSError`/`FileNotFoundError`, wel breed
+    `DatasetError`. De `BestandError`-docstring in `errors.py` staat nu op **vijf** plekken
+    (`cache._bestandshash` erbij) en `tests/test_uitzonderingen.py` telt 30 raise-plekken.
+  - **(d) `source` op een cachetreffer is het gevraagde pad.** De sleutel hasht alleen
+    `pad.name`, dus een gelijknamig, inhoudsgelijk bestand uit een andere map treft dezelfde
+    cache; `ds.source` (en bij een expliciete ontologieopgave `ds.ontologies`) kwam dan uit
+    de pickle van de eerste lezing. Op een treffer zet `laad_met_cache` ze nu terug op het
+    gevraagde pad via `replace(...)`, zoals `load_dataset` op een misser doet. **Additief** —
+    corrigeert een verkeerde waarde, raakt geen type of handtekening.
+
+  Nieuwe tests in `tests/test_cache.py`: een inhoudelijk beschadigde structuren- én
+  graafpickle (vreemd protocolbyte) valt terug op herinlezen; een niet-schrijfbare cachemap
+  en een mislukt graaf-terugschrijven geven een melding zonder crash; een ontbrekend bestand
+  geeft `BestandError` met én zonder cache; en twee mappen met een gelijknamig bestand geven
+  `source` op het gevraagde pad.
 - Publicatieketen in `.github/workflows/release.yml` (issue #41, ci/config; **additief** —
   geen regel `src/**.py` geraakt, geen contract dat nlriochecker importeert). De release-tag
   `v*` draait nu een keten van vijf `needs`-gekoppelde jobs in plaats van alleen `uv build`

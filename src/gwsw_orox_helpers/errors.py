@@ -51,10 +51,14 @@ class BestandError(DatasetError):
     De fout komt van het besturingssysteem (`OSError`) en gaat dus niet over de inhoud:
     het pad bestaat niet, de rechten ontbreken, de schijf is vol, het doel ligt onder een
     bestand in plaats van onder een map. Geldt voor elk bestand dat deze package aanraakt
-    -- de TTL-bron, het schrijfdoel en de GeoJSON-grenslaag.
+    -- de TTL-bron, het schrijfdoel, de GeoJSON-grenslaag en de bestanden die de
+    cachesleutel hasht.
 
-    Vier plekken: `bestand._parse`, `schrijven.lees_orox`, `schrijven.schrijf_orox_quads`
-    en `clip.grenzen._lees_grenzen`.
+    Vijf plekken: `bestand._parse`, `schrijven.lees_orox`, `schrijven.schrijf_orox_quads`,
+    `clip.grenzen._lees_grenzen` en `cache._bestandshash`. Die laatste kwam er bij issue #48
+    bij: `laad_met_cache` hasht de invoerbestanden voor de sleutel vóór de eigenlijke lezing,
+    en een onleesbaar bestand hoort daar dezelfde `BestandError` te geven als op de directe
+    leesweg (auteursbeslissing 04-09-2026, met een eigen CHANGELOG-regel).
     """
 
 

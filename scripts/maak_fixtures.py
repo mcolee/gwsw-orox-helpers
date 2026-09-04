@@ -34,7 +34,12 @@ from collections.abc import Iterable
 from pathlib import Path
 from typing import Any
 
-VERSIES: tuple[str, ...] = ("1.6", "1.7")
+from gwsw_orox_helpers.bronnen import GEBUNDELDE_VERSIES
+
+# De gebundelde versies zijn één projectafspraak (`bronnen`); de fixtures reizen per versie
+# mee (issue #52). De waarde is identiek aan het oude literal `("1.6", "1.7")`, dus de
+# gegenereerde bestanden blijven byte-voor-byte gelijk.
+VERSIES: tuple[str, ...] = GEBUNDELDE_VERSIES
 
 _FIXTUREWORTEL = Path(__file__).resolve().parents[1] / "tests" / "fixtures"
 DOELEN: dict[str, Path] = {

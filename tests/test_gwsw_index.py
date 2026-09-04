@@ -9,7 +9,11 @@ from types import ModuleType
 
 import pytest
 
-from gwsw_orox_helpers.bronnen import gebundelde_ontologie_voor, vocabulaire_index_pad_voor
+from gwsw_orox_helpers.bronnen import (
+    GEBUNDELDE_VERSIES,
+    gebundelde_ontologie_voor,
+    vocabulaire_index_pad_voor,
+)
 
 WORTEL = Path(__file__).resolve().parents[1]
 INDEXSCRIPT = WORTEL / "scripts" / "maak_gwsw_index.py"
@@ -35,7 +39,7 @@ def _bundels() -> list:
     return list(_generator().BUNDELS)
 
 
-@pytest.mark.parametrize("versie", ["1.6", "1.7"])
+@pytest.mark.parametrize("versie", list(GEBUNDELDE_VERSIES))
 def test_index_volgt_de_ontologie(versie: str) -> None:
     """Elke gebundelde index is bij tot en met de ontologie die ernaast ligt.
 
@@ -64,13 +68,13 @@ def test_de_generator_schrijft_de_gebundelde_bestanden() -> None:
     """
     bundels = {bundel.versie: bundel for bundel in _bundels()}
 
-    assert set(bundels) == {"1.6", "1.7"}
+    assert set(bundels) == set(GEBUNDELDE_VERSIES)
     for versie, bundel in bundels.items():
         assert bundel.ontologie == gebundelde_ontologie_voor(versie)
         assert bundel.doel == vocabulaire_index_pad_voor(versie)
 
 
-@pytest.mark.parametrize("versie", ["1.6", "1.7"])
+@pytest.mark.parametrize("versie", list(GEBUNDELDE_VERSIES))
 def test_indexversie_staat_in_claude_md(versie: str) -> None:
     """Elke index en `CLAUDE.md` dragen dezelfde GWSW-versie -- per versie.
 

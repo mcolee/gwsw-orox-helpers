@@ -23,7 +23,7 @@ elke laag aan de bibliotheek van de andere.
 """
 
 import re
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from typing import Final
 
@@ -176,6 +176,19 @@ def basis_uit_iri(iri: str) -> str | None:
     return match.group(0) if match is not None else None
 
 
+def basis_uit_iris(iris: Iterable[str]) -> str | None:
+    """De GWSW-basis van de eerste IRI in de reeks die er een draagt, of None (issue #52).
+
+    De terugval-scan over de IRI's van een bron, op één plek: `bestand`, `dataset` en
+    `clip.termen` deden elk hun eigen `next((b for x in ... if (b := basis_uit_iri(...))
+    ...))` en houden nu alleen hun eigen signaalbron over (de predicaat-IRI's van de graaf,
+    de typen van de knopen en strengen, de predicaten van de quadstroom). De reeks wordt
+    zover afgelopen als nodig -- de eerste treffer stopt hem -- zodat een aanroeper er een
+    luie stroom voor mag geven.
+    """
+    return next((b for iri in iris if (b := basis_uit_iri(iri)) is not None), None)
+
+
 def basis_uit_prefixen(prefixen: Mapping[str, str]) -> str | None:
     """De GWSW-basis uit de `gwsw:`-prefixdeclaratie, of None als die er niet (herkenbaar) is.
 
@@ -187,3 +200,20 @@ def basis_uit_prefixen(prefixen: Mapping[str, str]) -> str | None:
     if gwsw is None:
         return None
     return gwsw if _BASIS_PATROON.fullmatch(gwsw) is not None else None
+
+
+def terugvalmelding(bron: object, laag: str) -> str:
+    """De gedeelde waarschuwingstekst voor een bron zonder herkenbare GWSW-versie (issue #52).
+
+    `bestand._parse` (de lezing) en `clip.termen._bronbasis` (de clip) meldden elk hun eigen
+    variant van dezelfde terugval; die staan nu hier, één keer. `bron` is wat de aanroeper
+    aanwijst (een pad, een deel-URI) en `laag` benoemt wie terugvalt ("de lezing", "de
+    clip"). De kernfrase "geen herkenbare GWSW-versie" blijft staan, zodat een bestaande
+    logtoets hem terugvindt. De aanroeper logt de melding zelf; hij komt alleen op de
+    terugvalweg langs, dus de directe opmaak kost niets in de hete lus.
+    """
+    return (
+        f"{bron}: geen herkenbare GWSW-versie in de prefixen of de IRI's; {laag} valt terug "
+        f"op de gebundelde 1.6-termenset. Een bron op een andere versie wordt daarmee "
+        f"mogelijk niet correct verwerkt."
+    )

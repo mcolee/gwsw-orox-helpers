@@ -17,6 +17,7 @@ from __future__ import annotations
 import logging
 import os
 import pickle
+import re
 import tempfile
 import time
 from collections.abc import Callable, Iterator
@@ -305,13 +306,14 @@ def cachesleutel(
     ontologieopgave een sleutel krijgen waar de gebundelde ontologie niet in zit, en
     dan geeft de cache na het vervangen van die ontologie de oude lezing terug.
 
-    **Bij `None` worden alle gebundelde versies gehasht** (issue #32, reviewronde), niet
-    alleen de 1.6-default: sinds `load_dataset` bij `None` de gebundelde ontologie op de
-    gedetecteerde dataset-versie kiest, kan de lezing de 1.7-bundel gebruiken. Zou de sleutel
-    alleen de 1.6-bundel hashen, dan invalideert een data-only upgrade van uitsluitend de
-    1.7-bundel (de flow uit `CLAUDE.md`) de 1.7-cache niet. Alle bundels meehashen kost geen
-    dataset-parse en is de veilige kant om op te vergissen -- te vaak herbouwen kost één
-    lezing, te weinig herbouwen geeft stil een verouderd antwoord.
+    **Bij `None` hasht de sleutel de bundel van de gedetecteerde versie** (issue #52), niet
+    langer álle bundels: `cachesleutel` leest de `gwsw:`-prefix uit de kop van de dataset (een
+    goedkope scan van de eerste paar KB, geen volledige parse) en hasht de bundel die
+    `load_dataset._gebundelde_paden_voor_basis` dan kiest. Zo invalideert een toekomstige
+    1.8-bundel een 1.6-cache niet meer. Levert de prefix-scan geen gebundelde versie op (geen
+    `gwsw:`-prefix, of een niet-gebundelde versie), dan valt de sleutel terug op álle bundels
+    -- de veilige kant: te vaak herbouwen kost één lezing, te weinig herbouwen geeft stil een
+    verouderd antwoord.
 
     De terugvalcodering telt mee: ze bepaalt hoe niet-UTF-8-bytes gelezen worden
     (zie `codering.py`), en een dataset die met een andere codering ingelezen is,
@@ -331,22 +333,60 @@ def cachesleutel(
     for module in LADERMODULES:
         # `__file__` is alleen None bij een namespace-pakket; dit zijn gewone modules.
         haas.update(Path(cast(str, module.__file__)).read_bytes())
-    for pad in [Path(dataset_path), *sorted(_te_hashen_ontologiepaden(ontology_paths))]:
+    ontologiehash = _te_hashen_ontologiepaden(ontology_paths, Path(dataset_path))
+    for pad in [Path(dataset_path), *sorted(ontologiehash)]:
         haas.update(pad.name.encode("utf-8"))
         haas.update(_bestandshash(pad).encode("utf-8"))
     return haas.hexdigest()[:32]
 
 
-def _te_hashen_ontologiepaden(ontology_paths: list[Path] | None) -> list[Path]:
+# De @prefix-regels staan bovenaan een OroX-export; deze grootte dekt ze ruim zonder het
+# hele bestand te lezen. Op bytes en niet op tekst, zodat een niet-UTF-8-bron (cp850) geen
+# decode van het hele bestand vergt -- de prefixregel zelf is ASCII. Zowel de Turtle-vorm
+# (`@prefix gwsw: <...>`) als de SPARQL-vorm (`PREFIX gwsw: <...>`).
+_KOP_BYTES = 1 << 13
+_GWSW_PREFIX_PATROON = re.compile(rb"(?im)^[ \t]*(?:@prefix|prefix)[ \t]+gwsw:[ \t]*<([^>]*)>")
+
+
+def _dataset_basis_uit_kop(dataset_path: Path) -> str | None:
+    """De GWSW-basis uit de `gwsw:`-prefix in de kop van het datasetbestand, of None (#52).
+
+    Een goedkope prefix-scan van de eerste paar KB -- de `@prefix`-regels staan bovenaan --
+    zonder het bestand volledig te parsen of te decoderen. Levert de basis alleen op als de
+    `gwsw:`-prefix binnen het totaal-patroon valt (via `namen.basis_uit_prefixen`); een bron
+    zonder herkenbare `gwsw:`-prefix geeft None, en dan valt `cachesleutel` terug op alle
+    gebundelde bundels. Een leesfout hier is geen fout maar dezelfde terugval -- de eigenlijke
+    `BestandError` volgt straks uit `_bestandshash` op hetzelfde ontbrekende bestand.
+    """
+    try:
+        with Path(dataset_path).open("rb") as bestand:
+            kop = bestand.read(_KOP_BYTES)
+    except OSError:
+        return None
+    match = _GWSW_PREFIX_PATROON.search(kop)
+    if match is None:
+        return None
+    return namen_module.basis_uit_prefixen({"gwsw": match.group(1).decode("ascii", "replace")})
+
+
+def _te_hashen_ontologiepaden(ontology_paths: list[Path] | None, dataset_path: Path) -> list[Path]:
     """De ontologiebestanden die in de sleutel gehasht worden.
 
-    Bij een opgegeven lijst: precies die (via `ontologiepaden`). Bij `None`: alle gebundelde
-    versies, want `load_dataset` kiest er bij `None` één op de gedetecteerde dataset-versie
-    en de sleutel moet op elk van die bundels reageren (issue #32).
+    Bij een opgegeven lijst: precies die (via `ontologiepaden`). Bij `None`: de gebundelde
+    ontologie op de versie die een goedkope prefix-scan van de dataset detecteert -- dezelfde
+    bundel die `load_dataset._gebundelde_paden_voor_basis` dan kiest (issue #52), zodat een
+    toekomstige 1.8-bundel een 1.6-cache niet meer invalideert. Levert de prefix-scan geen
+    gebundelde versie op (geen `gwsw:`-prefix, of een niet-gebundelde versie), dan valt de
+    sleutel terug op álle gebundelde bundels -- de veilige kant.
     """
-    if ontology_paths is None:
-        return [gebundelde_ontologie_voor(versie) for versie in GEBUNDELDE_VERSIES]
-    return ontologiepaden(ontology_paths)
+    if ontology_paths is not None:
+        return ontologiepaden(ontology_paths)
+    basis = _dataset_basis_uit_kop(dataset_path)
+    if basis is not None:
+        versie = namen_module.versie_van_basis(basis)
+        if versie in GEBUNDELDE_VERSIES:
+            return [gebundelde_ontologie_voor(versie)]
+    return [gebundelde_ontologie_voor(versie) for versie in GEBUNDELDE_VERSIES]
 
 
 def _bestandshash(pad: Path) -> str:

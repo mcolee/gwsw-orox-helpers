@@ -1,6 +1,19 @@
 # Changelog
 
 ## [Unreleased]
+- Versiekennis staat nu op één plek (issue #52, interne opschoning; **additief** — geen
+  publieke signatuur, constante of retourvorm geraakt, en de detectie-uitkomst blijft
+  gelijk). De basis-scan over de IRI's van een bron staat nog op één plek
+  (`namen.basis_uit_iris`); `bestand`, `dataset` en `clip.termen` roepen die aan en houden
+  alleen hun eigen signaalbron over. De twee terugval-waarschuwingen (lezing, clip) zijn één
+  geworden via `namen.terugvalmelding`. `inlezen._leestermen` spelt de zeven properties via
+  `namen.termen_voor` en de gepinde 1.6-`HAS_*`/`KLASSE_*`-constanten worden nu uit
+  `_leestermen(GWSW)` afgeleid (waarde en type ongewijzigd). `cache.cachesleutel` hasht bij
+  `ontology_paths=None` voortaan alleen de gebundelde bundel van de versie die een goedkope
+  prefix-scan van de datasetkop detecteert (met terugval op alle bundels zonder herkenbare
+  `gwsw:`-prefix), zodat een toekomstige 1.8-bundel een 1.6-cache niet meer invalideert;
+  **bestaande caches vervallen hierdoor één keer** (de sleutel verandert) en worden bij de
+  volgende run opnieuw opgebouwd.
 - Het publieke oppervlak leest nu versie-juist naast de gepinde 1.6-constanten (issue #51,
   feature; **additief** — geen bestaande signatuur, constante of retourvorm geraakt).
   `inlezen._Leestermen` is publiek als `Leestermen` (het privé `_Leestermen`/`_leestermen`

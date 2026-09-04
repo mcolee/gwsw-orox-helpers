@@ -1838,4 +1838,4 @@ def test_bronbasis_leest_de_versie_uit_de_predicaat_iris(
     with caplog.at_level(logging.WARNING, logger="gwsw_orox_helpers.clip.termen"):
         basis = _bronbasis(iter([_quad("http://x/p")]), "bron")
     assert basis == GWSW
-    assert "geen herkenbaar GWSW-predicaat" in caplog.text
+    assert "geen herkenbare GWSW-versie" in caplog.text

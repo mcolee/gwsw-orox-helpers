@@ -291,7 +291,7 @@ die anders uit elkaar loopt, en die staat één keer:
 | Gedeelde kennis | Woont in | Gelezen door |
 |---|---|---|
 | De motor-naad: `pyoxigraph.parse` en `pyoxigraph.serialize` op Turtle, sinds issue #50 ook de foutvertaling (`MOTORFOUTEN`, `is_coderingsfout`) en de prefixlezing (`prefixen_van`), plus de reeks pyoxigraph-versies waarop de package getoetst is | `rdfmotor` | `bestand._parse` (bytes; parse, `prefixen_van`, en de smalle vangst op `MOTORFOUTEN`+`TypeError`), `schrijven.lees_orox` (een pad, of tekst bij een terugvalcodering; parse, `prefixen_van`), `schrijven._gecontroleerd` (`MOTORFOUTEN`+`is_coderingsfout`) en `schrijven.schrijf_orox_quads` (de serializer) |
-| De IRI's: `GWSW` en de naamruimten, `hasAspect`/`hasPart`/`hasConnection`, `geo:gmlLiteral`; sinds issue #32 óók de termenset per gedetecteerde basis (`Termen`, `termen_voor`) en de detectie (`basis_uit_prefixen`, `basis_uit_iri`) | `namen` (tekst) | `inlezen` (als `URIRef`-termenset per basis), `clip.termen` (als `NamedNode`-termenset), `clip.plan`/`clip.stroom`/`clip.merge`/`clip.bereik` (via die termenset), `schrijven` (prefixkop, 1.6-cosmetisch), `graaf` (`xsd:string` + `gwsw_basis`), `bestand` (detectie), `ontologie`, `dataset` (`GWSW`, en het exporteert hem) |
+| De IRI's: `GWSW` en de naamruimten, `hasAspect`/`hasPart`/`hasConnection`, `geo:gmlLiteral`; sinds issue #32 óók de termenset per gedetecteerde basis (`Termen`, `termen_voor`) en de detectie (`basis_uit_prefixen`, `basis_uit_iri`/`basis_uit_iris`, met de gedeelde terugval-melding `terugvalmelding`) | `namen` (tekst) | `inlezen` (als `URIRef`-termenset per basis), `clip.termen` (als `NamedNode`-termenset), `clip.plan`/`clip.stroom`/`clip.merge`/`clip.bereik` (via die termenset), `schrijven` (prefixkop, 1.6-cosmetisch), `graaf` (`xsd:string` + `gwsw_basis`), `bestand` (detectie), `ontologie`, `dataset` (`GWSW`, en het exporteert hem) |
 | Het spellen van een korte klassenaam heen en terug (`_uri`, `_short`) | `namen` | `klassen` (`_afsluiting`, `_kenmerk_properties`, `_klassefuncties`), `inlezen` (de korte naam van een soort, een referentie of een klasse), `dataset` (`beheerobjecttype`, `is_connection_class`) |
 | De prefixkop van een OroX-export | `schrijven.STANDAARD_PREFIXEN`, opgebouwd uit `namen` | `schrijven`, `clip.orkest` (krijgt ze via `lees_orox` en vult `knip:` aan) |
 | UTF-8 met terugvalcodering, inclusief beide foutmeldingen | `codering.decodeer` | `bestand._decode`, `schrijven._gedecodeerd` |
@@ -481,6 +481,10 @@ ook **de broncode van de hele leeslaag**: `cache.LADERMODULES` -- `dataset`, `be
 `inlezen`, `domein`, `klassen`, `codering`, `namen`, `graaf`, `geometry`, `netwerk`,
 `ontologie` en `rdfmotor`.
 Dat is de garantie dat een cache nooit achterloopt op een wijziging in de lezing.
+Zonder opgegeven ontologie hasht de sleutel sinds issue #52 alleen de gebundelde bundel van
+de versie die een goedkope prefix-scan van de datasetkop detecteert -- dezelfde die de lader
+dan kiest -- in plaats van álle bundels, met terugval op alle bundels als die scan geen
+`gwsw:`-prefix vindt.
 `rdfmotor` staat erbij ook al deelt de schrijfweg hem: `bestand._parse` haalt zijn quads
 daarlangs, dus een andere aanroep van de motor is een andere lezing. Wie de leeslaag
 opnieuw indeelt, moet de nieuwe modules aan die lijst toevoegen: een vergeten module

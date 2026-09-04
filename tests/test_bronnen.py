@@ -81,18 +81,19 @@ def test_lege_lijst_betekent_geen_ontologie() -> None:
     assert not dataset.klassenhierarchie_bekend
 
 
-def test_de_cachesleutel_ziet_alle_gebundelde_versies() -> None:
-    """De cache hasht de bestanden die de lezing werkelijk kan gebruiken.
+def test_de_cachesleutel_kiest_de_gedetecteerde_bundel() -> None:
+    """De cache hasht de bundel die de lezing werkelijk kan gebruiken.
 
     Zou de sleutel de gebundelde ontologie missen, dan gaf de cache na het vervangen
     van die ontologie de oude lezing terug -- en juist zonder opgave gebeurt dat stil.
-    Sinds issue #32 kiest `load_dataset` bij `None` de gebundelde ontologie op de
-    gedetecteerde dataset-versie, dus hasht de sleutel bij `None` **alle** gebundelde
-    versies -- niet langer alleen de 1.6-bundel.
+    Sinds issue #52 leest `cachesleutel` bij `None` de `gwsw:`-prefix uit de kop van de
+    dataset en hasht alleen de bundel van die versie -- dezelfde die `load_dataset` dan
+    kiest -- niet langer álle gebundelde versies. `codering_cp850.ttl` draagt de 1.6-prefix,
+    dus valt `None` samen met een expliciete 1.6-bundel en niet met alle bundels.
     """
     ttl = TTL_DIR / "codering_cp850.ttl"
     alle = [gebundelde_ontologie_voor(versie) for versie in GEBUNDELDE_VERSIES]
 
-    assert cachesleutel(ttl) == cachesleutel(ttl, alle)
-    assert cachesleutel(ttl) != cachesleutel(ttl, [gebundelde_ontologie()])
+    assert cachesleutel(ttl) == cachesleutel(ttl, [gebundelde_ontologie()])
+    assert cachesleutel(ttl) != cachesleutel(ttl, alle)
     assert cachesleutel(ttl) != cachesleutel(ttl, [])

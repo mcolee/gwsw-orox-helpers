@@ -117,7 +117,7 @@ from gwsw_orox_helpers.namen import (
     GWSW,
     _short,
     _uri,
-    basis_uit_iri,
+    basis_uit_iris,
     versie_uit_basis,
     versie_van_basis,
 )
@@ -305,18 +305,16 @@ class GwswDataset:
         spreken als `bronnen.GEBUNDELDE_VERSIES`.
         """
         if not self._gwsw_versie_memo:
-            gevonden: str | None = None
-            for objecten in (self.nodes.values(), self.conduits.values()):
-                for obj in objecten:
-                    treffer = next(
-                        (b for typ in obj.types if (b := basis_uit_iri(typ)) is not None), None
-                    )
-                    if treffer is not None:
-                        gevonden = treffer
-                        break
-                else:
-                    continue
-                break
+            # De eigen signaalbron van deze leesweg: de typen van de knopen en strengen, die
+            # al in het geheugen staan (het cachepad laadt de graafpickle zo niet). De
+            # gedeelde scan zit in `namen.basis_uit_iris`; hier blijft alleen stil (geen
+            # warning): `gedetecteerd=False` is de eerlijke terugval, niet een fout.
+            gevonden = basis_uit_iris(
+                typ
+                for objecten in (self.nodes.values(), self.conduits.values())
+                for obj in objecten
+                for typ in obj.types
+            )
             basis = gevonden if gevonden is not None else GWSW
             self._gwsw_versie_memo.append(
                 GwswVersie(

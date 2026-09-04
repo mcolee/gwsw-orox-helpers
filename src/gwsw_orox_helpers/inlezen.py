@@ -56,56 +56,27 @@ from gwsw_orox_helpers.namen import _short
 _RDF_TYPE = RDF.type
 _RDFS_LABEL = RDFS.label
 
-HAS_ASPECT = URIRef(namen.HAS_ASPECT)
-HAS_PART = URIRef(namen.HAS_PART)
-# Het GWSW declareert `isPartOf owl:inverseOf hasPart` en `isAspectOf owl:inverseOf
-# hasAspect`. Een conforme export mag dus de inverse schrijven; wie alleen de
-# voorwaartse richting leest, krijgt van zo'n export een leeg domeinmodel zonder een
-# enkele melding. Lees daarom beide, net als bij hasConnection.
-IS_PART_OF = URIRef(namen.IS_PART_OF)
-IS_ASPECT_OF = URIRef(namen.IS_ASPECT_OF)
-HAS_CONNECTION = URIRef(namen.HAS_CONNECTION)
-HAS_VALUE = URIRef(namen.HAS_VALUE)
-HAS_REFERENCE = URIRef(namen.HAS_REFERENCE)
-
-KLASSE_INWINNING = URIRef(f"{namen.GWSW}Inwinning")
-KLASSE_WIJZE_VAN_INWINNING = URIRef(f"{namen.GWSW}WijzeVanInwinning")
-KLASSE_DATUM_INWINNING = URIRef(f"{namen.GWSW}DatumInwinning")
-KLASSE_MAAIVELDORIENTATIE = URIRef(f"{namen.GWSW}Maaiveldorientatie")
-KLASSE_MAAIVELDHOOGTE = URIRef(f"{namen.GWSW}Maaiveldhoogte")
-KLASSE_PUTDEKSELNIVEAU = URIRef(f"{namen.GWSW}Putdekselniveau")
-
-KLASSE_PUNT = URIRef(f"{namen.GWSW}Punt")
-KLASSE_LIJN = URIRef(f"{namen.GWSW}Lijn")
-# Het GWSW kent drie soorten verbindingen, elk met een eigen begin- en eindvertex.
-# Alle zes zijn subklassen van gwsw:Vertex.
-KLASSEN_BEGINPUNT = tuple(
-    URIRef(f"{namen.GWSW}{naam}")
-    for naam in ("BeginpuntLeiding", "BeginpuntOnderdeel", "BeginpuntAfvoerrelatie")
-)
-KLASSEN_EINDPUNT = tuple(
-    URIRef(f"{namen.GWSW}{naam}")
-    for naam in ("EindpuntLeiding", "EindpuntOnderdeel", "EindpuntAfvoerrelatie")
-)
-KLASSE_BEGINPUNT = KLASSEN_BEGINPUNT[0]
-KLASSE_EINDPUNT = KLASSEN_EINDPUNT[0]
-KLASSE_BOB_BEGIN = URIRef(f"{namen.GWSW}BobBeginpuntLeiding")
-KLASSE_BOB_EIND = URIRef(f"{namen.GWSW}BobEindpuntLeiding")
-
 # De staart die de BrutIS-export achter de naam van een hulpstuk plakt in het
 # hasConnection-doel van een leidingeinde, waar de orientatie zelf anders heet.
 FANTOOM_STAART = "_put"
+
+# Het GWSW kent drie soorten verbindingen, elk met een eigen begin- en eindvertex; alle zes
+# subklassen van gwsw:Vertex. De drietallen staan sinds issue #52 één keer hier, zodat
+# `_leestermen` ze niet nog een tweede keer uitschrijft.
+_BEGINPUNT_NAMEN = ("BeginpuntLeiding", "BeginpuntOnderdeel", "BeginpuntAfvoerrelatie")
+_EINDPUNT_NAMEN = ("EindpuntLeiding", "EindpuntOnderdeel", "EindpuntAfvoerrelatie")
 
 
 # --------------------------------------------------------------------------------------
 # De versie-afgeleide termen (issue #32)
 # --------------------------------------------------------------------------------------
 #
-# De module-constanten hierboven blijven letterlijk 1.6: `dataset` her-exporteert ze en
-# `tests/test_publieke_api.py` pint hun waarde. Wat hier bij komt is dezelfde verzameling
-# `URIRef`-en *per gedetecteerde basis*, zodat de lezers hun predicaten en klasse-IRI's uit
-# `graph.gwsw_basis` afleiden in plaats van uit de vaste 1.6-string. De 1.6-termenset is per
-# constructie gelijk aan de constanten hierboven.
+# De `URIRef`-termenset *per gedetecteerde basis*, zodat de lezers hun predicaten en
+# klasse-IRI's uit `graph.gwsw_basis` afleiden in plaats van uit de vaste 1.6-string. De
+# module-constanten hieronder (`HAS_*`, `KLASSE_*`) blijven letterlijk 1.6 -- `dataset`
+# her-exporteert ze en `tests/test_publieke_api.py` pint hun waarde -- maar zij worden sinds
+# issue #52 uit `_leestermen(GWSW)` (`_T16`) afgeleid in plaats van elk apart uit een
+# basis-string opgebouwd, zodat de 1.6-spelling maar op één plek staat.
 
 
 @dataclass(frozen=True)
@@ -154,14 +125,18 @@ def _leestermen(basis: str) -> Leestermen:
     `URIRef`-en opnieuw bouwen. De sleutel is een van twee gebundelde bases; de cache blijft
     dus klein. De 1.6-uitkomst is per veld gelijk aan de module-constanten hierboven.
     """
+    # De zeven properties komen sinds issue #52 via `namen.termen_voor`, zodat de leeslaag ze
+    # niet naast de tekstlaag nog een keer spelt; de klasse-IRI's blijven hier uit de basis
+    # opgebouwd (`namen` draagt geen klassennamen).
+    t = namen.termen_voor(basis)
     return _Leestermen(
-        has_aspect=URIRef(f"{basis}hasAspect"),
-        has_part=URIRef(f"{basis}hasPart"),
-        is_aspect_of=URIRef(f"{basis}isAspectOf"),
-        is_part_of=URIRef(f"{basis}isPartOf"),
-        has_connection=URIRef(f"{basis}hasConnection"),
-        has_value=URIRef(f"{basis}hasValue"),
-        has_reference=URIRef(f"{basis}hasReference"),
+        has_aspect=URIRef(t.has_aspect),
+        has_part=URIRef(t.has_part),
+        is_aspect_of=URIRef(t.is_aspect_of),
+        is_part_of=URIRef(t.is_part_of),
+        has_connection=URIRef(t.has_connection),
+        has_value=URIRef(t.has_value),
+        has_reference=URIRef(t.has_reference),
         klasse_inwinning=URIRef(f"{basis}Inwinning"),
         klasse_wijze_van_inwinning=URIRef(f"{basis}WijzeVanInwinning"),
         klasse_datum_inwinning=URIRef(f"{basis}DatumInwinning"),
@@ -170,17 +145,48 @@ def _leestermen(basis: str) -> Leestermen:
         klasse_putdekselniveau=URIRef(f"{basis}Putdekselniveau"),
         klasse_punt=URIRef(f"{basis}Punt"),
         klasse_lijn=URIRef(f"{basis}Lijn"),
-        klassen_beginpunt=tuple(
-            URIRef(f"{basis}{naam}")
-            for naam in ("BeginpuntLeiding", "BeginpuntOnderdeel", "BeginpuntAfvoerrelatie")
-        ),
-        klassen_eindpunt=tuple(
-            URIRef(f"{basis}{naam}")
-            for naam in ("EindpuntLeiding", "EindpuntOnderdeel", "EindpuntAfvoerrelatie")
-        ),
+        klassen_beginpunt=tuple(URIRef(f"{basis}{naam}") for naam in _BEGINPUNT_NAMEN),
+        klassen_eindpunt=tuple(URIRef(f"{basis}{naam}") for naam in _EINDPUNT_NAMEN),
         klasse_bob_begin=URIRef(f"{basis}BobBeginpuntLeiding"),
         klasse_bob_eind=URIRef(f"{basis}BobEindpuntLeiding"),
     )
+
+
+# De gepinde 1.6-termenset, één keer opgebouwd (issue #52). De module-constanten eronder
+# lezen hun waarde eruit in plaats van de IRI's nog een tweede keer uit te schrijven; per
+# constructie identiek aan `URIRef(namen.HAS_ASPECT)` e.d. Zelfde gecachete object dat de
+# lezers voor basis 1.6 krijgen. `dataset` her-exporteert de constanten,
+# `tests/test_publieke_api.py` pint hun waarde en `tests/test_versiedetectie.py` bindt elk
+# veld aan zijn constante.
+_T16 = _leestermen(namen.GWSW)
+
+HAS_ASPECT = _T16.has_aspect
+HAS_PART = _T16.has_part
+# Het GWSW declareert `isPartOf owl:inverseOf hasPart` en `isAspectOf owl:inverseOf
+# hasAspect`. Een conforme export mag dus de inverse schrijven; wie alleen de voorwaartse
+# richting leest, krijgt van zo'n export een leeg domeinmodel zonder een enkele melding. De
+# lezers hierboven lezen daarom beide, net als bij hasConnection.
+IS_PART_OF = _T16.is_part_of
+IS_ASPECT_OF = _T16.is_aspect_of
+HAS_CONNECTION = _T16.has_connection
+HAS_VALUE = _T16.has_value
+HAS_REFERENCE = _T16.has_reference
+
+KLASSE_INWINNING = _T16.klasse_inwinning
+KLASSE_WIJZE_VAN_INWINNING = _T16.klasse_wijze_van_inwinning
+KLASSE_DATUM_INWINNING = _T16.klasse_datum_inwinning
+KLASSE_MAAIVELDORIENTATIE = _T16.klasse_maaiveldorientatie
+KLASSE_MAAIVELDHOOGTE = _T16.klasse_maaiveldhoogte
+KLASSE_PUTDEKSELNIVEAU = _T16.klasse_putdekselniveau
+
+KLASSE_PUNT = _T16.klasse_punt
+KLASSE_LIJN = _T16.klasse_lijn
+KLASSEN_BEGINPUNT = _T16.klassen_beginpunt
+KLASSEN_EINDPUNT = _T16.klassen_eindpunt
+KLASSE_BEGINPUNT = _T16.klassen_beginpunt[0]
+KLASSE_EINDPUNT = _T16.klassen_eindpunt[0]
+KLASSE_BOB_BEGIN = _T16.klasse_bob_begin
+KLASSE_BOB_EIND = _T16.klasse_bob_eind
 
 
 # --------------------------------------------------------------------------------------

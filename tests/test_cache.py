@@ -317,15 +317,20 @@ def test_zonder_cache_wordt_er_niets_weggeschreven(tmp_path: Path) -> None:
     assert list(tmp_path.rglob("*.pickle")) == []
 
 
-def test_de_sleutel_bij_none_hasht_alle_gebundelde_versies(
+def test_de_sleutel_bij_none_hasht_de_gedetecteerde_bundel(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Bij `ontology_paths=None` reageert de sleutel op elke gebundelde ontologie (issue #32).
+    """Bij `ontology_paths=None` hasht de sleutel de bundel van de gedetecteerde versie (#52).
 
-    `load_dataset` kiest bij `None` de gebundelde ontologie op de gedetecteerde
-    dataset-versie, dus ook de 1.7-bundel. Zou de sleutel alleen de 1.6-bundel hashen, dan
-    invalideert een data-only upgrade van uitsluitend de 1.7-bundel de 1.7-cache niet. Hier
-    verzetten we (via een tmp-kopie) de inhoud van de 1.7-bundel en eisen een andere sleutel.
+    Sinds issue #52 leest `cachesleutel` de `gwsw:`-prefix uit de kop van de dataset (een
+    goedkope scan van de eerste paar KB, geen volledige parse) en hasht alleen de bundel die
+    `load_dataset._gebundelde_paden_voor_basis` dan kiest -- niet meer álle bundels. Zo
+    invalideert een toekomstige 1.8-bundel een 1.6-cache niet meer.
+
+    VOORBEELD draagt de 1.6-prefix, dus de sleutel hangt van de 1.6-bundel af en níét van de
+    1.7-bundel: een data-only wijziging van uitsluitend de 1.7-bundel laat de sleutel met
+    rust. Een bron zonder herkenbare `gwsw:`-prefix valt terug op alle bundels, en dán telt de
+    1.7-bundel wel mee.
     """
     origineel = cache_module.gebundelde_ontologie_voor
     kopie17 = tmp_path / "bundel17.ttl"
@@ -336,14 +341,17 @@ def test_de_sleutel_bij_none_hasht_alle_gebundelde_versies(
         lambda versie: kopie17 if versie == "1.7" else origineel(versie),
     )
 
+    # 1.6-dataset: de sleutel hangt niet van de 1.7-bundel af.
     eerste = cachesleutel(VOORBEELD)
     kopie17.write_text("B", encoding="utf-8")
-    assert cachesleutel(VOORBEELD) != eerste
+    assert cachesleutel(VOORBEELD) == eerste
 
-    # Een expliciete 1.6-lijst hangt niet van de 1.7-bundel af.
-    zonder_17 = cachesleutel(VOORBEELD, [origineel("1.6")])
+    # Een bron zonder `gwsw:`-prefix valt terug op alle bundels; dán telt de 1.7-bundel wel.
+    zonder_prefix = tmp_path / "zonder_prefix.ttl"
+    zonder_prefix.write_text("<http://x/S> <http://x/p> <http://x/O> .\n", encoding="utf-8")
+    voor = cachesleutel(zonder_prefix)
     kopie17.write_text("C", encoding="utf-8")
-    assert cachesleutel(VOORBEELD, [origineel("1.6")]) == zonder_17
+    assert cachesleutel(zonder_prefix) != voor
 
 
 # --- De cache als vertrouwensgrens (issue #45) --------------------------------

@@ -147,17 +147,9 @@ def _parse(
     # het laatst gelezen bestand -- die zijn in de praktijk allemaal van één versie.
     basis = namen.basis_uit_prefixen(rdfmotor.prefixen_van(quads))
     if basis is None:
-        basis = next(
-            (b for term in index._pos if (b := namen.basis_uit_iri(str(term))) is not None),
-            None,
-        )
+        basis = namen.basis_uit_iris(str(term) for term in index._pos)
     if basis is None:
-        _logger.warning(
-            "%s: geen herkenbare GWSW-versie in de prefixen of de IRI's; de lezing valt terug "
-            "op de gebundelde 1.6-termenset. Een bron op een andere versie wordt daarmee "
-            "mogelijk leeg gelezen.",
-            path,
-        )
+        _logger.warning(namen.terugvalmelding(path, "de lezing"))
         basis = namen.GWSW
     index.gwsw_basis = basis
     return index, fallback

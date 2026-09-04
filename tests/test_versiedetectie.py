@@ -81,6 +81,65 @@ def test_basis_uit_iri_herkent_predicaat_en_klasse() -> None:
     assert namen.basis_uit_iri("http://www.w3.org/2000/01/rdf-schema#label") is None
 
 
+def test_basis_uit_iris_neemt_de_eerste_treffer() -> None:
+    """De gedeelde scan over een reeks IRI's; de eerste die een basis draagt wint (issue #52)."""
+    assert namen.basis_uit_iris([f"{BASIS_17}hasAspect"]) == BASIS_17
+    assert namen.basis_uit_iris(["http://x/p", f"{BASIS_16}Knooppunt"]) == BASIS_16
+    assert namen.basis_uit_iris(["http://x/p", "http://y/q"]) is None
+    assert namen.basis_uit_iris([]) is None
+
+
+def test_terugvalmelding_draagt_de_kernfrase_de_bron_en_de_laag() -> None:
+    """De gedeelde terugval-waarschuwing (bestand én clip); nooit stil, met de kernfrase (#52)."""
+    melding = namen.terugvalmelding("bron.ttl", "de lezing")
+    assert "geen herkenbare GWSW-versie" in melding
+    assert "bron.ttl" in melding
+    assert "de lezing" in melding
+
+
+def test_leestermen_16_is_per_veld_de_module_constante() -> None:
+    """Elk veld van `_leestermen(GWSW)` is exact de gepinde 1.6-module-constante (issue #52).
+
+    De module-constanten (`HAS_*`, `KLASSE_*`) worden sinds #52 uit `_leestermen(GWSW)` (`_T16`)
+    afgeleid in plaats van elk apart uit een basis-string opgebouwd. Deze test bindt elk veld
+    van de termenset aan zijn constante -- op waarde én type -- zodat een verschoven veld of
+    een uiteengelopen constante zich hier meldt en niet stil op een lege lezing uitkomt. De
+    veldenverzameling wordt meevergeleken, dus een nieuw veld dwingt een uitbreiding hier af.
+    """
+    import dataclasses
+
+    from gwsw_orox_helpers import inlezen
+    from gwsw_orox_helpers.namen import GWSW
+
+    t = inlezen._leestermen(GWSW)
+    per_veld = {
+        "has_aspect": inlezen.HAS_ASPECT,
+        "has_part": inlezen.HAS_PART,
+        "is_aspect_of": inlezen.IS_ASPECT_OF,
+        "is_part_of": inlezen.IS_PART_OF,
+        "has_connection": inlezen.HAS_CONNECTION,
+        "has_value": inlezen.HAS_VALUE,
+        "has_reference": inlezen.HAS_REFERENCE,
+        "klasse_inwinning": inlezen.KLASSE_INWINNING,
+        "klasse_wijze_van_inwinning": inlezen.KLASSE_WIJZE_VAN_INWINNING,
+        "klasse_datum_inwinning": inlezen.KLASSE_DATUM_INWINNING,
+        "klasse_maaiveldorientatie": inlezen.KLASSE_MAAIVELDORIENTATIE,
+        "klasse_maaiveldhoogte": inlezen.KLASSE_MAAIVELDHOOGTE,
+        "klasse_putdekselniveau": inlezen.KLASSE_PUTDEKSELNIVEAU,
+        "klasse_punt": inlezen.KLASSE_PUNT,
+        "klasse_lijn": inlezen.KLASSE_LIJN,
+        "klassen_beginpunt": inlezen.KLASSEN_BEGINPUNT,
+        "klassen_eindpunt": inlezen.KLASSEN_EINDPUNT,
+        "klasse_bob_begin": inlezen.KLASSE_BOB_BEGIN,
+        "klasse_bob_eind": inlezen.KLASSE_BOB_EIND,
+    }
+    assert set(per_veld) == {f.name for f in dataclasses.fields(t)}
+    for veld, constante in per_veld.items():
+        gevonden = getattr(t, veld)
+        assert gevonden == constante, veld
+        assert type(gevonden) is type(constante), veld
+
+
 def test_parse_leest_de_basis_uit_de_gwsw_prefix() -> None:
     """Een gebundelde fixture draagt zijn versie in de `gwsw:`-prefix; `_parse` leest die."""
     index16, _ = _parse(TTL16, None)

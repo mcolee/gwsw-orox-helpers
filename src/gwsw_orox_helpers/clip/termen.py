@@ -94,17 +94,9 @@ def _bronbasis(quads: Iterable[pyoxigraph.Quad], bron: object) -> str:
     → 1.6 met een `logging.warning` (nooit stil). `quads` wordt zover afgelopen als nodig; de
     aanroeper geeft er een stroom voor die hij zelf niet meer verwerkt.
     """
-    basis = next(
-        (b for quad in quads if (b := namen.basis_uit_iri(quad.predicate.value)) is not None),
-        None,
-    )
+    basis = namen.basis_uit_iris(quad.predicate.value for quad in quads)
     if basis is None:
-        _logger.warning(
-            "%s: geen herkenbaar GWSW-predicaat in de IRI's; de clip valt terug op de "
-            "1.6-predicaten. Een bron op een andere versie wordt daarmee mogelijk niet "
-            "correct verwerkt.",
-            bron,
-        )
+        _logger.warning(namen.terugvalmelding(bron, "de clip"))
         return namen.GWSW
     return basis
 

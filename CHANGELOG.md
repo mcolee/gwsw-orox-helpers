@@ -1,6 +1,20 @@
 # Changelog
 
 ## [Unreleased]
+- Projectmetadata in `pyproject.toml` (`[project]`, issue #42; config, **additief** — geen
+  regel `src/**.py` geraakt, geen contract dat nlriochecker importeert). De wheel-METADATA
+  droeg geen `Author`, `Keywords`, `Classifier` of `Project-URL`; nu wel: `authors`
+  (Martin Colee), `keywords` (gwsw/orox/riolering/rdf/turtle), zeven `classifiers`
+  (`Development Status :: 4 - Beta`, Python 3.12/3.13/3.14, `Typing :: Typed`,
+  `Topic :: Scientific/Engineering :: GIS`, `Operating System :: OS Independent`) en
+  `[project.urls]` (Homepage, Repository, Changelog, Issues). De `description` kondigt
+  schrijven en clippen niet meer als toekomst ("(en later ...)") aan — allebei geleverd
+  sinds 0.2.0 — en luidt nu "Lezen, terugschrijven en ruimtelijk knippen van GWSW-OroX
+  (TTL) rioleringsdatasets: grafmodel, geometrie, klassenhierarchie en cache." Python 3.14
+  staat er nu al bij, zodat issue #54 (CI-matrix) `pyproject.toml` niet opnieuw hoeft te
+  raken. `Typing :: Typed` klopt met de bestaande `src/gwsw_orox_helpers/py.typed`. Een
+  drifttest `tests/test_projectmetadata.py` leest `pyproject.toml` met `tomllib` en pint de
+  velden en de vier urls vast (geen wheel-bouw in de test).
 - Ontwikkelstraat: Fable-audit-swarm `.claude/workflows/orox-fable-audit.js`
   (`Workflow({name: 'orox-fable-audit'})`): negen lenzen met bewijsplicht (packaging,
   api-docs, security, defecten lezen/geo-clip, architectuur snit/evolutie, kwaliteit,

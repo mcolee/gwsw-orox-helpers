@@ -5,10 +5,21 @@ build-backend = "hatchling.build"
 [project]
 name = "gwsw-orox-helpers"
 version = "0.2.2"
-description = "Lezen (en later schrijven en clippen) van GWSW-OroX (TTL) rioleringsdatasets: grafmodel, geometrie, klassenhierarchie en cache."
+description = "Lezen, terugschrijven en ruimtelijk knippen van GWSW-OroX (TTL) rioleringsdatasets: grafmodel, geometrie, klassenhierarchie en cache."
 readme = "README.md"
 license = "MIT"
 license-files = ["LICENSE"]
+authors = [{ name = "Martin Colee", email = "martin@colee.nl" }]
+keywords = ["gwsw", "orox", "riolering", "rdf", "turtle"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Typing :: Typed",
+    "Topic :: Scientific/Engineering :: GIS",
+    "Operating System :: OS Independent",
+]
 requires-python = ">=3.12"
 dependencies = [
     # pyoxigraph levert de Rust-parser die het OroX-TTL ordegrootten sneller inleest dan
@@ -25,6 +36,12 @@ dependencies = [
     "rdflib>=7.0,<8",
     "shapely>=2.0,<3",
 ]
+
+[project.urls]
+Homepage = "https://github.com/mcolee/gwsw-orox-helpers"
+Repository = "https://github.com/mcolee/gwsw-orox-helpers"
+Changelog = "https://github.com/mcolee/gwsw-orox-helpers/blob/main/CHANGELOG.md"
+Issues = "https://github.com/mcolee/gwsw-orox-helpers/issues"
 
 [dependency-groups]
 dev = [

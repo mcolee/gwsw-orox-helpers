@@ -1,6 +1,29 @@
 # Changelog
 
 ## [Unreleased]
+- Opt-in byte-stabiele uitvoer voor de schrijflaag (issue #58, feature; **additief** — een
+  nieuw keyword-only argument met default `False`, geen bestaande signatuur, retourvorm of
+  byte-uitvoer geraakt). `schrijf_orox(..., *, deterministisch=False)` en
+  `schrijf_orox_quads(..., *, deterministisch=False)` kregen het keyword; met `False`
+  verandert er geen byte aan de bestaande uitvoer (bewezen door een test die de default- en
+  de weggelaten-keyword-weg de hernummering nooit laat raken), met `True` zijn twee
+  schrijfbeurten van dezelfde bron byte-gelijk (gelijke sha256) én graaf-gelijk. pyoxigraph
+  mint per parse willekeurige namen voor blanke knopen (`_:<random>`), dus is de
+  default-uitvoer graaf-gelijk maar niet byte-gelijk en daarmee diff-/git-onvriendelijk; de
+  nieuwe privéhulp `schrijven._hernummerd` loopt de stroom af en hernummert elke blanke knoop
+  op eerste ontmoeting (subject vóór object) naar `_:b<n>` in stroomvolgorde — een isomorfe
+  graaf, tegen de kosten van een extra gang over elke term en een tabel van de labels in het
+  geheugen. `clip/` bleef ongemoeid: `clip.plan._genummerd` levert *sleutels* naast de quad en
+  herschrijft niets, dus het hergebruik was niet laagrichting-conform (`schrijven` importeert
+  `clip` niet); de fabrieken `BlankNode`/`Quad`/`Triple` komen rechtstreeks uit pyoxigraph,
+  buiten de `rdfmotor`-naad, zoals `docs/architectuur.md` voorschrijft. Nieuw in
+  `tests/test_schrijven.py`: byte-gelijkheid met `deterministisch=True`, de negatieve
+  demonstratie dat de default niet byte-stabiel is, de default-weg-pin, en een
+  `:eind\.`-regressie — een IRI die onder de basisprefix op een punt eindigt schrijft
+  pyoxigraph als `:eind\.` (PN_LOCAL_ESC, geldig Turtle 1.1) en leest hij lexicaal identiek
+  terug, terwijl rdflib 7.6.0 hem met `BadSyntax` weigert (upstream te melden; de docstring
+  van `schrijf_orox_quads` benoemt de beperking). De basisprefix weglaten om rdflib te
+  plezieren zou de default-bytes veranderen en is bewust **niet** gedaan.
 - Publieke docstrings staan in domeintaal: de module-, klasse- en methode-docstrings van de
   leeslaag noemen geen interne nlriochecker-checkcodes (`HGT-004`, `NET-007`, `TOP-020`,
   `ATTR-013`, ...) of nlriochecker-bestandsnamen (`uitvoer/melding.py`, `SHACL-nulmeting`,

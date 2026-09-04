@@ -1,6 +1,7 @@
 """De schrijver geeft een OroX-TTL terug die naar dezelfde RDF-graaf parseert."""
 
 import errno
+import hashlib
 import os
 from collections import Counter
 from collections.abc import Callable, Iterator
@@ -17,6 +18,7 @@ import rdflib
 # knoop-toewijzing (canonicaliseren en dan vergelijken).
 from rdflib.compare import isomorphic
 from rdflib.namespace import OWL, RDF
+from rdflib.plugins.parsers.notation3 import BadSyntax
 
 from conftest import dewoldenhoogeveen_export
 from gwsw_orox_helpers import schrijven
@@ -615,3 +617,140 @@ def test_de_publieke_ingangen_accepteren_een_str_pad(naam: str, tmp_path: Path) 
     assert len(met_str) == len(met_path)
     for graaf_str, graaf_path in zip(met_str, met_path, strict=True):
         assert isomorphic(graaf_str, graaf_path)
+
+
+def _sha256(pad: Path) -> str:
+    """De SHA-256 van de bytes van een bestand; het criterium voor byte-gelijkheid."""
+    return hashlib.sha256(pad.read_bytes()).hexdigest()
+
+
+def test_deterministisch_geeft_byte_gelijke_uitvoer(tmp_path: Path) -> None:
+    """Twee schrijfbeurten met `deterministisch=True` zijn byte-gelijk én graaf-gelijk.
+
+    pyoxigraph mint per parse eigen `_:`-labels, dus de default-uitvoer verschilt per beurt
+    (zie de negatieve test hieronder). Met `deterministisch=True` hernummert de schrijver
+    elke blanke knoop op eerste ontmoeting (subject vóór object) naar `_:b<n>`, zodat
+    dezelfde bron dezelfde bytes oplevert -- zonder de graaf te veranderen.
+    """
+    een = tmp_path / "een.ttl"
+    twee = tmp_path / "twee.ttl"
+    schrijf_orox(MINI, een, deterministisch=True)
+    schrijf_orox(MINI, twee, deterministisch=True)
+
+    assert _sha256(een) == _sha256(twee)
+    assert isomorphic(_graaf(MINI), _graaf(een))
+
+
+def test_zonder_deterministisch_is_de_uitvoer_niet_byte_stabiel(tmp_path: Path) -> None:
+    """Zonder de vlag verschillen twee beurten in bytes -- de reden dat de vlag bestaat.
+
+    pyoxigraph mint per parse eigen `_:`-labels; op `mini_orox` (elf blanke knopen) is een
+    botsing astronomisch onwaarschijnlijk. Dit toont dat de byte-stabiliteit echt van de vlag
+    komt en niet toevallig al bestond -- en dat de graaf in beide gevallen dezelfde blijft.
+    """
+    een = tmp_path / "een.ttl"
+    twee = tmp_path / "twee.ttl"
+    schrijf_orox(MINI, een)
+    schrijf_orox(MINI, twee)
+
+    assert _sha256(een) != _sha256(twee)
+    assert isomorphic(_graaf(MINI), _graaf(een))
+    assert isomorphic(_graaf(MINI), _graaf(twee))
+
+
+def test_deterministisch_default_laat_de_stroom_ongemoeid(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Default (`False`) en het weglaten van het keyword raken de hernummering nooit aan.
+
+    `_hernummerd` mag alleen op `deterministisch=True` draaien; met `False` of zonder het
+    keyword gaat de stroom onveranderd naar de serializer, dus verandert geen byte aan de
+    bestaande uitvoer. Bewijs: een `_hernummerd` die bij aanroep opblaast laat beide
+    default-wegen (`schrijf_orox` en `schrijf_orox_quads`) ongemoeid en slaat alleen aan op
+    `True`.
+    """
+
+    def _val_op(_quads: object) -> object:
+        raise AssertionError("_hernummerd mag niet op de default-weg draaien")
+
+    monkeypatch.setattr(schrijven, "_hernummerd", _val_op)
+
+    schrijf_orox(MINI, tmp_path / "weggelaten.ttl")
+    schrijf_orox(MINI, tmp_path / "expliciet.ttl", deterministisch=False)
+    schrijf_orox_quads(lees_orox(MINI).quads, tmp_path / "quads.ttl", deterministisch=False)
+
+    with pytest.raises(AssertionError, match="default-weg"):
+        schrijf_orox(MINI, tmp_path / "nooit.ttl", deterministisch=True)
+
+
+def test_schrijf_orox_quads_deterministisch_hernummert_de_blanke_knopen(tmp_path: Path) -> None:
+    """Ook de stroom-ingang hernummert: de uitvoer draagt `_:b0`, `_:b1`, ... in stroomorde.
+
+    `schrijf_orox_quads` is de ingang die de clip gebruikt; de vlag werkt daar net zo. De
+    labels die pyoxigraph teruggeeft zijn na een tweede parse weer willekeurig, dus toetsen
+    we de *tekst* van de uitvoer: die draagt de vaste `_:b<n>`-namen.
+    """
+    doel = tmp_path / "quads.ttl"
+    schrijf_orox_quads(lees_orox(MINI).quads, doel, deterministisch=True)
+
+    tekst = doel.read_text(encoding="utf-8")
+    assert "_:b0" in tekst
+    assert "_:b1" in tekst
+
+
+def test_deterministisch_hernummert_ook_een_triplestroom(tmp_path: Path) -> None:
+    """`schrijf_orox_quads` krijgt van de clip triples, geen quads; de vlag werkt daar net zo.
+
+    Een handgebouwde triplestroom met een blanke knoop (subject én object) komt er met de
+    vaste naam `_:b0` uit, en twee beurten zijn byte-gelijk.
+    """
+    knoop = pyoxigraph.BlankNode("aspect")
+    put = pyoxigraph.NamedNode("http://x#Put")
+    has_aspect = pyoxigraph.NamedNode("http://x#hasAspect")
+    rdf_type = pyoxigraph.NamedNode(RDF_TYPE)
+    punt = pyoxigraph.NamedNode("http://x#Punt")
+    triples = [
+        pyoxigraph.Triple(put, has_aspect, knoop),
+        pyoxigraph.Triple(knoop, rdf_type, punt),
+    ]
+
+    een = tmp_path / "een.ttl"
+    twee = tmp_path / "twee.ttl"
+    schrijf_orox_quads(triples, een, deterministisch=True)
+    schrijf_orox_quads(list(triples), twee, deterministisch=True)
+
+    assert "_:b0" in een.read_text(encoding="utf-8")
+    assert _sha256(een) == _sha256(twee)
+
+
+def test_iri_eindigend_op_punt_leest_pyoxigraph_terug_maar_rdflib_niet(tmp_path: Path) -> None:
+    """Een IRI die onder de basisprefix op `.` eindigt: geldig Turtle 1.1, rdflib struikelt.
+
+    pyoxigraph kort `<http://example.org/x#eind.>` onder de `:`-prefix af tot `:eind\\.`
+    (PN_LOCAL_ESC, geldig Turtle 1.1) en leest hem lexicaal identiek terug. rdflib 7.6.0
+    accepteert die escape aan het eind van een PN_LOCAL niet en geeft `BadSyntax`. Deze test
+    pint die stand: de dag dat rdflib het wél leest, valt hij om en meldt de fix zich. Zie de
+    docstring van `schrijf_orox_quads`.
+    """
+    bron = tmp_path / "eind.ttl"
+    bron.write_text(
+        "@prefix : <http://example.org/x#> .\n"
+        "<http://example.org/x#eind.> <http://example.org/x#p> <http://example.org/x#o> .\n",
+        encoding="utf-8",
+    )
+    doel = tmp_path / "eind_terug.ttl"
+    schrijf_orox(bron, doel)
+
+    tekst = doel.read_text(encoding="utf-8")
+    assert ":eind\\." in tekst
+
+    # pyoxigraph leest de escape lexicaal identiek terug ...
+    terug = list(pyoxigraph.parse(doel.read_bytes(), format=pyoxigraph.RdfFormat.TURTLE))
+    assert any(
+        isinstance(quad.subject, pyoxigraph.NamedNode)
+        and quad.subject.value == "http://example.org/x#eind."
+        for quad in terug
+    )
+    # ... rdflib (7.x) niet: dat is de gedocumenteerde beperking.
+    with pytest.raises(BadSyntax):
+        _graaf(doel)

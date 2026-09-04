@@ -66,7 +66,7 @@ from collections.abc import Iterable, Iterator, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from types import MappingProxyType
-from typing import Final
+from typing import Final, cast
 
 import pyoxigraph
 
@@ -161,6 +161,8 @@ def schrijf_orox(
     bron: str | os.PathLike[str],
     doel: str | os.PathLike[str],
     fallback_encoding: str | None = None,
+    *,
+    deterministisch: bool = False,
 ) -> None:
     """Leest de OroX-TTL `bron` en schrijft hem als Turtle naar `doel`.
 
@@ -169,9 +171,16 @@ def schrijf_orox(
     komen mee, aangevuld met `STANDAARD_PREFIXEN`. `fallback_encoding` betekent hetzelfde
     als in `load_dataset` en `lees_orox`; de uitvoer is hoe dan ook UTF-8. Een str- of ander
     `os.PathLike`-pad mag: `lees_orox` en `schrijf_orox_quads` coerceren zelf naar `Path`.
+
+    `deterministisch` gaat ongewijzigd door naar `schrijf_orox_quads`; met de default
+    `False` verandert er geen byte aan de bestaande uitvoer, met `True` zijn twee beurten
+    van dezelfde bron byte-gelijk. Zie `schrijf_orox_quads` voor wat het doet en kost. De
+    graaf blijft in beide gevallen dezelfde.
     """
     geopend = lees_orox(bron, fallback_encoding)
-    schrijf_orox_quads(geopend.quads, doel, prefixen=geopend.prefixen)
+    schrijf_orox_quads(
+        geopend.quads, doel, prefixen=geopend.prefixen, deterministisch=deterministisch
+    )
 
 
 def schrijf_orox_quads(
@@ -179,6 +188,7 @@ def schrijf_orox_quads(
     doel: str | os.PathLike[str],
     *,
     prefixen: Mapping[str, str] | None = None,
+    deterministisch: bool = False,
 ) -> None:
     """Schrijft een al geparseerde quad- of triplestroom als OroX-Turtle naar `doel`.
 
@@ -193,6 +203,26 @@ def schrijf_orox_quads(
     Ze veranderen alleen de schrijfwijze van de IRI's, niet de graaf. De sleutels moeten
     wel PN_PREFIX-en zijn (`PREFIX_PATROON`); pyoxigraph controleert dat niet en zou een
     kapotte sleutel gewoon uitschrijven.
+
+    `deterministisch` (default `False`) maakt twee schrijfbeurten van dezelfde stroom
+    byte-gelijk. pyoxigraph mint per parse eigen namen voor blanke knopen (`_:<random>`),
+    dus verschilt de default-uitvoer per beurt -- graaf-gelijk maar niet byte-gelijk, en
+    dus diff- en git-onvriendelijk. Met `True` loopt de stroom eerst door `_hernummerd`,
+    dat elke blanke knoop op eerste ontmoeting (subject vóór object) hernummert naar
+    `_:b<n>` in stroomvolgorde; dezelfde stroom levert dan dezelfde bytes. Het **kost** een
+    extra gang over elke term en een tabel van de blanke knopen in het geheugen (niet de
+    hele stroom, alleen de labels), en het **verandert de graaf niet**: blanke-knooplabels
+    zijn documentgebonden, dus hernummeren geeft een isomorfe graaf. Met de default `False`
+    gaat de stroom onveranderd naar de serializer en verandert er geen byte aan wat de
+    functie tot nu toe schreef.
+
+    **rdflib-beperking (`:eind\\.`).** Draagt een IRI onder een prefix een lokaal deel dat
+    op een punt eindigt (bv. `<...#eind.>`), dan schrijft pyoxigraph dat als `:eind\\.`
+    (PN_LOCAL_ESC). Dat is geldig Turtle 1.1 en pyoxigraph leest het lexicaal identiek
+    terug, maar rdflib 7.x weigert de escape aan het eind van een PN_LOCAL met `BadSyntax`.
+    Deze serializer wijkt daar niet voor uit -- de basisprefix weglaten zou de bytes van de
+    default-uitvoer veranderen -- dus zo'n bron blijft door rdflib onleesbaar tot rdflib het
+    repareert (upstream te melden). `tests/test_schrijven.py` pint die stand.
 
     Er wordt naar een tmp-bestand naast `doel` geschreven en pas na de laatste quad
     hernoemd. Een luie bron kan halverwege afbreken -- een syntaxfout op regel 900.000 --
@@ -211,6 +241,14 @@ def schrijf_orox_quads(
     bibliotheek hoort een str-pad te accepteren, en hieronder wordt `doel.parent` gelezen.
     """
     doel = Path(doel)
+    stroom: Iterable[pyoxigraph.Quad] | Iterable[pyoxigraph.Triple] = (
+        cast(
+            "Iterable[pyoxigraph.Quad] | Iterable[pyoxigraph.Triple]",
+            _hernummerd(quads),
+        )
+        if deterministisch
+        else quads
+    )
     kop = dict(prefixen) if prefixen is not None else dict(STANDAARD_PREFIXEN)
     for sleutel in kop:
         if not PREFIX_PATROON.match(sleutel):
@@ -240,7 +278,7 @@ def schrijf_orox_quads(
             # aanmaken, wordt het pad opruimbaar. De `finally` mag alleen weghalen wat hij
             # zelf maakte -- weigert de `x` de naam, dan is dat bestand van iemand anders.
             tijdelijk = kandidaat
-            rdfmotor.serialiseer_turtle(quads, bestand, prefixen=kop)
+            rdfmotor.serialiseer_turtle(stroom, bestand, prefixen=kop)
         tijdelijk.replace(doel)
         # Na de hernoeming bestaat het tijdelijke pad niet meer; de `finally` mag er dan
         # ook niet meer naar grijpen (een minuscule TOCTOU als de naam intussen hergebruikt
@@ -255,6 +293,62 @@ def schrijf_orox_quads(
         if tijdelijk is not None:
             with contextlib.suppress(OSError):
                 tijdelijk.unlink(missing_ok=True)
+
+
+def _hernummerd(
+    quads: Iterable[pyoxigraph.Quad] | Iterable[pyoxigraph.Triple],
+) -> Iterator[pyoxigraph.Quad | pyoxigraph.Triple]:
+    """De stroom met elke blanke knoop hernummerd naar `_:b<n>` in stroomvolgorde.
+
+    Dit is het codepad achter `deterministisch=True`. Elke `BlankNode` krijgt op eerste
+    ontmoeting -- subject vóór object, altijd in die volgorde -- een naam `b<n>` die de
+    stroomvolgorde volgt, en is daarmee bij elke lezing van dezelfde bron dezelfde, anders
+    dan de willekeurige namen die pyoxigraph zelf mint. Een term die geen blanke knoop is
+    (een `NamedNode`, een `Literal`, of een RDF-ster-`Triple`) blijft ongewijzigd; een
+    RDF-ster-triple wordt dus als geheel doorgegeven en zijn binnenste knopen worden niet
+    hernummerd. Een quad zonder blanke knoop gaat ongewijzigd door -- geen nieuwe term, geen
+    nieuwe quad.
+
+    De pyoxigraph-term-fabrieken (`BlankNode`, `Quad`, `Triple`) worden hier rechtstreeks
+    aangeroepen en niet via `rdfmotor`: die naad draagt alleen parse en serialize, de
+    fabrieken staan bewust buiten de adapter (zie `docs/architectuur.md`, "Wat er niet
+    doorheen gaat"). De twee takken staan, net als in `clip.plan._genummerd`, uitgeschreven
+    in plaats van in een hulp per term: deze lus draait per quad van de bron.
+    """
+    labels: dict[str, pyoxigraph.BlankNode] = {}
+    teller = itertools.count()
+    blank_node = pyoxigraph.BlankNode
+    quad_type = pyoxigraph.Quad
+    triple_type = pyoxigraph.Triple
+    for item in quads:
+        subject = item.subject
+        nieuw_subject: pyoxigraph.NamedNode | pyoxigraph.BlankNode | pyoxigraph.Triple
+        if isinstance(subject, blank_node):
+            gevonden_s = labels.get(subject.value)
+            if gevonden_s is None:
+                gevonden_s = labels[subject.value] = blank_node(f"b{next(teller)}")
+            nieuw_subject = gevonden_s
+        else:
+            nieuw_subject = subject
+
+        object_ = item.object
+        nieuw_object: (
+            pyoxigraph.NamedNode | pyoxigraph.BlankNode | pyoxigraph.Literal | pyoxigraph.Triple
+        )
+        if isinstance(object_, blank_node):
+            gevonden_o = labels.get(object_.value)
+            if gevonden_o is None:
+                gevonden_o = labels[object_.value] = blank_node(f"b{next(teller)}")
+            nieuw_object = gevonden_o
+        else:
+            nieuw_object = object_
+
+        if nieuw_subject is subject and nieuw_object is object_:
+            yield item
+        elif isinstance(item, quad_type):
+            yield quad_type(nieuw_subject, item.predicate, nieuw_object, item.graph_name)
+        else:
+            yield triple_type(nieuw_subject, item.predicate, nieuw_object)
 
 
 def _begint_met_bom(bron: Path) -> bool:

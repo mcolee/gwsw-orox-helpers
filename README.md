@@ -7,14 +7,14 @@ en knipt een export langs een grenslaag in delen die weer tot het origineel same
 1.6 en 1.7 zijn meegebundeld (1.6 is de default). Eerste afnemer: [nlriochecker](https://github.com/mcolee/nlriochecker).
 
 [![toets](https://github.com/mcolee/gwsw-orox-helpers/actions/workflows/toets.yml/badge.svg?branch=main)](https://github.com/mcolee/gwsw-orox-helpers/actions/workflows/toets.yml)
-[![licentie MIT](https://img.shields.io/badge/licentie-MIT-blue.svg)](LICENSE)
-[![Python 3.12+](https://img.shields.io/badge/python-3.12%2B-blue.svg)](pyproject.toml)
+[![licentie MIT](https://img.shields.io/badge/licentie-MIT-blue.svg)](https://github.com/mcolee/gwsw-orox-helpers/blob/main/LICENSE)
+[![Python 3.12+](https://img.shields.io/badge/python-3.12%2B-blue.svg)](https://github.com/mcolee/gwsw-orox-helpers/blob/main/pyproject.toml)
 
 ## Stand van zaken
 
 De bibliotheek is bruikbaar, maar nog vóór 1.0.
 
-- **Pre-1.0.** De publieke API kan tot 1.0 nog wijzigen, maar alleen met een regel in [CHANGELOG.md](CHANGELOG.md)
+- **Pre-1.0.** De publieke API kan tot 1.0 nog wijzigen, maar alleen met een regel in [CHANGELOG.md](https://github.com/mcolee/gwsw-orox-helpers/blob/main/CHANGELOG.md)
   en een versiebump. Het oppervlak dat nlriochecker importeert ligt vast in `tests/test_publieke_api.py` en geldt
   als bevroren.
 - **GWSW-ontologieën 1.6 en 1.7 meegebundeld** als package-resource (`bronnen.gebundelde_ontologie` /
@@ -22,7 +22,7 @@ De bibliotheek is bruikbaar, maar nog vóór 1.0.
   GWSW-versie is een release hier plus een `uv lock` bij de afnemer.
 - **Getest op de export van De Wolden en Hoogeveen** (112 MB, 1,9 miljoen triples, ruim 23.000 putten en strengen).
   Andere gemeenten en andere beheerpakketten zijn nog niet geprobeerd.
-- **Niet op PyPI.** Installeren gaat rechtstreeks uit git (zie hieronder).
+- **Installeren vanaf PyPI** met `pip` of `uv`; voor de ontwikkelstand op `dev` rechtstreeks uit git (zie hieronder).
 
 ## Wat je krijgt
 
@@ -45,7 +45,13 @@ Motoren: pyoxigraph (de Rust-parser), rdflib en shapely.
 
 ## Snel proberen
 
-Python 3.12+ en [uv](https://docs.astral.sh/uv/) (of pip). Installeren gaat uit git:
+Python 3.12+ en [uv](https://docs.astral.sh/uv/) (of pip). Installeren vanaf PyPI:
+
+```sh
+pip install gwsw-orox-helpers   # of: uv add gwsw-orox-helpers
+```
+
+Voor de ontwikkelstand op `dev` rechtstreeks uit git:
 
 ```sh
 uv add git+https://github.com/mcolee/gwsw-orox-helpers   # of: pip install git+https://github.com/mcolee/gwsw-orox-helpers
@@ -70,16 +76,16 @@ merge_orox(delen, Path("terug.ttl"))  # isomorf aan de bron
 
 Op de export van De Wolden en Hoogeveen (112 MB) laadt `load_dataset` in ~20 s (23.485 putten, 23.440 strengen) en
 knipt `clip_orox` in ~39 s; het piekgeheugen blijft onder 1,3 GB. De metingen en het benchmarkscript staan in
-[CHANGELOG.md](CHANGELOG.md).
+[CHANGELOG.md](https://github.com/mcolee/gwsw-orox-helpers/blob/main/CHANGELOG.md).
 
 ## Verder lezen
 
-- **[docs/architectuur.md](docs/architectuur.md)**: de modulesnit van `src/gwsw_orox_helpers/`, de importrichting,
+- **[docs/architectuur.md](https://github.com/mcolee/gwsw-orox-helpers/blob/main/docs/architectuur.md)**: de modulesnit van `src/gwsw_orox_helpers/`, de importrichting,
   de twee paden door pyoxigraph (lezen met index, schrijven als stroom) en waar de gedeelde IRI-, prefix- en
   coderingskennis woont.
-- **[tests/test_publieke_api.py](tests/test_publieke_api.py)**: het bevroren oppervlak dat nlriochecker importeert —
+- **[tests/test_publieke_api.py](https://github.com/mcolee/gwsw-orox-helpers/blob/main/tests/test_publieke_api.py)**: het bevroren oppervlak dat nlriochecker importeert —
   handtekeningen en velden liggen daar vast.
-- **[CHANGELOG.md](CHANGELOG.md)**: het versienummer en elke noemenswaardige wijziging.
+- **[CHANGELOG.md](https://github.com/mcolee/gwsw-orox-helpers/blob/main/CHANGELOG.md)**: het versienummer en elke noemenswaardige wijziging.
 
 ## Ontwikkelen
 
@@ -92,8 +98,7 @@ uv run pytest                                           # `zwaar` niet; `-m zwaa
 uv run pytest --cov=gwsw_orox_helpers --cov-fail-under=95  # pytest-cov komt uit de dev-groep
 ```
 
-Dezelfde vijf stappen draaien in CI bij elke push naar `main` of `dev` (`.github/workflows/toets.yml`). De werkwijze
-en de harde regels (de bevroren API, de leidende GWSW-versie) staan in [CLAUDE.md](CLAUDE.md).
+Dezelfde vijf stappen draaien in CI bij elke push naar `main` of `dev` (`.github/workflows/toets.yml`).
 
 ## Bijdragen
 
@@ -101,6 +106,9 @@ Meld een fout of een export waarop het misgaat op de
 [issuetracker](https://github.com/mcolee/gwsw-orox-helpers/issues). Omdat nlriochecker op de publieke API leunt,
 bespreek je een pull request die dat oppervlak raakt eerst in een issue.
 
+Voor een bijdrage: tak van `dev`, laat de vijf poortstappen groen zijn — `ruff check`, `ruff format --check .`,
+`mypy`, `pytest` en `pytest --cov=gwsw_orox_helpers --cov-fail-under=95` — en open een pull request naar `dev`.
+
 ## Licentie
 
-Copyright © 2026 Martin Colee. Licensed under the [MIT License](LICENSE).
+Copyright © 2026 Martin Colee. Licensed under the [MIT License](https://github.com/mcolee/gwsw-orox-helpers/blob/main/LICENSE).

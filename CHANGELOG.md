@@ -1,6 +1,16 @@
 # Changelog
 
 ## [Unreleased]
+- `README.md` als PyPI-landingspagina (issue #43; docs, **additief** — geen regel
+  `src/**.py` en geen `pyproject.toml` geraakt). Alle relatieve links (badges naar `LICENSE`
+  en `pyproject.toml`, en de verwijzingen naar `CHANGELOG.md`, `docs/architectuur.md` en
+  `tests/test_publieke_api.py`) wijzen nu absoluut naar
+  `https://github.com/mcolee/gwsw-orox-helpers/blob/main/...`, zodat ze op de PyPI-projectpagina
+  niet dood zijn. De zelf-ontkenning "Niet op PyPI" en het git-installatieblok maken plaats voor
+  `pip install gwsw-orox-helpers` / `uv add gwsw-orox-helpers` als hoofdweg, met de
+  `git+https://...`-variant als dev-alternatief eronder. De `CLAUDE.md`-verwijzing is vervangen
+  door een korte bijdrage-alinea (issue, de vijf poortstappen, PR naar `dev`), zodat de
+  distributie niet naar een intern agent-document wijst.
 - Projectmetadata in `pyproject.toml` (`[project]`, issue #42; config, **additief** — geen
   regel `src/**.py` geraakt, geen contract dat nlriochecker importeert). De wheel-METADATA
   droeg geen `Author`, `Keywords`, `Classifier` of `Project-URL`; nu wel: `authors`

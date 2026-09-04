@@ -114,7 +114,7 @@ class OroxBron:
     prefixen: dict[str, str]
 
 
-def lees_orox(bron: Path, fallback_encoding: str | None = None) -> OroxBron:
+def lees_orox(bron: str | os.PathLike[str], fallback_encoding: str | None = None) -> OroxBron:
     """Opent `bron` als quadstroom en haalt de prefixdeclaraties eruit.
 
     pyoxigraph kent de prefixen pas nadat het de kop gelezen heeft, dus wordt de stroom
@@ -138,7 +138,11 @@ def lees_orox(bron: Path, fallback_encoding: str | None = None) -> OroxBron:
     BOM (`codering.decodeer` leest `utf-8-sig`) aan de motor gaat. Zonder BOM en zonder
     terugvalcodering blijft het bestandspad byte-gelijk naar de motor gaan, dus blijft de
     export van honderden megabytes buiten het geheugen.
+
+    Een str- of ander `os.PathLike`-pad wordt hier tot `Path` gemaakt: een bibliotheek
+    hoort een str-pad te accepteren, en de terugval-tak leest `bron.read_bytes()` (issue #55).
     """
+    bron = Path(bron)
     try:
         if fallback_encoding is None and not _begint_met_bom(bron):
             parser = rdfmotor.ontleed_turtle_bestand(bron)
@@ -153,13 +157,18 @@ def lees_orox(bron: Path, fallback_encoding: str | None = None) -> OroxBron:
     return OroxBron(quads=itertools.chain(eerste, stroom), prefixen=prefixen)
 
 
-def schrijf_orox(bron: Path, doel: Path, fallback_encoding: str | None = None) -> None:
+def schrijf_orox(
+    bron: str | os.PathLike[str],
+    doel: str | os.PathLike[str],
+    fallback_encoding: str | None = None,
+) -> None:
     """Leest de OroX-TTL `bron` en schrijft hem als Turtle naar `doel`.
 
     Niet byte-gelijk aan de bron, wel graaf-gelijk: `doel` parseert naar dezelfde RDF-graaf
     (zie de moduledocstring). De prefixen van de bron -- inclusief de dataset-basis `:` --
     komen mee, aangevuld met `STANDAARD_PREFIXEN`. `fallback_encoding` betekent hetzelfde
-    als in `load_dataset` en `lees_orox`; de uitvoer is hoe dan ook UTF-8.
+    als in `load_dataset` en `lees_orox`; de uitvoer is hoe dan ook UTF-8. Een str- of ander
+    `os.PathLike`-pad mag: `lees_orox` en `schrijf_orox_quads` coerceren zelf naar `Path`.
     """
     geopend = lees_orox(bron, fallback_encoding)
     schrijf_orox_quads(geopend.quads, doel, prefixen=geopend.prefixen)
@@ -167,7 +176,7 @@ def schrijf_orox(bron: Path, doel: Path, fallback_encoding: str | None = None) -
 
 def schrijf_orox_quads(
     quads: Iterable[pyoxigraph.Quad] | Iterable[pyoxigraph.Triple],
-    doel: Path,
+    doel: str | os.PathLike[str],
     *,
     prefixen: Mapping[str, str] | None = None,
 ) -> None:
@@ -197,7 +206,11 @@ def schrijf_orox_quads(
     (CWE-59/377). En het willekeurige deel houdt twee gelijktijdige runs naar hetzelfde
     doel uit elkaars tijdelijke bestand. De rechten zijn de rechten van een nieuw
     aangemaakt bestand (`0o666 & ~umask`).
+
+    Een str- of ander `os.PathLike`-pad wordt hier tot `Path` gemaakt (issue #55): een
+    bibliotheek hoort een str-pad te accepteren, en hieronder wordt `doel.parent` gelezen.
     """
+    doel = Path(doel)
     kop = dict(prefixen) if prefixen is not None else dict(STANDAARD_PREFIXEN)
     for sleutel in kop:
         if not PREFIX_PATROON.match(sleutel):

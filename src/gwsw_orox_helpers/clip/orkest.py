@@ -63,7 +63,13 @@ def clip_orox(
     geen geheugen voor de triples zelf. Met `bereikcontrole=True` komt daar een lezing bij
     die na een klein aantal geometrieen weer wordt losgelaten; zonder de vlag verandert er
     aan het aantal lezingen niets.
+
+    `bron` mag een str- of ander `os.PathLike`-pad zijn en wordt tot `Path` gemaakt (issue
+    #55): een bibliotheek hoort een str-pad te accepteren, en hieronder wordt `bron.stem`
+    gelezen. De annotatie blijft `Path` -- die is gepind in `tests/test_publieke_api.py`; dit
+    is een runtime-verbreding van de geaccepteerde typen, geen contractwijziging.
     """
+    bron = Path(bron)
     vlakken = _lees_grenzen(grenzen, sleutel)
     # De basis van de bron één keer detecteren en als termenset doorgeven, zodat de
     # analyseronde en de schrijfronde tegen dezelfde (versie-juiste) predicaten vergelijken.
@@ -102,7 +108,12 @@ def merge_orox(delen: list[Path], doel: Path) -> None:
     De delen moeten samen compleet zijn -- van elke geknipte lijn moeten alle stukken
     er zijn. Ontbreekt er een, dan is de lijn niet te herstellen en volgt een
     `KnipError` in plaats van een stilzwijgend kortere geometrie.
+
+    `doel` mag een str- of ander `os.PathLike`-pad zijn en wordt door `schrijf_orox_quads`
+    tot `Path` gemaakt (issue #55); hier alvast, zodat de coercie zichtbaar bij de ingang
+    staat. De annotatie blijft `Path` (gepind in `tests/test_publieke_api.py`).
     """
+    doel = Path(doel)
     if not delen:
         raise KnipError("merge_orox: geen delen opgegeven; er valt niets samen te voegen.")
 

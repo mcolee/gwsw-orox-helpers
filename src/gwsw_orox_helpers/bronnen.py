@@ -6,10 +6,15 @@ hij terug op geometrie (zie `GwswDataset.klassenhierarchie_bekend`). Een afnemer
 niets opgeeft hoort dus de goede ontologie te krijgen, niet geen.
 
 Er reizen **twee** gebundelde versies mee, 1.6 en 1.7. `gebundelde_ontologie()` en
-`vocabulaire_index_pad()` leveren nog altijd de **1.6**-bestanden: 1.6 is de default en
-de leidende versie, en die keuze verandert in dit deel niet -- de versiedetectie die 1.7
-kiest wanneer de bron dat vraagt, komt in een later deel. Wie nu al een specifieke versie
-wil, gebruikt `gebundelde_ontologie_voor(versie)` / `vocabulaire_index_pad_voor(versie)`.
+`vocabulaire_index_pad()` leveren de **1.6**-bestanden: 1.6 is de default en de leidende
+versie. De versiedetectie die 1.7 kiest wanneer de bron dat vraagt, zit sinds deel c van
+issue #32 in de leeslaag: `bestand._parse` leidt de basis uit de bron af en zet die op
+`GraafIndex.gwsw_basis`, en `load_dataset` kiest daarmee zonder opgegeven ontologie de
+gebundelde versie die bij de gedetecteerde basis hoort (met 1.6 als terugval plus een
+`logging.warning` bij een onbekende of niet-gebundelde versie). Wie zelf een specifieke
+versie wil, gebruikt `gebundelde_ontologie_voor(versie)` / `vocabulaire_index_pad_voor(versie)`;
+een onbekende versie geeft daar een kale `ValueError` (`_bekende_versie`), buiten de
+`DatasetError`-familie -- zie de docstring van `gwsw_orox_helpers.errors`, "Buiten de hiërarchie".
 
 De GWSW-ontologie is CC0 (https://stichtingrioned.github.io/GWSW_Ontologie_RDF/), dus
 aan het meeleveren van beide staat niets in de weg. Welke versies er liggen, staat in

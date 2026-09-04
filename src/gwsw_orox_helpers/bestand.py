@@ -51,10 +51,19 @@ def _quiet_rdflib() -> Iterator[None]:
     De meegeleverde GWSW-ontologie bevat een xsd:date "20210830" zonder streepjes;
     rdflib logt daar een volledige traceback bij. Dat is geen fout in onze invoer en
     hoort niet in de CLI-uitvoer thuis.
+
+    **Alleen dempen als de afnemer zelf geen niveau zette** (`rdflib.term` op `NOTSET`).
+    Dit is een procesbrede logger die niet van ons is: een afnemer die er bewust een niveau
+    op koos -- bijvoorbeeld DEBUG om die waarschuwingen juist te zien, of om ze in een
+    parallelle thread niet te missen -- hoort dat niveau niet gedurende de parse naar ERROR
+    te zien springen (issue #55). Zette hij niets, dan is de demping een nette default en
+    herstelt de `finally` hem naar `NOTSET`. De `finally` draait onvoorwaardelijk; op een
+    ongewijzigd niveau is het een no-op.
     """
     logger = logging.getLogger("rdflib.term")
     oud = logger.level
-    logger.setLevel(logging.ERROR)
+    if oud == logging.NOTSET:
+        logger.setLevel(logging.ERROR)
     try:
         yield
     finally:

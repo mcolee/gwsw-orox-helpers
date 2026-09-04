@@ -1,6 +1,34 @@
 # Changelog
 
 ## [Unreleased]
+- Bibliotheek-etiquette aan de rand: str-paden, twee gedocumenteerde fouten en een minder
+  invasieve rdflib-demping (issue #55, robuustheid/docs; **additief** — geen bestaande
+  signatuur, retourvorm of gedrag geraakt).
+  - **(a) str-paden crashen niet meer.** De publieke ingangen `clip_orox`, `merge_orox`,
+    `lees_orox`, `schrijf_orox` en `schrijf_orox_quads` accepteren nu een `str`- of ander
+    `os.PathLike`-pad in plaats van erop te crashen met een `AttributeError`
+    (`.stem`/`.parent`/`.read_bytes`), net als `load_dataset` al deed (`Path(dataset_path)`).
+    De schrijflaag-ingangen (`lees_orox`, `schrijf_orox`, `schrijf_orox_quads`) coerceren aan
+    het begin naar `Path` en hun annotatie verbreedt naar `str | os.PathLike[str]` (die zijn
+    niet gepind). `clip_orox`/`merge_orox` coerceren ook (`bron`/`doel`), maar houden hun
+    `Path`-annotatie: die staat in `tests/test_publieke_api.py` gepind, dus dit is een
+    runtime-verbreding van de geaccepteerde typen en geen contractwijziging. Eén nieuwe
+    parametrische test (`tests/test_schrijven.py`) roept elke ingang met een `str`-pad aan en
+    legt de uitkomst isomorf naast de `Path`-aanroep.
+  - **(b) De foutkaart benoemt de twee fouten buiten de familie.** `errors.py` kreeg een
+    alinea "Buiten de hiërarchie": `geometry.GeometryError` is bewust een `ValueError` en geen
+    `DatasetError` (een onleesbare literaal is een fout per literaal die de leeslaag zelf
+    opvangt in `GwswDataset.geometry_errors`), en de kale `ValueError` uit
+    `bronnen.gebundelde_ontologie_voor`/`vocabulaire_index_pad_voor` op een niet-gebundelde
+    versie. De MRO-optie `GeometryError(ValueError, OroxError)` is bewust **niet** genomen: dat
+    wijzigt de MRO van een publiek geëxporteerde, gepinde klasse (contract). De docstring van
+    `bronnen` (r. 8-12) is bijgewerkt naar de huidige stand: de versiedetectie bestaat sinds
+    issue #32 deel c in `bestand._parse`/`load_dataset`.
+  - **(c) `_quiet_rdflib` is niet meer onvoorwaardelijk procesbreed.** `bestand._quiet_rdflib`
+    dempt `rdflib.term` alleen nog als de afnemer er zelf geen niveau op zette (`NOTSET`). Een
+    afnemer die het bewust op bijvoorbeeld DEBUG zette, houdt dat niveau tijdens en na de parse
+    in plaats van het naar ERROR te zien springen; zonder eigen niveau blijft de demping als
+    vanouds en herstelt de `finally` naar `NOTSET`.
 - Een leidende UTF-8-BOM maakt een verder geldige OroX-export niet langer onleesbaar met een
   misleidende `TurtleError` (issue #53, bugfix; **additief** — geen publieke signatuur of
   bestaande retourvorm geraakt, alleen invoer die nu faalt gaat slagen). `codering.decodeer`

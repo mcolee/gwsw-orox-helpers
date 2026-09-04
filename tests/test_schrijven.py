@@ -3,7 +3,7 @@
 import errno
 import os
 from collections import Counter
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from pathlib import Path
 
 import pyoxigraph
@@ -20,7 +20,7 @@ from rdflib.namespace import OWL, RDF
 
 from conftest import dewoldenhoogeveen_export
 from gwsw_orox_helpers import schrijven
-from gwsw_orox_helpers.clip import clip_orox
+from gwsw_orox_helpers.clip import clip_orox, merge_orox
 from gwsw_orox_helpers.errors import DatasetError
 from gwsw_orox_helpers.schrijven import (
     STANDAARD_PREFIXEN,
@@ -556,3 +556,62 @@ def test_17_bron_blijft_17_bij_round_trip(tmp_path: Path) -> None:
 def test_standaardprefixen_blijven_16() -> None:
     """De cosmetische kopprefix blijft 1.6; de bronprefix wint erover (issue #32)."""
     assert STANDAARD_PREFIXEN["gwsw"] == "http://data.gwsw.nl/1.6/totaal/"
+
+
+def _ingang_grafen(
+    naam: str, maak_pad: Callable[[Path], object], werkmap: Path
+) -> list[rdflib.Graph]:
+    """Roept één publieke ingang aan met paden die `maak_pad` vormgeeft, en levert het
+    resultaat als een lijst rdflib-grafen. `maak_pad` is `str` of de identiteit, zodat
+    dezelfde aanroep met een `str`- en een `Path`-pad naast elkaar te leggen is. Grafen en
+    niet bytes, want pyoxigraph hernummert blanke knopen per parse: byte-gelijkheid is dan
+    geen goed criterium, graafgelijkheid (isomorfie) wel."""
+    if naam == "lees_orox":
+        # De terugval-tak (cp850) is de enige die `bron.read_bytes()` doet; het streamende
+        # pad slikte een str al. De gelezen quads gaan naar een bestand zodat isomorfie ze
+        # blanke-knoop-ongevoelig kan vergelijken.
+        geopend = lees_orox(maak_pad(CP850), fallback_encoding="cp850")
+        uit = werkmap / "lees.ttl"
+        schrijf_orox_quads(geopend.quads, uit)
+        return [_graaf(uit)]
+    if naam == "schrijf_orox":
+        uit = werkmap / "uit.ttl"
+        schrijf_orox(MINI, maak_pad(uit))
+        return [_graaf(uit)]
+    if naam == "schrijf_orox_quads":
+        uit = werkmap / "uit.ttl"
+        schrijf_orox_quads(lees_orox(MINI).quads, maak_pad(uit))
+        return [_graaf(uit)]
+    if naam == "clip_orox":
+        delen = clip_orox(
+            maak_pad(MINI), maak_pad(MINI_GRENS), maak_pad(werkmap / "uit"), sleutel="gemeentenaam"
+        )
+        return [_graaf(pad) for pad in delen]
+    if naam == "merge_orox":
+        delen = clip_orox(MINI, MINI_GRENS, werkmap / "delen", sleutel="gemeentenaam")
+        doel = werkmap / "merge.ttl"
+        merge_orox(delen, maak_pad(doel))
+        return [_graaf(doel)]
+    raise AssertionError(f"onbekende ingang {naam!r}")
+
+
+@pytest.mark.parametrize(
+    "naam", ["clip_orox", "lees_orox", "merge_orox", "schrijf_orox", "schrijf_orox_quads"]
+)
+def test_de_publieke_ingangen_accepteren_een_str_pad(naam: str, tmp_path: Path) -> None:
+    """Een bibliotheek hoort een str-pad te accepteren, niet erop te crashen (issue #55a).
+
+    `load_dataset` coerceert zijn pad al (`Path(dataset_path)`); de schrijf- en clip-ingangen
+    deden dat niet en riepen `.stem`/`.parent`/`.read_bytes` rechtstreeks op hun argument aan,
+    dus een str-pad gaf een `AttributeError`. Deze test roept elke ingang met een `str`-pad
+    aan -- dat er geen `AttributeError` meer valt, blijkt doordat de aanroep slaagt -- en legt
+    de uitkomst naast die van de `Path`-aanroep: dezelfde graaf (isomorf, dus ook met dezelfde
+    blanke-knoopstructuur). Voor `clip_orox` geldt dat per geschreven deel. De annotaties van
+    `clip_orox`/`merge_orox` blijven `Path` (gepind in `test_cliplaag_is_additief`); dit is
+    een runtime-verbreding van de geaccepteerde typen, geen contractwijziging.
+    """
+    met_path = _ingang_grafen(naam, lambda pad: pad, tmp_path / "path")
+    met_str = _ingang_grafen(naam, str, tmp_path / "str")
+    assert len(met_str) == len(met_path)
+    for graaf_str, graaf_path in zip(met_str, met_path, strict=True):
+        assert isomorphic(graaf_str, graaf_path)

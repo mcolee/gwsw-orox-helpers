@@ -13,6 +13,7 @@ gebundelde ontologie).
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 
 import pytest
@@ -80,3 +81,40 @@ def test_een_echte_syntaxfout_blijft_een_turtleerror_met_regelnummer(tmp_path: P
     boodschap = str(fout.value)
     assert "geen geldige Turtle" in boodschap
     assert "line 4" in boodschap
+
+
+def test_quiet_rdflib_dempt_alleen_bij_een_ongezet_niveau() -> None:
+    """Zonder eigen niveau (NOTSET) dempt de contextmanager, en herstelt in de finally.
+
+    De meegeleverde ontologie draagt een `xsd:date "20210830"` zonder streepjes; rdflib logt
+    daar een traceback bij die niet in de CLI-uitvoer thuishoort. Een afnemer die zelf geen
+    niveau op `rdflib.term` zette, hoort die demping als vanouds te krijgen.
+    """
+    logger = logging.getLogger("rdflib.term")
+    origineel = logger.level
+    try:
+        logger.setLevel(logging.NOTSET)
+        with bestand._quiet_rdflib():
+            assert logger.level == logging.ERROR  # gedempt tijdens de parse
+        assert logger.level == logging.NOTSET  # en in de finally hersteld
+    finally:
+        logger.setLevel(origineel)
+
+
+def test_quiet_rdflib_laat_een_eigen_niveau_met_rust() -> None:
+    """Een afnemer die `rdflib.term` op DEBUG zette, houdt dat niveau tijdens en na de parse.
+
+    De demping is procesbreed en `rdflib.term` is niet van ons: een afnemer die zijn eigen
+    niveau koos (bv. DEBUG om die waarschuwingen juist te zien, of om ze in een parallelle
+    thread niet te missen) hoort dat niveau niet ongevraagd naar ERROR te zien springen
+    (issue #55).
+    """
+    logger = logging.getLogger("rdflib.term")
+    origineel = logger.level
+    try:
+        logger.setLevel(logging.DEBUG)
+        with bestand._quiet_rdflib():
+            assert logger.level == logging.DEBUG  # de afnemer houdt zijn niveau tijdens de parse
+        assert logger.level == logging.DEBUG  # en erna ook
+    finally:
+        logger.setLevel(origineel)

@@ -34,6 +34,30 @@ De basisklasse zelf wordt binnen de package nergens meer rechtstreeks gegooid. Z
 staan als het vangnet van de afnemer en als de plek voor een toekomstige oorzaak die in
 geen van de zeven families past; wie er een achtste bij zet, zet hem hieronder en niet
 naast `DatasetError`.
+
+**Buiten de hiërarchie.** Twee fouten van deze package vallen bewust *niet* onder
+`OroxError`/`DatasetError`, en een afnemer die alleen `DatasetError` vangt, vangt ze dus
+niet. Dat is met opzet en hier benoemd zodat het geen verrassing is.
+
+- `geometry.GeometryError` is een **`ValueError`** en geen `DatasetError`. Reden: een
+  onleesbare GML-literaal is geen dataset-brede faling maar een fout *per literaal*, en de
+  leeslaag vangt hem zelf op -- `inlezen._geometry` doet `except GeometryError` en legt de
+  melding in `GwswDataset.geometry_errors` neer in plaats van de lezing te laten stoppen
+  (de clip doet hetzelfde in `clip.knip`/`clip.merge`/`clip.bereik`). De fout bereikt de
+  afnemer dus niet als uitzondering; wie hem tóch zelf uit `parse_gml`/`parse_gml_z` haalt,
+  krijgt een `ValueError`, wat voor een parser van een losse literaal de gewone soort is.
+  De optie `class GeometryError(ValueError, OroxError)` -- hem én een `ValueError` én een
+  `OroxError` maken -- is bewust **niet** genomen: dat wijzigt de MRO van een publiek
+  geëxporteerde klasse (`dataset.GeometryError`, gepind in `tests/test_publieke_api.py` als
+  `issubclass(GeometryError, ValueError)`) en is daarmee een contractwijziging, geen
+  documentatie (`CLAUDE.md`, Harde regels).
+- De kale **`ValueError`** uit `bronnen.gebundelde_ontologie_voor` /
+  `vocabulaire_index_pad_voor` (via `_bekende_versie`) op een niet-gebundelde versie. Dat is
+  een programmeerfout van de aanroeper -- een versie opgeven die niet meereist -- en geen
+  falende OroX-bron, dus hij hoort niet in de `DatasetError`-familie. De versie die
+  `load_dataset` zelf uit de bron detecteert komt hier nooit langs: die valt op een
+  onbekende of niet-gebundelde versie terug op de 1.6-bundel met een `logging.warning` (zie
+  `bronnen` en `bestand._parse`), niet op deze `ValueError`.
 """
 
 

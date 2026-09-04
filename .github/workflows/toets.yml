@@ -7,6 +7,13 @@ on:
   push:
     branches: [main, dev]
   pull_request:
+  # `workflow_call` maakt deze poort herbruikbaar: `release.yml` roept hem op de getagde
+  # commit aan, zodat een release door exact dezelfde vijf stappen (plus de zesde
+  # verpakkingsbewaker) gaat als élke push op `main`/`dev`. De `push`- en
+  # `pull_request`-triggers, de matrix en de jobnaam blijven ongewijzigd — de
+  # branchbeveiliging op `main` hangt aan de checknamen `poort (3.12)` en `poort (3.13)`,
+  # en die mogen niet verschuiven.
+  workflow_call:
 
 # Een nieuwe push op dezelfde ref maakt de lopende run overbodig: annuleer hem in plaats
 # van hem te laten uitdraaien.

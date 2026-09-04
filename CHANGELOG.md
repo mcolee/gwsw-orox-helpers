@@ -1,6 +1,25 @@
 # Changelog
 
 ## [Unreleased]
+- Publicatieketen in `.github/workflows/release.yml` (issue #41, ci/config; **additief** —
+  geen regel `src/**.py` geraakt, geen contract dat nlriochecker importeert). De release-tag
+  `v*` draait nu een keten van vijf `needs`-gekoppelde jobs in plaats van alleen `uv build`
+  + `gh release create`: `poort` (de volledige toets uit `toets.yml`, hergebruikt via een
+  nieuw `workflow_call`-ingang — de `push`/`pull_request`-triggers, de matrix en de
+  checknamen `poort (3.12)`/`poort (3.13)` blijven ongewijzigd), `controle`
+  (`uv sync --locked`, tag↔versie-check `test "v$(uv version --short)" = "$GITHUB_REF_NAME"`,
+  `uv build`, `twine check`, `check-wheel-contents`, en een rooktest van de wheel in een
+  verse venv buiten de projectmap die `load_dataset` op `mini_orox.ttl` draait en het
+  knopental > 0 eist; `dist/` gaat als artifact door), `testpypi` en `pypi` (publiceren via
+  trusted publishing/OIDC met `id-token: write` in de environments `testpypi`/`pypi`,
+  `pypa/gh-action-pypi-publish`; TestPyPI eerst met `skip-existing: true`), en
+  `github-release` (de bestaande `gh release create … --verify-tag --generate-notes` op het
+  gedownloade artifact, zodat de release-assets byte-gelijk zijn aan wat op PyPI staat).
+  Top-level `permissions: contents: read`, per job alleen wat nodig is; alle third-party
+  actions gepind op een commit-SHA met de tagnaam als commentaar. `CLAUDE.md` (Werkwijze,
+  "Een versie uitbrengen") beschrijft de nieuwe keten. **Auteurshandeling buiten scope**:
+  de pending trusted publisher registreren op pypi.org én test.pypi.org — zonder die
+  registratie falen de publish-jobs (verwacht) tot de auteur ze heeft gezet.
 - De cache is een vertrouwensgrens geworden (issue #45, security; **additief** — geen
   bestaande signatuur, retourvorm of gedrag van `laad_met_cache`, `cachesleutel`,
   `CacheUitslag` of `LuieGraaf` gewijzigd, alleen nieuwe privéhelpers). De cache leest zijn

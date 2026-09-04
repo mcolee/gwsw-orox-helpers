@@ -1,17 +1,122 @@
 name: release
+# De publicatieketen draait op een versietag `vX.Y.Z` en loopt strikt in volgorde:
+#   poort -> controle -> testpypi -> pypi -> github-release.
+# Elke schakel is `needs` van de vorige, dus een release komt pas op PyPI en op de
+# GitHub-Release als álle poorten groen zijn. Faalt de poort of klopt de tag niet bij de
+# projectversie, dan stopt de keten luid vóór er iets gepubliceerd is.
+#
+# Publiceren gaat via trusted publishing (OIDC): er staan geen PyPI-tokens in de repo.
+# Daarvoor vraagt elke publish-job `id-token: write` en draait hij in een GitHub-Environment
+# (`testpypi`/`pypi`) dat op pypi.org resp. test.pypi.org als trusted publisher geregistreerd
+# is (auteurshandeling, buiten deze repo).
+#
+# Alle third-party actions staan op een commit-SHA gepind (met de tagnaam als commentaar),
+# zodat een verplaatste tag geen andere code kan binnenhalen. `toets.yml` blijft bewust op
+# zijn `@v4`/`@v5`-tags; die pinnen is een apart vervolg.
 on:
   push:
     tags:
       - "v*"
+
+# Minimale rechten aan de top; elke job vraagt hieronder alleen bij wat hij extra nodig heeft.
 permissions:
-  contents: write
+  contents: read
+
 jobs:
-  release:
+  # De volledige toets (de vijf poortstappen + de verpakkingsbewaker) op de getagde commit,
+  # hergebruikt uit `toets.yml` via `workflow_call`. Zo staat de poort op één plek en gaat
+  # een release door exact dezelfde matrix (3.12 en 3.13) als `main`/`dev`.
+  poort:
+    uses: ./.github/workflows/toets.yml
+
+  # Bewaakt vóór publicatie dat de tag bij de projectversie past en dat de gebouwde wheel
+  # echt importeert en een dataset leest. Bouwt de distributies één keer en geeft ze als
+  # artifact door, zodat wat op PyPI en op de GitHub-Release landt byte-gelijk is.
+  controle:
+    needs: poort
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v5
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5.4.2
+      - run: uv sync --locked
+      # Tag <-> versie: een `git push --follow-tags` van een tag die niet bij `uv version`
+      # past valt hier om, in plaats van een verkeerd genummerde release te publiceren.
+      - name: Tag komt overeen met de projectversie
+        run: test "v$(uv version --short)" = "$GITHUB_REF_NAME"
+      # Bouw wheel én sdist en laat de twee verpakkingsbewakers erover, net als de zesde
+      # poortstap in `toets.yml` — hier nog eens, direct op de artefacten die zo gepubliceerd
+      # worden.
       - run: uv build
+      - run: uvx twine check dist/*
+      - run: uvx check-wheel-contents dist/*.whl
+      # Rooktest van de wheel in een verse venv buiten de projectmap: zo wordt de
+      # geïnstalleerde wheel getest en niet per ongeluk de `src/`-boom uit de checkout. De
+      # test importeert de publieke leesweg, leest een kleine fixture (die zonder extra
+      # bestanden laadt) en faalt als het knopental niet boven nul uitkomt.
+      - name: Rooktest van de wheel in een verse venv
+        run: |
+          uv venv "$RUNNER_TEMP/rook"
+          uv pip install --python "$RUNNER_TEMP/rook" dist/*.whl
+          cd "$RUNNER_TEMP"
+          "$RUNNER_TEMP/rook/bin/python" -c "from gwsw_orox_helpers.dataset import load_dataset; ds = load_dataset('$GITHUB_WORKSPACE/tests/fixtures/ttl/mini_orox.ttl'); n = len(ds.nodes); print('knopen:', n); assert n > 0, 'rooktest: geen knopen ingelezen'"
+      - name: Bewaar dist als artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: dist
+          path: dist/
+
+  # Eerst een publicatie naar TestPyPI als dry-run. `skip-existing` maakt de job idempotent:
+  # een hergedraaide of eerder gepubliceerde versie laat de keten niet omvallen.
+  testpypi:
+    needs: controle
+    runs-on: ubuntu-latest
+    environment: testpypi
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - name: Haal dist op
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: dist
+          path: dist/
+      - name: Publiceer naar TestPyPI
+        uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # v1.14.2
+        with:
+          repository-url: https://test.pypi.org/legacy/
+          skip-existing: true
+
+  # Pas als TestPyPI groen is, de echte publicatie naar PyPI — met dezelfde artefacten.
+  pypi:
+    needs: testpypi
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - name: Haal dist op
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: dist
+          path: dist/
+      - name: Publiceer naar PyPI
+        uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # v1.14.2
+
+  # Tot slot de GitHub-Release, op exact dezelfde artefacten (geen tweede `uv build`), zodat
+  # de release-assets byte-gelijk zijn aan wat op PyPI staat. `--verify-tag` eist dat de tag
+  # bestaat; `--generate-notes` schrijft de notities.
+  github-release:
+    needs: pypi
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Haal dist op
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: dist
+          path: dist/
       - name: GitHub Release met wheel en sdist
         env:
           GH_TOKEN: ${{ github.token }}

@@ -94,9 +94,11 @@ Eerste afnemer: nlriochecker. Nederlandse identifiers, GWSW-conform.
   draaien, committen als `Versie X.Y.Z` (alleen `pyproject.toml`, `uv.lock`, `CHANGELOG.md`)
   en taggen als `vX.Y.Z`. Landen op `main` via een **merge-commit-PR** (geen squash/rebase,
   anders hangt de tag naast `main`); zet `dev` daarna weer gelijk aan `main`. Pushen met
-  `git push --follow-tags` en `timeout 45 git push …`. **De wheel komt vanzelf**:
-  `.github/workflows/release.yml` gaat af op de tag `v*`, draait `uv build` en hangt de
-  wheel + sdist aan een GitHub Release — nooit met de hand `gh release create` draaien.
+  `git push --follow-tags` en `timeout 45 git push …`. **De release komt vanzelf**:
+  `.github/workflows/release.yml` gaat af op de tag `v*` en draait de keten poort →
+  tag-check → build + rooktest → TestPyPI → PyPI → GitHub Release, elke schakel `needs` van
+  de vorige. Publiceren gaat via trusted publishing (OIDC, environments `pypi`/`testpypi`);
+  nooit met de hand `uv build`, `twine upload` of `gh release create` draaien.
   Cijfers: patch = reparaties; minor = een afgerond blok/fase of een breuk in de publieke
   API vóór 1.0; major pas ná 1.0.
 - Kies de review naar het **risico** van de wijziging, niet naar de omvang:

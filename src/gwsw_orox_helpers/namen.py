@@ -64,6 +64,18 @@ def _uri(naam: str, basis: str = GWSW) -> str:
     return naam if naam.startswith("http") else f"{basis}{naam}"
 
 
+def klasse_iri(naam: str, basis: str) -> str:
+    """De volledige GWSW-klasse-IRI van een korte klassenaam in een basis (issue #51).
+
+    De publieke, versie-juiste tegenhanger van het privé `_uri`: waar `_uri(naam)` op de
+    gepinde 1.6-naamruimte terugvalt, eist deze functie een expliciete `basis`, zodat een
+    afnemer die met een gedetecteerde versie werkt (`GwswDataset.gwsw_versie.basis`) een
+    1.7-klasse-IRI opbouwt in plaats van stil de 1.6-vorm. Een `naam` die al een volledige
+    IRI is, blijft ongemoeid -- net als bij `_uri`.
+    """
+    return _uri(naam, basis)
+
+
 def _short(uri: str) -> str:
     """De korte klassenaam achter de laatste scheidingstekens van een URI."""
     return uri.rsplit("/", 1)[-1].rsplit("#", 1)[-1]

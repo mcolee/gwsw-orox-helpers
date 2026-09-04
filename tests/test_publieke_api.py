@@ -327,6 +327,13 @@ HANDTEKENINGEN: dict[str, str] = {
     "dataset.GwswDataset.subjects_of_class": "(self, root: 'str') -> 'list[RdfNode]'",
     "dataset.GwswDataset.subset": "(self, uris: 'Iterable[str]') -> 'GwswDataset'",
     "dataset.GwswDataset.types_of": "(self, uri: 'str') -> 'frozenset[str]'",
+    # Additief sinds issue #51: de drie versie-juiste str-methoden ernaast. Ze lezen via
+    # `self.termen` (de gedetecteerde basis) en niet via de gepinde 1.6-constanten, zodat een
+    # 1.7-dataset niet stil nul treft. `termen` (property) en `Leestermen`/`klasse_iri` staan
+    # in `test_de_versie_juiste_termen_en_str_methoden_zijn_publiek` hieronder.
+    "dataset.GwswDataset.buren": "(self, uri: 'str') -> 'list[str]'",
+    "dataset.GwswDataset.kenmerken_met_waarde": "(self, kenmerk: 'str') -> 'list[str]'",
+    "dataset.GwswDataset.uris_of_class": "(self, root: 'str') -> 'list[str]'",
     # De grafindex.
     "graaf.GraafIndex": "() -> 'None'",
     "graaf.GraafIndex.heeft_subject": "(self, term: 'RdfNode') -> 'bool'",
@@ -487,6 +494,35 @@ def test_de_publieke_leesweg_naar_de_gwsw_versie_ligt_vast() -> None:
     assert isinstance(prop, property)
     assert prop.fget is not None
     assert _handtekening(prop.fget) == "(self) -> 'GwswVersie'"
+
+
+def test_de_versie_juiste_termen_en_str_methoden_zijn_publiek() -> None:
+    """De `termen`-property, `Leestermen` en `namen.klasse_iri` zijn publiek (issue #51).
+
+    `termen` gaat als property niet door `inspect.signature` (dat faalt erop) en staat dus
+    niet in `HANDTEKENINGEN`, net als `gwsw_versie`; de drie str-methoden staan er wél in.
+    `Leestermen` is de publieke naam van wat `inlezen._Leestermen` heette -- de oude,
+    privé namen (`_Leestermen`, `_leestermen`) blijven als alias werken zodat niets intern
+    breekt. `namen.klasse_iri` is de publieke, versie-juiste tegenhanger van het privé `_uri`;
+    zijn parameters worden zonder quotes gerepr'd omdat `namen` geen `from __future__ import
+    annotations` draagt, net als `bronnen.gebundelde_ontologie_voor` hierboven.
+    """
+    from gwsw_orox_helpers import inlezen, namen
+
+    assert "Leestermen" in dataset.__all__
+    assert dataset.Leestermen is inlezen.Leestermen
+    assert inlezen._Leestermen is inlezen.Leestermen
+
+    prop = inspect.getattr_static(dataset.GwswDataset, "termen")
+    assert isinstance(prop, property)
+    assert prop.fget is not None
+    assert _handtekening(prop.fget) == "(self) -> 'Leestermen'"
+
+    assert _handtekening(namen.klasse_iri) == "(naam: str, basis: str) -> str"
+    assert (
+        namen.klasse_iri("Punt", "http://data.gwsw.nl/1.7/totaal/")
+        == "http://data.gwsw.nl/1.7/totaal/Punt"
+    )
 
 
 def test_uitzonderingen_houden_hun_plaats_in_de_hierarchie() -> None:

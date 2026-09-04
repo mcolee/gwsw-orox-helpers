@@ -109,8 +109,15 @@ FANTOOM_STAART = "_put"
 
 
 @dataclass(frozen=True)
-class _Leestermen:
-    """De predicaat- en klasse-`URIRef`-en van één GWSW-basis, voor de lezers hieronder."""
+class Leestermen:
+    """De predicaat- en klasse-`URIRef`-en van één GWSW-basis, voor de lezers hieronder.
+
+    Sinds issue #51 publiek (heette `_Leestermen`): `GwswDataset.termen` levert hem als de
+    versie-juiste tegenhanger van de gepinde 1.6-`URIRef`-constanten, zodat een afnemer die de
+    graaf versie-juist wil bevragen niet zelf een `URIRef` uit een basis-string hoeft te bouwen.
+    `_Leestermen` blijft als alias hieronder bestaan, zodat de bestaande interne aanroepen
+    ongewijzigd werken.
+    """
 
     has_aspect: URIRef
     has_part: URIRef
@@ -133,8 +140,13 @@ class _Leestermen:
     klasse_bob_eind: URIRef
 
 
+# De privé naam van vóór issue #51 blijft als alias werken: de interne aanroepen (`_leestermen`
+# hieronder, `dataset`) én een afnemer die hem ooit privé importeerde, breken zo niet.
+_Leestermen = Leestermen
+
+
 @functools.cache
-def _leestermen(basis: str) -> _Leestermen:
+def _leestermen(basis: str) -> Leestermen:
     """De termen van een basis, gebouwd en gedeeld: er zijn er in de praktijk maar twee.
 
     `@functools.cache` op de basis-string: de lezers vragen deze verzameling per aanroep op

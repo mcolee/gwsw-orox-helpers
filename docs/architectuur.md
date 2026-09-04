@@ -95,6 +95,18 @@ het cachepad -- met `gedetecteerd=False` wanneer geen enkele knoop of streng een
 `_basis` blijft de interne leesweg en levert `gwsw_versie.basis`; `namen.versie_uit_basis` haalt
 het versiecijfer uit de basis.
 
+**Sinds issue #51 is diezelfde versie-juiste termenset ook publiek leesbaar naast de
+1.6-constanten.** De `URIRef`-termenset per basis (`inlezen.Leestermen`, was `_Leestermen`) is nu
+publiek, en `GwswDataset.termen` levert hem voor de gedetecteerde basis -- gememoiseerd langs
+hetzelfde luie `init=False`-patroon als `gwsw_versie`, zodat het cachepad de graafpickle niet
+laadt. Daarop staan drie str-methoden (`uris_of_class`, `buren`, `kenmerken_met_waarde`) die de
+graaf versie-juist bevragen en tekst teruggeven, plus `namen.klasse_iri(naam, basis)` als
+publieke tegenhanger van `_uri`. Zo hoeft een afnemer die op 1.7 leest niet meer met de gepinde
+1.6-`HAS_*`/`KLASSE_*`-constanten te bevragen -- die spellen 1.6 en treffen op een 1.7-graaf stil
+nul. `load_dataset` waarschuwt daarom één keer (en niet nog eens op het cachepad, dat niet langs
+`load_dataset` loopt) wanneer `gwsw_versie.versie` niet 1.6 is. Dit is *additief*: de constanten,
+signaturen en retourvormen die nlriochecker importeert blijven byte-voor-byte gelijk.
+
 `rdfmotor` ligt naast `codering`: allebei bladeren op `errors` na, en allebei door de
 leesweg én de schrijfweg gebruikt. De cliplaag komt er niet langs -- die parseert en
 serialiseert niet zelf maar leent `lees_orox` / `schrijf_orox_quads` van `schrijven` --

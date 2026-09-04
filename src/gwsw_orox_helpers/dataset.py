@@ -90,6 +90,8 @@ from gwsw_orox_helpers.inlezen import (
     KLASSE_WIJZE_VAN_INWINNING,
     KLASSEN_BEGINPUNT,
     KLASSEN_EINDPUNT,
+    Leestermen,
+    _leestermen,
     _read_aspects,
     _read_conduits,
     _read_nodes,
@@ -169,6 +171,7 @@ __all__ = [
     "GwswVersie",
     "Inwinning",
     "Koppelingsherstel",
+    "Leestermen",
     "Node",
     "Vulwaarde",
     "aspect_holders_of",
@@ -277,6 +280,15 @@ class GwswDataset:
     _gwsw_versie_memo: list[GwswVersie] = field(
         default_factory=list, init=False, repr=False, compare=False
     )
+    # De versie-juiste `URIRef`-termenset van deze dataset (issue #51), gememoiseerd volgens
+    # precies hetzelfde patroon als `_gwsw_versie_memo` hierboven: een `init=False`-lijst die
+    # niet in de handtekening telt en die `cache._schrijf` buiten de pickle houdt (het leidt de
+    # niet-init-velden zelf af). De publieke leesweg is de property `termen`; hij hangt af van
+    # `gwsw_versie.basis` en is dus, net als dat memo, uit de al gepicklede knopen en strengen
+    # af te leiden zonder de graafpickle van schijf te trekken.
+    _termen_memo: list[Leestermen] = field(
+        default_factory=list, init=False, repr=False, compare=False
+    )
 
     @property
     def gwsw_versie(self) -> GwswVersie:
@@ -323,6 +335,27 @@ class GwswDataset:
         voor waarom de basis uit de typen van de objecten komt en niet uit `self.graph`.
         """
         return self.gwsw_versie.basis
+
+    @property
+    def termen(self) -> Leestermen:
+        """De versie-juiste `URIRef`-termenset van deze dataset; de publieke leesweg (issue #51).
+
+        De gepinde module-constanten (`HAS_*`, `KLASSE_*`) spellen altijd 1.6 -- dat is het
+        bevroren contract dat nlriochecker importeert. Op een 1.7-dataset vindt een bevraging
+        met die constanten stil nul. `termen` levert dezelfde predicaten en klasse-IRI's voor de
+        gedetecteerde basis (`gwsw_versie.basis`), zodat een afnemer de graaf versie-juist kan
+        bevragen -- of, eenvoudiger, de drie str-methoden `uris_of_class`, `buren` en
+        `kenmerken_met_waarde` gebruikt, die hier al doorheen lezen.
+
+        Gememoiseerd volgens hetzelfde patroon als `gwsw_versie`, en om dezelfde reden lui:
+        `_leestermen` is zelf `@functools.cache`, maar het memo houdt de property net als daar
+        buiten de handtekening en de pickle. De basis komt uit `gwsw_versie` (de typen van de
+        knopen en strengen), niet uit `self.graph`, zodat het luie cachepad de graafpickle niet
+        laadt.
+        """
+        if not self._termen_memo:
+            self._termen_memo.append(_leestermen(self.gwsw_versie.basis))
+        return self._termen_memo[0]
 
     def is_a(self, uri: str, root: str) -> bool:
         """Geeft aan of dit domeinobject van het type `root` of een subklasse is.
@@ -595,6 +628,58 @@ class GwswDataset:
         for klasse in self.closure(root):
             gevonden.extend(self.graph.subjects(_RDF_TYPE, _uriref_snel(klasse)))
         return gevonden
+
+    def uris_of_class(self, root: str) -> list[str]:
+        """De URI's van alle objecten van dit type in de graaf, als tekst (issue #51).
+
+        De versie-juiste, tekst-teruggevende tegenhanger van `subjects_of_class` (die
+        `list[RdfNode]` levert): dezelfde afsluiting via `closure(root)`, die de klasse-IRI's al
+        uit de gedetecteerde basis opbouwt, maar dan als `list[str]` zodat een afnemer de graaf,
+        `URIRef` of de 1.6-`KLASSE_*`-constanten niet hoeft aan te raken. Ook onderdelen zonder
+        eigen geometrie (een overstortdrempel) staan erbij, net als bij `subjects_of_class`.
+        """
+        return [str(subject) for subject in self.subjects_of_class(root)]
+
+    def buren(self, uri: str) -> list[str]:
+        """De hasConnection-buren van een object, in beide richtingen, als tekst (issue #51).
+
+        `gwsw:hasConnection` is een `owl:SymmetricProperty` zonder inverse, dus de tripel mag
+        ook andersom geschreven zijn; beide richtingen tellen -- dezelfde lezing als
+        `inlezen._connections`, maar dan versie-juist (via `self.termen.has_connection`, niet de
+        1.6-`HAS_CONNECTION`-constante) en als `list[str]`. De voorwaartse richting gaat voorop
+        en elke buur komt hoogstens een keer terug.
+        """
+        has_connection = self.termen.has_connection
+        term = _uriref_snel(uri)
+        gezien: set[str] = set()
+        buren: list[str] = []
+        for buur in (
+            *self.graph.objects(term, has_connection),
+            *self.graph.subjects(has_connection, term),
+        ):
+            tekst = str(buur)
+            if tekst not in gezien:
+                gezien.add(tekst)
+                buren.append(tekst)
+        return buren
+
+    def kenmerken_met_waarde(self, kenmerk: str) -> list[str]:
+        """De hasValue-waarden van elk kenmerk van deze klasse in de graaf (issue #51).
+
+        `kenmerk` is een korte klassenaam (`"Putdekselniveau"`, `"BobBeginpuntLeiding"`); de
+        klasse-IRI en het `hasValue`-predicaat komen versie-juist uit de gedetecteerde basis
+        (`self.termen`), niet uit een 1.6-constante die op een 1.7-graaf stil nul zou treffen.
+        Terug komt de waarde als tekst, een per kenmerkknoop met een `hasValue`; een kenmerk
+        zonder waarde (een orientatie, een verwijzing) valt weg.
+        """
+        klasse = _uriref_snel(_uri(kenmerk, self._basis))
+        has_value = self.termen.has_value
+        waarden: list[str] = []
+        for aspect in self.graph.subjects(_RDF_TYPE, klasse):
+            waarde = self.graph.value(aspect, has_value)
+            if waarde is not None:
+                waarden.append(str(waarde))
+        return waarden
 
     def onderdelen(self, uri: str, wortel: str | None = None) -> list[str]:
         """De directe onderdelen van een object, optioneel beperkt tot een klasse.
@@ -920,6 +1005,19 @@ def load_dataset(
     # Altijd, en juist ook zonder klassenkennis: dan laat het verschil zien dat de
     # ontologische route nul objecten oplevert en de hele lezing op geometrie rust.
     dataset.structural_diff.update(_structural_diff(graph, subclasses))
+    # Eén waarschuwing wanneer de dataset niet de leidende 1.6-versie is (issue #51): de
+    # gepinde module-constanten (`HAS_*`, `KLASSE_*`) spellen 1.6 en treffen op deze graaf
+    # stil nul. Wie versie-juist wil bevragen, gebruikt `GwswDataset.termen` of de
+    # str-methoden. Precies hier en nergens anders: een cachetreffer loopt niet langs
+    # `load_dataset` (zie `cache.laad_met_cache`), dus die waarschuwt niet nog eens.
+    if dataset.gwsw_versie.versie != "1.6":
+        _logger.warning(
+            "De dataset is GWSW-versie %s; de gepinde module-constanten (HAS_*, KLASSE_*) "
+            "spellen 1.6 en gelden niet voor deze dataset -- gebruik de versie-juiste "
+            "`GwswDataset.termen` of de str-methoden (uris_of_class, buren, "
+            "kenmerken_met_waarde).",
+            dataset.gwsw_versie.versie,
+        )
     return dataset
 
 

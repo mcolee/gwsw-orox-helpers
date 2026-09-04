@@ -1,6 +1,18 @@
 # Changelog
 
 ## [Unreleased]
+- Het publieke oppervlak leest nu versie-juist naast de gepinde 1.6-constanten (issue #51,
+  feature; **additief** — geen bestaande signatuur, constante of retourvorm geraakt).
+  `inlezen._Leestermen` is publiek als `Leestermen` (het privé `_Leestermen`/`_leestermen`
+  blijft als alias werken), `GwswDataset.termen` levert de `URIRef`-termenset van de
+  gedetecteerde basis (gememoiseerd, niet gepickeld), en `namen.klasse_iri(naam, basis)` is de
+  publieke tegenhanger van `_uri`. Drie str-methoden op de dataset bevragen de graaf
+  versie-juist: `uris_of_class(root)`, `buren(uri)` (hasConnection, beide richtingen) en
+  `kenmerken_met_waarde(kenmerk)`. `load_dataset` logt één `logging.warning` wanneer de dataset
+  niet de leidende 1.6-versie is (en niet nog eens op het cachepad), dat de module-constanten
+  (`HAS_*`, `KLASSE_*`) voor deze dataset stil nul treffen. Zo hoeft nlriochecker `graph`,
+  `URIRef` of de 1.6-`HAS_*`/`KLASSE_*` niet aan te raken om een 1.7-dataset te lezen; de
+  gepinde constanten en signaturen blijven ongewijzigd.
 - De clip weigert nu luid twee invarianten die hij eerder half bewaakte (issue #47, bugfix;
   **additief** — geen publieke signatuur of bestaande retourvorm geraakt, alleen invoer die
   nu stil data verloor gaat falen). (a) Twee grenslaag-namen die na sanering hetzelfde

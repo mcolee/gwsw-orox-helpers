@@ -61,7 +61,7 @@ WORTEL = Path(__file__).resolve().parents[1]
 # `tests/test_clip.py`: de 112 MB-export van De Wolden en Hoogeveen (niet getrackt) en
 # de gemeentegrenzen die er in deze repo bij horen. Het exportpad staat standaard onder de
 # thuismap en is te overschrijven met GWSW_OROX_FIXTUREPAD (issue #44), net als bij de tests.
-_EXPORT_ONDER_HOME = Path("nlriochecker/data/gwsw_orox_ttl/dewoldenhoogeveen_orox.ttl")
+_EXPORT_ONDER_HOME = Path("Development/nlriochecker/data/gwsw_orox_ttl/dewoldenhoogeveen_orox.ttl")
 BRON = Path(os.environ.get("GWSW_OROX_FIXTUREPAD") or Path.home() / _EXPORT_ONDER_HOME)
 GRENZEN = WORTEL / "tests" / "fixtures" / "gis" / "gemeentegrenzen_dewoldenhoogeveen.geojson"
 SLEUTEL = "gemeentenaam"

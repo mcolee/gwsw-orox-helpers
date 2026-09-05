@@ -53,7 +53,7 @@ from gwsw_orox_helpers.graaf import _uriref_snel
 # Hoogeveen, 112 MB, niet getrackt. Standaard onder de thuismap, te overschrijven met
 # GWSW_OROX_FIXTUREPAD (issue #44). De BrutIS-export is geen zuivere UTF-8 (cp850-bytes in
 # een straatnaam), vandaar de terugval.
-_EXPORT_ONDER_HOME = Path("nlriochecker/data/gwsw_orox_ttl/dewoldenhoogeveen_orox.ttl")
+_EXPORT_ONDER_HOME = Path("Development/nlriochecker/data/gwsw_orox_ttl/dewoldenhoogeveen_orox.ttl")
 BRON = Path(os.environ.get("GWSW_OROX_FIXTUREPAD") or Path.home() / _EXPORT_ONDER_HOME)
 FALLBACK_ENCODING = "cp850"
 

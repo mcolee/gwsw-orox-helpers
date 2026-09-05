@@ -3,7 +3,10 @@
 Aanvulling op het sjabloon `docs/agents/afk-regie.md`; dat blijft de lus, dit is wat deze
 reeks anders maakt. De issues komen uit de architectuur- en performance-swarm van 04/05-09-2026
 (`.claude/workflows/orox-fable-archperf.js`; rapport, plan.json en de prototypes van de
-lenzen in `~/gwsw-orox-helpers-onderzoek/2026-09-04-archperf/`). De auteur nam de beslissingen
+lenzen stonden in `~/gwsw-orox-helpers-onderzoek/2026-09-04-archperf/`; die map staat sinds
+05-09 in de prullenbak, `~/.local/share/Trash/files/gwsw-orox-helpers-onderzoek/…` — kopieer
+`prototypes/` naar je scratchpad en zet de `BRON`-paden er met `sed` op het exportpad
+hieronder; zet niets terug). De auteur nam de beslissingen
 op 05-09 in een grill; ze staan als kaart bovenaan elke issue-body en hieronder.
 
 ## Bezetting
@@ -37,7 +40,9 @@ door met het volgende issue dat er niet op leunt.
   en om), n ≥ 3, eenduidig (traagste experiment sneller dan snelste referentie), en byte-gelijke
   uitvoer (sha256) waar de schrijfweg geraakt wordt. Meetstraat: `scripts/benchmark.py` en de
   lens-scripts die het issue noemt (onder `prototypes/<lens>/` in de onderzoeksmap). Export:
-  `~/nlriochecker/data/gwsw_orox_ttl/dewoldenhoogeveen_orox.ttl`. **Niet aangetoond = melden
+  `~/Development/nlriochecker/data/gwsw_orox_ttl/dewoldenhoogeveen_orox.ttl` (sinds 05-09;
+  `tests/conftest.py` en `scripts/benchmark.py` kennen dat pad, `GWSW_OROX_FIXTUREPAD`
+  overschrijft het). **Niet aangetoond = melden
   en open laten**, niet mergen.
 - **Eén implementer tegelijk.** De machine heeft vier cores; twee metingen naast elkaar maken
   elkaars cijfers waardeloos. Dispatch nooit een tweede meetagent terwijl er een loopt.

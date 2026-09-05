@@ -12,7 +12,7 @@ TTL_DIR = Path(__file__).parent / "fixtures" / "ttl"
 # De relatieve ligging van de grote, niet-getrackte export onder de thuismap van de auteur.
 # Op één plek zodat de `zwaar`-tests en de benchmarkscripts hem niet elk hard hoeven te
 # spellen (issue #44).
-_EXPORT_ONDER_HOME = Path("nlriochecker/data/gwsw_orox_ttl/dewoldenhoogeveen_orox.ttl")
+_EXPORT_ONDER_HOME = Path("Development/nlriochecker/data/gwsw_orox_ttl/dewoldenhoogeveen_orox.ttl")
 
 
 def dewoldenhoogeveen_export() -> Path:

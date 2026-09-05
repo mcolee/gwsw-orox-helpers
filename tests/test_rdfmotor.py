@@ -83,6 +83,38 @@ def test_ontleed_turtle_bestand_geeft_dezelfde_quads_en_prefixen() -> None:
     assert parser.prefixes[""] == "http://sparql.gwsw.nl/repositories/Mini#"
 
 
+def test_ontleed_turtle_stroom_geeft_dezelfde_quads_en_prefixen() -> None:
+    """De derde ingang: een binaire file-like via `input=`, streamend ontleed.
+
+    `schrijven.lees_orox` geeft hier de hercodeerstroom aan mee zodra er een
+    terugvalcodering of een BOM in het spel is; net als de padweg leunt hij op de stroom
+    én op `parser.prefixes` na de eerste quad, dus moet de adapter het parserobject
+    teruggeven en niet een kale iterator. Byte-voor-byte dezelfde bytes als de padweg
+    (dezelfde inhoud), dus dezelfde quads en dezelfde prefixen.
+    """
+    verwacht = _genormaliseerd(pyoxigraph.parse(path=MINI, format=pyoxigraph.RdfFormat.TURTLE))
+    with open(MINI, "rb") as bestand:
+        parser = rdfmotor.ontleed_turtle_stroom(bestand)
+        gekregen = _genormaliseerd(parser)
+        prefixen = parser.prefixes
+
+    assert gekregen == verwacht
+    assert prefixen[""] == "http://sparql.gwsw.nl/repositories/Mini#"
+
+
+def test_ontleed_turtle_stroom_geeft_een_syntaxfout_ongemoeid_door(tmp_path: Path) -> None:
+    """De adapter vangt ook op de stroomingang niets af: een syntaxfout komt rauw boven.
+
+    `schrijven._gecontroleerd` maakt er zijn eigen `TurtleError` van, net als bij de twee
+    andere ingangen.
+    """
+    stuk = tmp_path / "stuk.ttl"
+    stuk.write_text("@prefix : <http://x#> .\n:a :b :c .\n:d :e\n", encoding="utf-8")
+
+    with pytest.raises(SyntaxError), open(stuk, "rb") as bestand:
+        list(rdfmotor.ontleed_turtle_stroom(bestand))
+
+
 def test_een_str_pad_leest_het_bestand_en_niet_de_padtekst() -> None:
     """`ontleed_turtle_bestand` geeft zijn argument altijd als `path=` door.
 

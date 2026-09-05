@@ -71,7 +71,7 @@ from typing import Final, cast
 import pyoxigraph
 
 from gwsw_orox_helpers import namen, rdfmotor
-from gwsw_orox_helpers.codering import decodeer
+from gwsw_orox_helpers.codering import hercodeerstroom
 from gwsw_orox_helpers.errors import BestandError, CoderingError, TurtleError
 from gwsw_orox_helpers.namen import GWSW
 
@@ -124,30 +124,33 @@ def lees_orox(bron: str | os.PathLike[str], fallback_encoding: str | None = None
 
     `fallback_encoding` betekent hetzelfde als in `load_dataset`: zonder opgave moet de
     bron UTF-8 zijn (en dan leest de parser hem streamend van schijf), met opgave wordt
-    een bron die dat niet is alsnog gelezen. Dat laatste kost geheugen -- het bestand
-    moet dan eerst in zijn geheel gedecodeerd worden -- en gebeurt daarom alleen als de
-    afnemer erom vraagt.
+    een bron die dat niet is alsnog gelezen. Ook die tak **streamt** sinds issue #66: hij
+    bouwt geen volledige `str` meer maar geeft een hercodeerstroom
+    (`codering.hercodeerstroom`) aan `ontleed_turtle_stroom`, die de bron blokgewijs van de
+    terugvalcodering naar UTF-8 hercodeert. Zo houdt ook een cp850-export van honderden
+    megabytes maar één blok tegelijk in het geheugen in plaats van de hele bron als bytes
+    én als `str`.
 
     Een lege bron (nul quads) levert een lege stroom met alleen de bronprefixen die de
     parser tot dan toe zag.
 
-    Draagt de bron een UTF-8-BOM, dan helpt de streamende weg niet: pyoxigraph opent het
+    Draagt de bron een UTF-8-BOM, dan helpt het bestandspad niet: pyoxigraph opent het
     bestand dan zelf en struikelt over de `U+FEFF` als eerste subject (issue #53). Daarom
-    wordt de kop gepeekt en gaat een bron met BOM langs `ontleed_turtle` op de gedecodeerde
-    inhoud -- dezelfde tak die er al is voor een terugvalcodering -- zodat de tekst zonder
-    BOM (`codering.decodeer` leest `utf-8-sig`) aan de motor gaat. Zonder BOM en zonder
-    terugvalcodering blijft het bestandspad byte-gelijk naar de motor gaan, dus blijft de
-    export van honderden megabytes buiten het geheugen.
+    wordt de kop gepeekt en gaat een bron met BOM langs de hercodeerstroom -- dezelfde tak
+    die er al is voor een terugvalcodering -- die de tekst zonder BOM (`utf-8-sig`) streamend
+    aan de motor levert. Zonder BOM en zonder terugvalcodering blijft het bestandspad
+    byte-gelijk naar de motor gaan, dus blijft de export van honderden megabytes buiten het
+    geheugen.
 
     Een str- of ander `os.PathLike`-pad wordt hier tot `Path` gemaakt: een bibliotheek
-    hoort een str-pad te accepteren, en de terugval-tak leest `bron.read_bytes()` (issue #55).
+    hoort een str-pad te accepteren, en de hercodeerstroom opent `bron` zelf (issue #55).
     """
     bron = Path(bron)
     try:
         if fallback_encoding is None and not _begint_met_bom(bron):
             parser = rdfmotor.ontleed_turtle_bestand(bron)
         else:
-            parser = rdfmotor.ontleed_turtle(_gedecodeerd(bron, fallback_encoding))
+            parser = rdfmotor.ontleed_turtle_stroom(hercodeerstroom(bron, fallback_encoding))
     except OSError as fout:
         raise BestandError(f"{bron}: bestand kan niet gelezen worden ({fout}).") from fout
 
@@ -368,21 +371,6 @@ def _begint_met_bom(bron: Path) -> bool:
             return bestand.read(3) == b"\xef\xbb\xbf"
     except OSError:
         return False
-
-
-def _gedecodeerd(bron: Path, fallback_encoding: str | None) -> str:
-    """De inhoud van `bron` als tekst: UTF-8 (met of zonder BOM), of anders de terugval.
-
-    Precies dezelfde regel als aan de leeskant, want het is dezelfde regel:
-    `codering.decodeer` schrijft hem een keer op en beide lagen lezen hem daar. `None` als
-    terugvalcodering betekent "geen terugval"; die tak dient de BOM-bron (issue #53), die
-    wél geldig UTF-8 is en dus geen terugval nodig heeft -- `utf-8-sig` haalt de BOM eruit.
-    Wat de leeskant er extra bij doet -- het aantal afwijkende bytes en een paar
-    voorbeeldregels vastleggen in `DecodeFallback` -- hoort bij het rapporteren van een
-    lezing en niet bij het terugschrijven ervan, en het kost een tweede gang over het hele
-    bestand; die stap blijft daar.
-    """
-    return decodeer(bron, bron.read_bytes(), fallback_encoding)[0]
 
 
 def _gecontroleerd(

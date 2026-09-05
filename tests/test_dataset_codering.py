@@ -45,8 +45,9 @@ def test_decodeer_accepteert_utf8_met_en_zonder_bom() -> None:
     """De gedeelde decodeerregel: `utf-8-sig` is een superset van `utf-8` op BOM-loze invoer.
 
     Dit is het ene punt dat beide paden dekt -- `bestand._decode` (leesweg) en
-    `schrijven._gedecodeerd` (schrijfweg) delen deze functie. De BOM verdwijnt uit de tekst
-    en er is niets teruggevallen (`None`); zonder BOM verandert er niets.
+    `schrijven.lees_orox` via `codering.hercodeerstroom` (schrijfweg) delen deze regel. De
+    BOM verdwijnt uit de tekst en er is niets teruggevallen (`None`); zonder BOM verandert
+    er niets.
     """
     pad = Path("mem.ttl")
 
@@ -133,3 +134,95 @@ def test_onleesbare_codering_geeft_dataseterror(tmp_path: Path) -> None:
 
     with pytest.raises(DatasetError, match="geen geldige UTF-8"):
         load_dataset(stuk, fallback_encoding="onbekende-codering")
+
+
+def _stroombytes(pad: Path, fallback_encoding: str | None) -> bytes:
+    """De hele hercodeerstroom uitgelezen -- wat de motor via `input=` te zien krijgt."""
+    with codering.hercodeerstroom(pad, fallback_encoding) as stroom:
+        return stroom.read()
+
+
+def test_hercodeerstroom_van_utf8_levert_de_bronbytes() -> None:
+    """Een zuivere UTF-8-bron: de stroom is de bron zelf, byte voor byte (oracle: decodeer)."""
+    verwacht = codering.decodeer(MINI, MINI.read_bytes(), None)[0].encode("utf-8")
+
+    assert _stroombytes(MINI, None) == verwacht
+    assert _stroombytes(MINI, "cp850") == verwacht  # UTF-8 wint van de terugval
+
+
+def test_hercodeerstroom_van_cp850_hercodeert_naar_utf8() -> None:
+    """Een cp850-bron: de stroom levert dezelfde UTF-8-bytes als de niet-streamende weg.
+
+    `decodeer` is het onafhankelijke ijkpunt van de coderingsregel; de incrementele
+    variant hoort er byte voor byte gelijk aan te zijn (issue #66).
+    """
+    verwacht = codering.decodeer(CP850, CP850.read_bytes(), "cp850")[0].encode("utf-8")
+    gekregen = _stroombytes(CP850, "cp850")
+
+    assert gekregen == verwacht
+    assert "cavaljéweg".encode() in gekregen
+
+
+def test_hercodeerstroom_van_bom_bron_strip_de_bom(tmp_path: Path) -> None:
+    """Een UTF-8-BOM-bron zonder terugval: de stroom is de tekst zónder BOM (utf-8-sig)."""
+    bom = tmp_path / "mini_bom.ttl"
+    bom.write_bytes(b"\xef\xbb\xbf" + MINI.read_bytes())
+    verwacht = codering.decodeer(bom, bom.read_bytes(), None)[0].encode("utf-8")
+
+    gekregen = _stroombytes(bom, None)
+
+    assert gekregen == verwacht
+    assert not gekregen.startswith(b"\xef\xbb\xbf")
+
+
+def test_hercodeerstroom_kiest_pas_na_de_hele_bron_de_codering(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """De valkuil: een bron die pas ná het eerste blok een niet-UTF-8-byte draagt.
+
+    Een blokgewijze decoder mag niet halverwege van codering wisselen: het eerste blok is
+    zuiver UTF-8, maar verderop staat een cp850-byte. De keuze moet over de héle bron gaan
+    (net als `decodeer`, die het hele bestand weegt), dus valt de bron in zijn geheel op de
+    terugval terug -- niet blok 1 als UTF-8 en blok 2 als cp850. Bewijs: byte-gelijk aan
+    `decodeer`, dat de cp850-byte als 'é' leest en niet als een gehalveerd UTF-8-teken.
+    """
+    monkeypatch.setattr(codering, "_LEESBLOK", 8)
+    bron = tmp_path / "laat.ttl"
+    # Ruim voorbij byte 8 een losse 0x82 (cp850 'é'), ingebed in een literaal zodat de tekst
+    # geldig blijft; als UTF-8 is 0x82 een losse vervolgbyte en dus ongeldig.
+    bron.write_bytes(b'@prefix : <http://x#> .\n:a :b "cavalj\x82weg" .\n')
+    verwacht = codering.decodeer(bron, bron.read_bytes(), "cp850")[0].encode("utf-8")
+
+    gekregen = _stroombytes(bron, "cp850")
+
+    assert gekregen == verwacht
+    assert "cavaljéweg".encode() in gekregen
+
+
+def test_hercodeerstroom_zonder_terugval_is_een_coderingerror() -> None:
+    """Geen geldige UTF-8 en geen terugval: dezelfde CoderingError als `decodeer`."""
+    with pytest.raises(CoderingError, match="geen terugvalcodering"):
+        codering.hercodeerstroom(CP850, None)
+
+
+def test_hercodeerstroom_onbekende_codering_is_een_coderingerror() -> None:
+    """Een terugval die Python niet kent: CoderingError met de naam erin, als `decodeer`."""
+    with pytest.raises(CoderingError, match="onbekende-codering"):
+        codering.hercodeerstroom(CP850, "onbekende-codering")
+
+
+def test_hercodeerstroom_terugval_faalt_is_een_coderingerror(tmp_path: Path) -> None:
+    """Een terugval die de bytes toch niet leest: CoderingError 'ook niet te lezen als'.
+
+    Anders dan de twee gevallen hierboven -- geen terugval, en een onbekende codec, die
+    allebei vóór het streamen te zien zijn -- blijkt een terugval die de bytes wél als
+    tekst begint maar onderweg struikelt pas bij het lezen. De fout komt dan uit `readinto`
+    en hoort dezelfde canonieke `CoderingError` te zijn (via `decodeer`), niet een rauwe
+    `UnicodeDecodeError` die de motor-vangst als `TurtleError` zou labelen.
+    """
+    stuk = tmp_path / "stuk.ttl"
+    stuk.write_bytes(b"@prefix : <http://x#> .\n:a :b \x82 .\n")
+
+    with pytest.raises(CoderingError, match="ook niet te lezen als ascii"):
+        with codering.hercodeerstroom(stuk, "ascii") as stroom:
+            stroom.read()

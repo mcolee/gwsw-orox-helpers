@@ -13,6 +13,11 @@ zou zo'n bump zich melden als een `TypeError` diep in de quadstroom, op de plek 
 eerste quad opgehaald wordt en niet op de plek waar de aanroep staat.
 
 **Dun, en met opzet niet meer dan dat.** Alleen ontleden en serialiseren gaan hierlangs.
+Ontleden heeft sinds issue #66 drie ingangen -- `ontleed_turtle` (bytes of str in het
+geheugen), `ontleed_turtle_bestand` (een pad, de motor opent en streamt zelf) en
+`ontleed_turtle_stroom` (een binaire file-like, `input=`) -- en geen typeswitch daarop:
+`path=` en `input=` doen iets anders (zie de docstrings hieronder en
+`docs/architectuur.md`), dus een `str`-pad zou in de inhoudstak stil de padtekst lezen.
 De term-fabrieken (`NamedNode`, `BlankNode`, `Literal`, `Quad`, `Triple`) worden
 *niet* omwikkeld: die staan op tientallen plekken in `clip/` en in `graaf`, ze zijn
 sinds 0.3 niet veranderd, en een wrapper eromheen zou een laag zijn zonder werk.
@@ -132,6 +137,29 @@ def ontleed_turtle_bestand(pad: Path) -> pyoxigraph.QuadParser:
     staat, waar `schrijven._gecontroleerd` hem oppikt.
     """
     return pyoxigraph.parse(path=pad, format=_TURTLE)
+
+
+def ontleed_turtle_stroom(io: IO[bytes]) -> pyoxigraph.QuadParser:
+    """Ontleedt Turtle uit een geopende binaire file-like, als luie quadstroom.
+
+    De derde ingang, naast `ontleed_turtle(bytes | str)` en `ontleed_turtle_bestand(pad)`,
+    en geen typeswitch daarop -- om dezelfde reden dat die twee gescheiden zijn (zie boven
+    en `docs/architectuur.md`): `path=` laat de motor het bestand zelf openen, `input=`
+    ontleedt de inhoud die eruit stroomt. Deze ingang geeft altijd de file-like als
+    `input=` door en de motor leest hem blokgewijs -- hij houdt de inhoud dus niet als
+    `str` of `bytes` in het geheugen (issue #66).
+
+    Wie hem gebruikt: `schrijven.lees_orox` zodra er een terugvalcodering of een BOM in
+    het spel is, met een hercodeerstroom (`codering.hercodeerstroom`) die de bron
+    blokgewijs van de terugvalcodering naar UTF-8 hercodeert. Zo blijft de schrijfweg ook
+    op die tak streamend in plaats van de hele bron als `str` in het geheugen te zetten.
+
+    Net als bij de twee andere ingangen wordt er **niets afgevangen**: een syntaxfout
+    onderweg komt er als de fout van de motor uit, en `schrijven._gecontroleerd` maakt er
+    zijn eigen `TurtleError` van. De aanroeper opent en sluit de file-like zelf; de motor
+    leest hem enkel.
+    """
+    return pyoxigraph.parse(io, format=_TURTLE)
 
 
 # De fouttaxonomie van de motor, op één plek. `bestand._parse` en `schrijven._gecontroleerd`

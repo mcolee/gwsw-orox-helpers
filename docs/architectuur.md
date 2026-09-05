@@ -289,7 +289,12 @@ Er zijn twee wegen van een TTL-bestand naar triples, en ze zijn met opzet versch
 - **De schrijfweg** (`schrijven.lees_orox` → `schrijf_orox_quads`) laat de quads van de
   parser rechtstreeks naar de serializer stromen. Wie terugschrijft heeft geen index
   nodig en zou hem op een export van honderden megabytes ook niet willen betalen; de
-  cliplaag hangt in diezelfde stroom en filtert hem per vlak. Sinds issue #64 rekent de
+  cliplaag hangt in diezelfde stroom en filtert hem per vlak. Ook de terugvaltak streamt
+  sinds issue #66: een zuivere UTF-8-bron zonder BOM gaat als pad naar de motor
+  (`ontleed_turtle_bestand`), en een bron met terugvalcodering of een UTF-8-BOM gaat als
+  hercodeerstroom (`codering.hercodeerstroom` → `ontleed_turtle_stroom`) die blokgewijs van
+  de terugvalcodering naar UTF-8 hercodeert -- geen volledige `str` van de bron meer in het
+  geheugen, wat op de cp850-export per passage honderden MiB scheelt. Sinds issue #64 rekent de
   clip die filter niet in elke pass opnieuw uit: de analyseronde slaat de per-quad-kennis
   één keer plat tot een positietabel (een masker-byte plus een herschrijf-vlag per
   stroompositie, geen quads), en een quad die niet herschreven hoeft te worden gaat
@@ -304,11 +309,11 @@ die anders uit elkaar loopt, en die staat één keer:
 
 | Gedeelde kennis | Woont in | Gelezen door |
 |---|---|---|
-| De motor-naad: `pyoxigraph.parse` en `pyoxigraph.serialize` op Turtle, sinds issue #50 ook de foutvertaling (`MOTORFOUTEN`, `is_coderingsfout`) en de prefixlezing (`prefixen_van`), plus de reeks pyoxigraph-versies waarop de package getoetst is | `rdfmotor` | `bestand._parse` (bytes, of sinds issue #60 het pad bij zuivere UTF-8 zonder BOM; parse, `prefixen_van`, en de smalle vangst op `MOTORFOUTEN`+`TypeError`), `schrijven.lees_orox` (een pad, of tekst bij een terugvalcodering of een UTF-8-BOM; parse, `prefixen_van`), `schrijven._gecontroleerd` (`MOTORFOUTEN`+`is_coderingsfout`) en `schrijven.schrijf_orox_quads` (de serializer) |
+| De motor-naad: `pyoxigraph.parse` en `pyoxigraph.serialize` op Turtle, sinds issue #50 ook de foutvertaling (`MOTORFOUTEN`, `is_coderingsfout`) en de prefixlezing (`prefixen_van`), plus de reeks pyoxigraph-versies waarop de package getoetst is | `rdfmotor` | `bestand._parse` (bytes, of sinds issue #60 het pad bij zuivere UTF-8 zonder BOM; parse, `prefixen_van`, en de smalle vangst op `MOTORFOUTEN`+`TypeError`), `schrijven.lees_orox` (een pad, of sinds issue #66 een hercodeerstroom bij een terugvalcodering of een UTF-8-BOM; parse, `prefixen_van`), `schrijven._gecontroleerd` (`MOTORFOUTEN`+`is_coderingsfout`) en `schrijven.schrijf_orox_quads` (de serializer) |
 | De IRI's: `GWSW` en de naamruimten, `hasAspect`/`hasPart`/`hasConnection`, `geo:gmlLiteral`; sinds issue #32 óók de termenset per gedetecteerde basis (`Termen`, `termen_voor`) en de detectie (`basis_uit_prefixen`, `basis_uit_iri`/`basis_uit_iris`, met de gedeelde terugval-melding `terugvalmelding`) | `namen` (tekst) | `inlezen` (als `URIRef`-termenset per basis), `clip.termen` (als `NamedNode`-termenset), `clip.plan`/`clip.stroom`/`clip.merge`/`clip.bereik` (via die termenset), `schrijven` (prefixkop, 1.6-cosmetisch), `graaf` (`xsd:string` + `gwsw_basis`), `bestand` (detectie), `ontologie`, `dataset` (`GWSW`, en het exporteert hem) |
 | Het spellen van een korte klassenaam heen en terug (`_uri`, `_short`) | `namen` | `klassen` (`_afsluiting`, `_kenmerk_properties`, `_klassefuncties`), `inlezen` (de korte naam van een soort, een referentie of een klasse), `dataset` (`beheerobjecttype`, `is_connection_class`) |
 | De prefixkop van een OroX-export | `schrijven.STANDAARD_PREFIXEN`, opgebouwd uit `namen` | `schrijven`, `clip.orkest` (krijgt ze via `lees_orox` en vult `knip:` aan) |
-| UTF-8 (met of zonder een leidende BOM, via `utf-8-sig`) met terugvalcodering, inclusief beide foutmeldingen | `codering.decodeer` | `bestand._decode`, `schrijven._gedecodeerd` |
+| UTF-8 (met of zonder een leidende BOM, via `utf-8-sig`) met terugvalcodering, inclusief beide foutmeldingen | `codering.decodeer` (de bron in het geheugen) en sinds issue #66 `codering.hercodeerstroom` (dezelfde regel, blokgewijs streamend, met `decodeer` als foutbron) | `bestand._decode` (decodeer), `schrijven.lees_orox` (hercodeerstroom) |
 | Het verslag van zo'n terugval (`DecodeFallback`) | `codering.terugvalverslag` | alleen `bestand` |
 | De GML-lezers | `geometry` | `inlezen` (`parse_gml_met_z`), `clip.knip`, `clip.plan`, `clip.merge`, `clip.bereik` (`parse_gml` / `parse_gml_z`), `dataset` (doorgeefluik) |
 | De tekstkant van diezelfde literaal: de coordinatenlijst als tokens, het terugleggen ervan in het omhulsel, en hoeveel getallen er op een punt gaan (`coordinaattokens`, `vervang_coordinaten`, `tokens_per_punt`) | `geometry` | `clip.knip` (de knip), `clip.stroom` (het stuk wegschrijven), `clip.merge` (de omkering) |
@@ -356,11 +361,16 @@ de adapter en geen omissie.
 Dat de naad er één blijft, staat niet alleen hier: `test_alleen_rdfmotor_roept_de_motor_aan`
 loopt de AST van elke module in de package af en laat `pyoxigraph.parse` of
 `pyoxigraph.serialize` buiten `rdfmotor` niet toe. Zonder die sweep was "één naad" een
-belofte in een docstring en belette niets een vijfde aanroep. De adapter heeft daarom
-**twee** ontleedingangen en geen typeswitch: `ontleed_turtle_bestand(pad)` geeft altijd
-`path=` door (de motor opent het bestand zelf en leest het streamend),
-`ontleed_turtle(bytes | str)` geeft altijd de inhoud door. Op één parameter samengevoegd
-zou een `str`-pad in de inhoudstak vallen en zou de *padtekst* als Turtle ontleed worden.
+belofte in een docstring en belette niets een vijfde aanroep. De adapter heeft daarom sinds
+issue #66 **drie** ontleedingangen en geen typeswitch: `ontleed_turtle_bestand(pad)` geeft
+altijd `path=` door (de motor opent het bestand zelf en leest het streamend),
+`ontleed_turtle(bytes | str)` geeft altijd de inhoud door, en `ontleed_turtle_stroom(io)`
+geeft altijd een binaire file-like als `input=` door (de motor leest hem blokgewijs). De
+scheiding tussen `path=` en `input=` is niet cosmetisch: op één parameter samengevoegd zou
+een `str`-pad in de inhoudstak vallen en zou de *padtekst* als Turtle ontleed worden. De
+stroomingang draagt de streamende terugval-tak van de schrijfweg (issue #66): daar komt de
+inhoud niet van schijf maar uit `codering.hercodeerstroom`, die de bron blokgewijs van haar
+terugvalcodering naar UTF-8 hercodeert.
 
 **Drie GML-lezers, omdat de twee lagen niet dezelfde vraag stellen.** `parse_gml` (de
 meetkunde in het platte vlak) en `parse_gml_z` (de z-waarde per punt) zijn de losse

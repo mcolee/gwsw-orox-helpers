@@ -1,6 +1,30 @@
 # Changelog
 
 ## [Unreleased]
+- De terugval- en BOM-tak van de schrijfweg streamt in plaats van de hele bron als `str` in
+  het geheugen te zetten (issue #66, performance; **additief** — geen signatuur-, retourvorm-
+  of gedragswijziging van de publieke `lees_orox`/`schrijf_orox`/`schrijf_orox_quads`/
+  `ontleed_turtle`/`ontleed_turtle_bestand`; de uitvoer is byte-gelijk). `rdfmotor` krijgt een
+  **derde ontleedingang** `ontleed_turtle_stroom(io)`, die een binaire file-like als `input=`
+  aan pyoxigraph geeft (naast `path=` en de bytes/str-ingang); `codering.hercodeerstroom` levert
+  die file-like: hij leest de bron blokgewijs, decodeert incrementeel met **dezelfde regel als
+  `codering.decodeer`** (UTF-8 via `utf-8-sig` eerst, anders de terugval) en encodeert per blok
+  naar UTF-8. De coderingskeuze weegt de héle bron blokgewijs (`_zuiver_utf8`), zodat een bron
+  die pas ná het eerste blok een niet-UTF-8-byte draagt niet half als UTF-8 en half als terugval
+  gelezen wordt; de foutmeldingen (`CoderingError` bij geen/onleesbare terugval) komen letterlijk
+  van `decodeer`. `schrijven.lees_orox` gaat op de terugval- en BOM-tak nu langs deze stroom in
+  plaats van `read_bytes` + volledige decode; `schrijf_orox` én `clip_orox` profiteren, want
+  beide lezen hierlangs. Gemeten op de cp850-export van De Wolden en Hoogeveen (112 MB, gepaard
+  n=4, om en om, referentie = HEAD 1611e3b in een worktree, vers proces per run, piek = ru_maxrss
+  van het hele proces): `schrijf_orox`-piek **371 → 55 MiB** (eenduidig — traagste-hoogste
+  experiment 55 MiB onder de laagste referentie 371 MiB), tijd 7,02–7,06 → 6,93–7,03 s (niet
+  hoger, eenduidig gelijk); `clip_orox`-piek **788 → 697 MiB** (−12 %, eenduidig — 697 onder 788),
+  tijd 33,6–39,7 → 32,5–38,7 s (traagste experiment 38,7 s onder de traagste referentie 39,7 s,
+  niet meetbaar hoger). sha256 van elke uitvoer gelijk over alle runs (referentie en experiment
+  byte-identiek, ook per clipdeel). De per-passage-winst bevestigt de voorspelling (347 → 31 MiB
+  operatie-footprint); de end-to-end clip-piek daalt eenduidig maar met −12 % minder dan het
+  vermoeden (−20 tot −30 %), want de clip-piek wordt gezet door de analyseronde (het plan met de
+  positietabel), niet door één losse lezing.
 - De tweede ronde van `merge_orox` leest een positietabel uit de scanronde in plaats van de
   per-quad-kennis opnieuw te herleiden (issue #65, performance; **additief** — geen signatuur-,
   retourvorm- of gedragswijziging van de publieke `merge_orox`/`clip_orox`/`schrijf_orox_quads`;

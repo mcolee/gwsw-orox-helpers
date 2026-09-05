@@ -91,9 +91,10 @@ def clip_orox(
     # basisdetectie verbruikt alleen de kop tot het eerste GWSW-predicaat, en de kop plus de
     # rest gaan via `itertools.chain` als één stroom naar `_maak_plan` (issue #61). Zo wordt
     # de bron voor plan én basis samen één keer geopend in plaats van twee keer. De naam
-    # `geopend` mag de deellus hieronder niet overleven -- met een terugvalcodering draagt die
-    # half-verbruikte stroom de hele gedecodeerde bron, en die hoort losgelaten te worden
-    # zodra het plan hem gelezen heeft, niet pas bij de eerste herbinding in de lus.
+    # `geopend` mag de deellus hieronder niet overleven -- die half-verbruikte stroom houdt
+    # de motor-parser en zijn leesbuffer (sinds issue #66 nog één blok van de hercodeerstroom,
+    # niet meer de hele gedecodeerde bron) vast, en die horen losgelaten te worden zodra het
+    # plan hem gelezen heeft, niet pas bij de eerste herbinding in de lus.
     geopend = lees_orox(bron, fallback_encoding)
     basis, verbruikt = _bronbasis_en_rest(geopend.quads, bron)
     termen = _kniptermen(basis)

@@ -217,6 +217,82 @@ def test_cp850_bron_komt_er_als_utf8_uit(tmp_path: Path) -> None:
     assert isomorphic(_graaf(doel), _graaf(utf8_bron))
 
 
+def test_terugval_leest_via_de_hercodeerstroom_en_niet_de_hele_str(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Met terugvalcodering gaat de bron via `ontleed_turtle_stroom`, niet `ontleed_turtle`.
+
+    Dat is de kern van issue #66: de terugval-tak bouwt geen volledige `str` meer maar
+    streamt de hercodeerde bytes de motor in. De streamende ingang moet dus aangeroepen
+    worden, en de geheugen-tak (`ontleed_turtle` op een `str`) niet.
+    """
+    stroom_aanroepen: list[object] = []
+    verboden: list[object] = []
+    echt_stroom = schrijven.rdfmotor.ontleed_turtle_stroom
+
+    def spion_stroom(io: object) -> object:
+        stroom_aanroepen.append(io)
+        return echt_stroom(io)
+
+    monkeypatch.setattr(schrijven.rdfmotor, "ontleed_turtle_stroom", spion_stroom)
+    monkeypatch.setattr(schrijven.rdfmotor, "ontleed_turtle", lambda bron: verboden.append(bron))
+
+    quads = list(lees_orox(CP850, fallback_encoding="cp850").quads)
+
+    assert len(quads) > 0
+    assert len(stroom_aanroepen) == 1
+    assert verboden == []
+
+
+def test_cp850_via_hercodeerstroom_is_byte_gelijk_aan_de_utf8_weg(tmp_path: Path) -> None:
+    """De streamende terugval-tak levert byte-identieke uitvoer als de zuivere UTF-8-weg.
+
+    De kern van issue #66: de hercodeerstroom (cp850 -> UTF-8, blokgewijs) mag geen andere
+    byte opleveren dan de bron die al als UTF-8 op schijf staat en langs het streamende
+    bestandspad gaat. Met `deterministisch=True` zijn de blanke-knooplabels stabiel, dus is
+    byte-gelijkheid (sha256) een zinnig criterium.
+    """
+    utf8_bron = tmp_path / "cp850_als_utf8.ttl"
+    utf8_bron.write_text(CP850.read_bytes().decode("cp850"), encoding="utf-8")
+
+    via_terugval = tmp_path / "via_terugval.ttl"
+    via_utf8 = tmp_path / "via_utf8.ttl"
+    schrijf_orox(CP850, via_terugval, fallback_encoding="cp850", deterministisch=True)
+    schrijf_orox(utf8_bron, via_utf8, deterministisch=True)
+
+    assert _sha256(via_terugval) == _sha256(via_utf8)
+    assert "cavaljéweg" in via_terugval.read_text(encoding="utf-8")
+
+
+def test_bom_via_hercodeerstroom_is_byte_gelijk_aan_zonder_bom(tmp_path: Path) -> None:
+    """Een UTF-8-BOM-bron langs de hercodeerstroom is byte-gelijk aan dezelfde bron zonder BOM.
+
+    De BOM-tak deelt de streamende hercodeerweg (issue #66); `utf-8-sig` haalt de BOM eruit,
+    dus komt er precies uit wat de BOM-loze bron langs het bestandspad oplevert.
+    """
+    bom = tmp_path / "mini_bom.ttl"
+    bom.write_bytes(b"\xef\xbb\xbf" + MINI.read_bytes())
+
+    via_bom = tmp_path / "via_bom.ttl"
+    via_plat = tmp_path / "via_plat.ttl"
+    schrijf_orox(bom, via_bom, deterministisch=True)
+    schrijf_orox(MINI, via_plat, deterministisch=True)
+
+    assert _sha256(via_bom) == _sha256(via_plat)
+
+
+def test_decodeerfout_onderweg_is_een_coderingerror(tmp_path: Path) -> None:
+    """Een terugval die de bron toch niet leest: CoderingError, geen TurtleError (issue #66).
+
+    De hercodeerstroom decodeert lui; een terugval die geldig als codec bestaat maar de
+    bytes niet leest (hier `ascii` op een cp850-byte) struikelt pas onderweg. Die
+    `UnicodeDecodeError` is een `ValueError` en zou door de motor-vangst als "geen geldige
+    Turtle" gelabeld worden; hij hoort de `CoderingError` van `codering.decodeer` te geven.
+    """
+    with pytest.raises(DatasetError, match="ook niet te lezen als ascii"):
+        schrijf_orox(CP850, tmp_path / "nooit.ttl", fallback_encoding="ascii")
+
+
 def test_cp850_bron_zonder_terugval_noemt_de_codering_als_oorzaak(tmp_path: Path) -> None:
     """Zonder opgegeven codering is een niet-UTF-8-bron een fout -- met de juiste oorzaak.
 

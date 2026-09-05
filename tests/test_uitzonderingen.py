@@ -47,13 +47,13 @@ MINI = TTL_DIR / "mini_orox.ttl"
 # een raise-plek erbij verandert de code en laat de docstring staan. Uitgeschreven en niet
 # uit de code afgeleid, want een lijst die zichzelf afleidt bewaakt niets.
 RAISE_PLEKKEN = {
-    "BestandError": {"bestand": 1, "cache": 1, "clip.grenzen": 1, "schrijven": 3},
+    "BestandError": {"bestand": 2, "cache": 1, "clip.grenzen": 1, "schrijven": 3},
     "CoderingError": {"codering": 2, "schrijven": 1},
     "GrenslaagError": {"clip.grenzen": 7},
     "InhoudError": {"dataset": 2},
     "KnipError": {"clip.knip": 2, "clip.merge": 5, "clip.orkest": 1, "clip.plan": 2},
     "MotorError": {"rdfmotor": 2},
-    "TurtleError": {"bestand": 1, "schrijven": 2},
+    "TurtleError": {"bestand": 2, "schrijven": 2},
     # Leeg, en dat is de helft van de belofte die het makkelijkst wegslijt: sinds #31 wordt
     # de basisklasse binnen de package nergens meer rechtstreeks gegooid. Wie een nieuwe
     # raise-plek erbij zet zonder familie, komt hierlangs.
@@ -148,8 +148,10 @@ def test_de_raise_plekken_staan_waar_de_docstrings_ze_beloven() -> None:
 
     assert geteld == RAISE_PLEKKEN
     # 29 sinds #31, plus de `cache._bestandshash`-plek van #48 (30), de
-    # `schrijven._gecontroleerd`-plek van #49 (31) en de twee luide invarianten van #47 (33:
-    # `GrenslaagError` in `clip.grenzen` en `KnipError` in `clip.plan`). De moduledocstrings
-    # houden de 29 aan als de historische telling van #31 (de oorzaak van de opsplitsing),
-    # niet als het lopende totaal -- dat staat hier.
-    assert sum(sum(per_module.values()) for per_module in geteld.values()) == 33
+    # `schrijven._gecontroleerd`-plek van #49 (31), de twee luide invarianten van #47 (33:
+    # `GrenslaagError` in `clip.grenzen` en `KnipError` in `clip.plan`) en de twee plekken van
+    # de streamende leestak van #60 (35: een tweede `BestandError` en een tweede `TurtleError`,
+    # allebei in `bestand._parse`). De moduledocstrings houden de 29 aan als de historische
+    # telling van #31 (de oorzaak van de opsplitsing), niet als het lopende totaal -- dat staat
+    # hier.
+    assert sum(sum(per_module.values()) for per_module in geteld.values()) == 35

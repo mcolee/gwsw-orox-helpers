@@ -1,6 +1,31 @@
 # Changelog
 
 ## [Unreleased]
+- De leesweg draagt op de piek minder buffers (issue #60, performance; **additief** — geen
+  signatuur-, retourvorm- of gedragswijziging; dezelfde graaf, hetzelfde `decode_fallback`).
+  `bestand._parse` liet tijdens `GraafIndex.vul_uit` drie kopieën van de bron naast elkaar
+  leven (de ruwe bytes, de gedecodeerde tekst en de als UTF-8 gehercodeerde bytes). Twee
+  interne takken snoeien dat, zonder dat een bestaande signatuur, retourvorm of foutmelding
+  verandert. **(a)** De gedecodeerde tak laat `rauw` los zodra de tekst er is (het
+  `DecodeFallback`-verslag is dan al gemaakt) en de tekst zodra hij als UTF-8 gecodeerd is,
+  zodat er nog hoogstens één buffer naast de parser staat. **(b)** Is de bron zuiver UTF-8
+  zonder BOM — vooraf beslist met een chunksgewijze validatie door een `codecs`-incremental
+  decoder — dan opent de motor het bestand zelf en leest het streamend van schijf
+  (`rdfmotor.ontleed_turtle_bestand`, dezelfde ingang die `schrijven.lees_orox` al gebruikt),
+  en blijft `decode_fallback` None. Een niet-UTF-8-bron of een leidende BOM (waar pyoxigraph
+  als eerste subject over struikelt, issue #53) valt terug op de gedecodeerde weg met de
+  terugvalcodering; zo werkt de streamende weg ook mét een opgegeven `fallback_encoding` die
+  op een feitelijk zuivere UTF-8-bron niet nodig blijkt. Beide takken komen op dezelfde quads
+  en dezelfde volgorde uit. Gemeten op de cp850-export van De Wolden en Hoogeveen (112 MB,
+  gepaard n=3, referentie = HEAD-code): piek `load_dataset` 1221 → 1008 MiB (−17%, eenduidig),
+  tijd neutraal (`scripts/benchmark.py` mediaan 19,3 → 19,3 s); op een zuivere UTF-8-kopie
+  stroomt de leesweg 1221 → 1011 MiB (−17%, eenduidig). Triplecount (1.877.729), aantal
+  knopen/strengen (23.485/23.440), `structural_diff` en `decode_fallback` zijn gelijk aan HEAD,
+  en een read→`schrijf_orox`-round-trip is byte-gelijk (sha256). De streamende tak brengt twee nieuwe
+  raise-plekken in `bestand._parse` (een `BestandError` op een leesfout onderweg en een
+  `TurtleError` op een parsefout), meegeteld in `tests/test_uitzonderingen.py` en de
+  `errors`-docstrings. **Cachesleutel:** `bestand` zit in `cache.LADERMODULES`, dus de sleutel
+  roteert en bestaande caches worden één keer opnieuw opgebouwd.
 - De cyclische GC ligt stil rond beide `pickle.load`-plekken van de cache (issue #59,
   performance; **additief** — geen signatuur-, retourvorm- of gedragswijziging). De
   structurenlading in `laad_met_cache` en de graaflading in `LuieGraaf._geladen` depicklen

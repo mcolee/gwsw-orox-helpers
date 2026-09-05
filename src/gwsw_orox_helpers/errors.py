@@ -78,14 +78,17 @@ class BestandError(DatasetError):
     -- de TTL-bron, het schrijfdoel, de GeoJSON-grenslaag en de bestanden die de
     cachesleutel hasht.
 
-    Zes plekken: `bestand._parse`, `schrijven.lees_orox`, `schrijven._gecontroleerd`,
-    `schrijven.schrijf_orox_quads`, `clip.grenzen._lees_grenzen` en `cache._bestandshash`.
-    `cache._bestandshash` kwam er bij issue #48 bij: `laad_met_cache` hasht de
-    invoerbestanden voor de sleutel vóór de eigenlijke lezing, en een onleesbaar bestand
-    hoort daar dezelfde `BestandError` te geven als op de directe leesweg (auteursbeslissing
-    04-09-2026, met een eigen CHANGELOG-regel). `schrijven._gecontroleerd` kwam er bij issue
-    #49 bij: de streamende parser leest schijf pas al aflopend, dus een map als bron of een
-    leesfout midden in de stroom valt daar en niet bij de constructie van de parser.
+    Zeven plekken: `bestand._parse` (twee), `schrijven.lees_orox`,
+    `schrijven._gecontroleerd`, `schrijven.schrijf_orox_quads`, `clip.grenzen._lees_grenzen`
+    en `cache._bestandshash`. `cache._bestandshash` kwam er bij issue #48 bij: `laad_met_cache`
+    hasht de invoerbestanden voor de sleutel vóór de eigenlijke lezing, en een onleesbaar
+    bestand hoort daar dezelfde `BestandError` te geven als op de directe leesweg
+    (auteursbeslissing 04-09-2026, met een eigen CHANGELOG-regel). `schrijven._gecontroleerd`
+    kwam er bij issue #49 bij: de streamende parser leest schijf pas al aflopend, dus een map
+    als bron of een leesfout midden in de stroom valt daar en niet bij de constructie van de
+    parser. De tweede plek in `bestand._parse` kwam er bij issue #60 bij: de streamende leestak
+    (een zuivere UTF-8-bron zonder BOM) leest schijf net zo al aflopend, dus een leesfout
+    onderweg valt daar en niet bij `read_bytes`.
     """
 
 
@@ -111,7 +114,8 @@ class TurtleError(DatasetError):
     onleesbaar zou maken. Onderscheiden van `CoderingError` omdat de remedie verschilt:
     daar is de codering van de bron het antwoord, hier de inhoud ervan.
 
-    Drie plekken: `bestand._parse`, `schrijven._gecontroleerd` en de prefixcontrole in
+    Vier plekken: `bestand._parse` (twee -- de gedecodeerde en sinds issue #60 ook de
+    streamende leestak), `schrijven._gecontroleerd` en de prefixcontrole in
     `schrijven.schrijf_orox_quads`.
     """
 

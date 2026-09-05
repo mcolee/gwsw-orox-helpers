@@ -274,8 +274,13 @@ hoefde die index niet op de dataset te krijgen, hij moest hem alleen kúnnen bou
 
 Er zijn twee wegen van een TTL-bestand naar triples, en ze zijn met opzet verschillend:
 
-- **De leesweg** (`bestand._parse`) decodeert het bestand, parseert het en giet de quads
-  in een `GraafIndex` met rdflib-termen. Wie leest, moet daarna kunnen opzoeken; die
+- **De leesweg** (`bestand._parse`) parseert het bestand en giet de quads in een
+  `GraafIndex` met rdflib-termen. Sinds issue #60 heeft die weg twee interne takken die op
+  dezelfde quads uitkomen: een bron die zuiver UTF-8 zonder BOM blijkt (vooraf blokgewijs
+  gevalideerd) leest de motor zelf streamend van schijf (`ontleed_turtle_bestand`); elke
+  andere bron gaat langs `read_bytes`, de decodering met terugvalcodering en
+  `ontleed_turtle` op de hergecodeerde bytes, waarbij de ruwe bytes en de tekst vroeg
+  losgelaten worden. Wie leest, moet daarna kunnen opzoeken; die
   index kost tijd en geheugen en is precies wat de checks nodig hebben. Over die hele
   lezing -- ook over de klassenafleiding en de objectopbouw ná het vullen van de index --
   ligt de cyclische GC van het proces stil (`bestand._gc_uit`, aangeroepen vanuit
@@ -293,7 +298,7 @@ die anders uit elkaar loopt, en die staat één keer:
 
 | Gedeelde kennis | Woont in | Gelezen door |
 |---|---|---|
-| De motor-naad: `pyoxigraph.parse` en `pyoxigraph.serialize` op Turtle, sinds issue #50 ook de foutvertaling (`MOTORFOUTEN`, `is_coderingsfout`) en de prefixlezing (`prefixen_van`), plus de reeks pyoxigraph-versies waarop de package getoetst is | `rdfmotor` | `bestand._parse` (bytes; parse, `prefixen_van`, en de smalle vangst op `MOTORFOUTEN`+`TypeError`), `schrijven.lees_orox` (een pad, of tekst bij een terugvalcodering of een UTF-8-BOM; parse, `prefixen_van`), `schrijven._gecontroleerd` (`MOTORFOUTEN`+`is_coderingsfout`) en `schrijven.schrijf_orox_quads` (de serializer) |
+| De motor-naad: `pyoxigraph.parse` en `pyoxigraph.serialize` op Turtle, sinds issue #50 ook de foutvertaling (`MOTORFOUTEN`, `is_coderingsfout`) en de prefixlezing (`prefixen_van`), plus de reeks pyoxigraph-versies waarop de package getoetst is | `rdfmotor` | `bestand._parse` (bytes, of sinds issue #60 het pad bij zuivere UTF-8 zonder BOM; parse, `prefixen_van`, en de smalle vangst op `MOTORFOUTEN`+`TypeError`), `schrijven.lees_orox` (een pad, of tekst bij een terugvalcodering of een UTF-8-BOM; parse, `prefixen_van`), `schrijven._gecontroleerd` (`MOTORFOUTEN`+`is_coderingsfout`) en `schrijven.schrijf_orox_quads` (de serializer) |
 | De IRI's: `GWSW` en de naamruimten, `hasAspect`/`hasPart`/`hasConnection`, `geo:gmlLiteral`; sinds issue #32 óók de termenset per gedetecteerde basis (`Termen`, `termen_voor`) en de detectie (`basis_uit_prefixen`, `basis_uit_iri`/`basis_uit_iris`, met de gedeelde terugval-melding `terugvalmelding`) | `namen` (tekst) | `inlezen` (als `URIRef`-termenset per basis), `clip.termen` (als `NamedNode`-termenset), `clip.plan`/`clip.stroom`/`clip.merge`/`clip.bereik` (via die termenset), `schrijven` (prefixkop, 1.6-cosmetisch), `graaf` (`xsd:string` + `gwsw_basis`), `bestand` (detectie), `ontologie`, `dataset` (`GWSW`, en het exporteert hem) |
 | Het spellen van een korte klassenaam heen en terug (`_uri`, `_short`) | `namen` | `klassen` (`_afsluiting`, `_kenmerk_properties`, `_klassefuncties`), `inlezen` (de korte naam van een soort, een referentie of een klasse), `dataset` (`beheerobjecttype`, `is_connection_class`) |
 | De prefixkop van een OroX-export | `schrijven.STANDAARD_PREFIXEN`, opgebouwd uit `namen` | `schrijven`, `clip.orkest` (krijgt ze via `lees_orox` en vult `knip:` aan) |

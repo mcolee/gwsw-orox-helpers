@@ -30,6 +30,7 @@ is ook de enige aanroeper binnen de package.
 
 from __future__ import annotations
 
+import codecs
 import gc
 import logging
 from collections.abc import Iterator
@@ -42,6 +43,10 @@ from gwsw_orox_helpers.errors import BestandError, TurtleError
 from gwsw_orox_helpers.graaf import GraafIndex
 
 _logger = logging.getLogger(__name__)
+
+# Het bestand wordt bij de zuivere-UTF-8-validatie blokgewijs door een incremental decoder
+# gehaald; een blok van 1 MiB houdt de validatie in C en het geheugen laag.
+_LEESBLOK = 1 << 20
 
 
 @contextmanager
@@ -116,33 +121,97 @@ def _parse(
     Het parsen zelf gaat via pyoxigraph's Rust-parser (ordegrootten sneller dan rdflib's
     pure-Python `notation3`), aangeroepen via `rdfmotor` -- de ene naad waarlangs deze
     package die motor bereikt; de triples vullen in stream-volgorde een `GraafIndex` met
-    rdflib-termen, zodat de checks en de rest van de lader hun vergelijkingen houden.
-    pyoxigraph verlangt UTF-8-bytes, dus de al gedecodeerde tekst wordt opnieuw als
-    UTF-8 gecodeerd -- niet de ruwe bytes, die immers cp850 kunnen zijn. Een meegegeven
-    `index` wordt aangevuld; zo stapelen meerdere ontologiebestanden in een index.
-    """
-    try:
-        rauw = path.read_bytes()
-    except OSError as error:
-        raise BestandError(f"{path}: bestand kan niet gelezen worden ({error}).") from error
+    rdflib-termen, zodat de checks en de rest van de lader hun vergelijkingen houden. Een
+    meegegeven `index` wordt aangevuld; zo stapelen meerdere ontologiebestanden in een index.
 
-    tekst, fallback = _decode(path, rauw, fallback_encoding)
+    **Twee interne takken, dezelfde graaf (issue #60).** Is de bron zuiver UTF-8 zonder BOM,
+    dan opent de motor het bestand zelf en leest het streamend van schijf
+    (`ontleed_turtle_bestand`) -- dan hoeft de tekst niet als derde buffer naast de ruwe
+    bytes en de gehercodeerde bytes in het geheugen te staan, en valt er niets terug te
+    melden (`decode_fallback` blijft None). Die keuze wordt vooraf beslist met een
+    chunksgewijze UTF-8-validatie door een incremental decoder; het bestand gaat daardoor
+    twee keer van schijf (eerst de validatie, dan de motor), een bewuste ruil van circa
+    0,13 s tegen een derde buffer van de bronomvang. Slaagt die niet -- niet-UTF-8-
+    bytes, of een leidende BOM waar pyoxigraph als eerste subject over struikelt (issue #53) --
+    dan de gedecodeerde weg: `read_bytes`, `_decode` met haar terugvalcodering en
+    `ontleed_turtle` op de opnieuw als UTF-8 gecodeerde tekst (de ruwe bytes kunnen immers
+    cp850 zijn). Zo werkt de streamende weg ook mét een opgegeven `fallback_encoding` die op
+    een feitelijk zuivere UTF-8-bron niet nodig blijkt. Beide takken komen op dezelfde quads
+    en dezelfde volgorde uit; de tak is een optimalisatie, geen andere lezing.
+
+    De invoerbuffers worden in de gedecodeerde tak vroeg losgelaten: `rauw` zodra de tekst
+    er is (het verslag is dan al gemaakt) en de tekst zodra hij als UTF-8 gecodeerd is, zodat
+    er tijdens het vullen van de index niet drie kopieën van de bron naast elkaar leven.
+    """
+
+    def _zuiver_utf8_zonder_bom() -> bool:
+        """Of `path` zuiver UTF-8 is en geen leidende BOM draagt (issue #60).
+
+        De bytes gaan blokgewijs door een incremental decoder, zodat een half meerbyte-
+        teken op een blokgrens niet als fout telt en de hele lezing niet in het geheugen
+        hoeft. Een BOM telt als "niet streambaar": hij is geldig UTF-8, maar pyoxigraph zou
+        er als eerste subject over struikelen (issue #53), dus die bron gaat langs de
+        gedecodeerde weg, waar `utf-8-sig` de BOM eruit haalt. Een `OSError` (onleesbare
+        bron, een map) wordt hier ingeslikt en als "niet streambaar" behandeld -- niet als
+        eigen fout, maar zodat de gedecodeerde weg er dezelfde `BestandError` van maakt als
+        voorheen; dat is dezelfde keuze als `schrijven._begint_met_bom` maakt.
+        """
+        decoder = codecs.getincrementaldecoder("utf-8")()
+        try:
+            with open(path, "rb") as bron:
+                blok = bron.read(_LEESBLOK)
+                if blok.startswith(codecs.BOM_UTF8):
+                    return False
+                while blok:
+                    decoder.decode(blok)
+                    blok = bron.read(_LEESBLOK)
+                decoder.decode(b"", final=True)
+        except UnicodeDecodeError:
+            return False
+        except OSError:
+            return False
+        return True
 
     index = index if index is not None else GraafIndex()
-    try:
-        quads = rdfmotor.ontleed_turtle(tekst.encode("utf-8"))
-        # rdflib waarschuwt bij het bouwen van een literaal met een ongeldige lexicale
-        # vorm (de meegeleverde ontologie draagt een xsd:date "20210830" zonder streepjes);
-        # net als bij de oude parse hoort die traceback niet in de CLI-uitvoer thuis.
-        with _quiet_rdflib(), _gc_uit():
-            index.vul_uit(quads)
-    except (*rdfmotor.MOTORFOUTEN, TypeError) as error:
-        # Smal, sinds issue #50. `MOTORFOUTEN` zijn de parsefouten van de motor; de `TypeError`
-        # komt uit `graaf.naar_rdflib` op een termsoort die niet in een Turtle-parse hoort.
-        # Alles daarbuiten -- `MemoryError`, `RecursionError`, een bug in eigen code -- is geen
-        # Turtle-fout en komt rauw naar buiten in plaats van als een lege "geen geldige Turtle ()"
-        # op een correcte bron (de brede `except Exception` deed dat wel).
-        raise TurtleError(f"{path}: geen geldige Turtle ({error}).") from error
+    fallback: DecodeFallback | None
+    if _zuiver_utf8_zonder_bom():
+        try:
+            quads = rdfmotor.ontleed_turtle_bestand(path)
+            with _quiet_rdflib(), _gc_uit():
+                index.vul_uit(quads)
+        except OSError as error:
+            # De streamende parser leest schijf pas terwijl hij afgelopen wordt; een lees-
+            # fout onderweg (of een bron die tussen de validatie en de parse verdween) hoort
+            # dezelfde `BestandError` te geven als `read_bytes` in de gedecodeerde tak.
+            raise BestandError(f"{path}: bestand kan niet gelezen worden ({error}).") from error
+        except (*rdfmotor.MOTORFOUTEN, TypeError) as error:
+            raise TurtleError(f"{path}: geen geldige Turtle ({error}).") from error
+        fallback = None
+    else:
+        try:
+            rauw = path.read_bytes()
+        except OSError as error:
+            raise BestandError(f"{path}: bestand kan niet gelezen worden ({error}).") from error
+
+        tekst, fallback = _decode(path, rauw, fallback_encoding)
+        del rauw  # het verslag is al gemaakt; de ruwe bytes zijn hierna niet meer nodig.
+        data = tekst.encode("utf-8")
+        del tekst  # de gedecodeerde str is opgegaan in de UTF-8-bytes voor de parser.
+        try:
+            quads = rdfmotor.ontleed_turtle(data)
+            # rdflib waarschuwt bij het bouwen van een literaal met een ongeldige lexicale
+            # vorm (de meegeleverde ontologie draagt een xsd:date "20210830" zonder streepjes);
+            # net als bij de oude parse hoort die traceback niet in de CLI-uitvoer thuis.
+            with _quiet_rdflib(), _gc_uit():
+                index.vul_uit(quads)
+        except (*rdfmotor.MOTORFOUTEN, TypeError) as error:
+            # Smal, sinds issue #50. `MOTORFOUTEN` zijn de parsefouten van de motor; de
+            # `TypeError` komt uit `graaf.naar_rdflib` op een termsoort die niet in een
+            # Turtle-parse hoort. Alles daarbuiten -- `MemoryError`, `RecursionError`, een bug
+            # in eigen code -- is geen Turtle-fout en komt rauw naar buiten in plaats van als een
+            # lege "geen geldige Turtle ()" op een correcte bron (de brede `except Exception`
+            # deed dat wel).
+            raise TurtleError(f"{path}: geen geldige Turtle ({error}).") from error
     # De gedetecteerde GWSW-basis van dit bestand (issue #32), hier gezet zodat de lezers
     # van `inlezen` hun predicaten en klasse-IRI's uit de bron afleiden in plaats van uit de
     # vaste 1.6-string. Twee wegen, in deze volgorde. De `gwsw:`-prefix van de bron is de

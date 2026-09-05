@@ -50,7 +50,10 @@ RAISE_PLEKKEN = {
     "BestandError": {"bestand": 2, "cache": 1, "clip.grenzen": 1, "schrijven": 3},
     "CoderingError": {"codering": 2, "schrijven": 1},
     "GrenslaagError": {"clip.grenzen": 7},
-    "InhoudError": {"dataset": 2},
+    # Sinds issue #67 verdeeld over de hersnit van `dataset.py`: `load_dataset` (geen
+    # knooppunten of strengen) gooit in `laden`, `GwswDataset.of_class` (een
+    # verbindingsklasse als rol) in `model`.
+    "InhoudError": {"laden": 1, "model": 1},
     "KnipError": {"clip.knip": 2, "clip.merge": 5, "clip.orkest": 1, "clip.plan": 2},
     "MotorError": {"rdfmotor": 2},
     "TurtleError": {"bestand": 2, "schrijven": 2},

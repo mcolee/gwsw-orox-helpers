@@ -29,15 +29,32 @@ klassen    -> graaf, namen, ontologie
 bestand    -> codering, errors, graaf, namen, rdfmotor
 inlezen    -> domein, geometry, graaf, klassen, namen
 netwerk    -> domein
-dataset    -> bestand, bronnen, codering, domein, errors, geometry, graaf, inlezen,
-              klassen, namen, netwerk, voortgang
+model      -> codering, domein, errors, geometry, graaf, inlezen, klassen, namen,
+              netwerk
+laden      -> bestand, bronnen, errors, graaf, inlezen, klassen, model, namen, voortgang
+vulwaarden -> domein, model
+dataset    -> laden, model, vulwaarden
 cache      -> bestand, bronnen, codering, dataset, domein, errors, geometry, graaf,
-              inlezen, klassen, namen, netwerk, ontologie, rdfmotor, voortgang
+              inlezen, klassen, laden, model, namen, netwerk, ontologie, rdfmotor,
+              vulwaarden, voortgang
 
 schrijven  -> codering, errors, namen, rdfmotor
 clip/      -> errors, geometry, namen, schrijven   (een package; zie hieronder)
 __init__   -> clip, schrijven
 ```
+
+`model`, `laden` en `vulwaarden` zijn sinds issue #67 drie rijen waar er één stond:
+`dataset.py` droeg het domeinmodel, de lader-orkestratie én de vulwaarden-transformatie in
+één bestand van ~1081 regels dat tegelijk het bevroren contract naar nlriochecker was. De
+hersnit legt het domeinmodel (`GwswDataset`, `GwswVersie`) in `model`, de lader
+(`load_dataset`, `lees_ontologie`, `ontologiepaden` en de bundelkeuze) in `laden` en
+`markeer_vulwaarden` in `vulwaarden`; `dataset` werd een re-exportgezicht (imports +
+`__all__`). De importrichting blijft een lijn: `model` weet van de lader niets, `laden`
+importeert `model`, `vulwaarden` importeert `model`, en `dataset` importeert alle drie -- de
+cyclus `dataset -> laden -> dataset` die zou ontstaan als het model in `dataset` bleef
+(`laden` construeert `GwswDataset`, `dataset` re-exporteert `load_dataset`), is zo
+vermeden. Zie ["`dataset` is het gezicht, niet de bak"](#dataset-is-het-gezicht-niet-de-bak)
+hieronder. Additief: geen handtekening, retourvorm of gedrag wijzigt.
 
 `bestand` en `inlezen` zijn sinds issue #26 twee rijen en niet één. Ze deelden alleen de
 `GraafIndex`: `bestand` máákt er een (de bytes van schijf, de codering, de parser en de
@@ -186,7 +203,10 @@ Elke module beantwoordt één vraag; in deze volgorde heeft niets ooit iets van 
 | `bestand` | Hoe wordt een TTL-bestand een gevulde `GraafIndex`? (bytes, codering, parse, GC) |
 | `inlezen` | Hoe vul je die objecten uit een gevulde graaf? (hasPart/hasAspect, lezers) |
 | `netwerk` | Welke knoop hangt boven dit object, en loopt de lijn de goede kant op? (vrije functies op `nodes` + `is_a`) |
-| `dataset` | Wat kun je een ingelezen dataset vragen? (`GwswDataset`, `load_dataset`, `lees_ontologie`) |
+| `model` | Wat kun je een ingelezen dataset vragen? (`GwswDataset`, `GwswVersie`) |
+| `laden` | Hoe wordt een TTL-bestand een `GwswDataset`? (`load_dataset`, `lees_ontologie`, `ontologiepaden` en de bundelkeuze) |
+| `vulwaarden` | Hoe lees je een hoogtekenmerk binnen de vulwaardeband als niet geregistreerd? (`markeer_vulwaarden`) |
+| `dataset` | Het gezicht: her-exporteert `model`, `laden` en `vulwaarden` als het bevroren oppervlak dat nlriochecker importeert |
 | `cache` | Hoe sla je die lezing over? (pickle, sleutel op inhoud én broncode) |
 | `schrijven` | Hoe komt een quadstroom er als OroX-Turtle weer uit? |
 | `clip` | Hoe verdeel je die stroom over vlakken, en hoe draai je dat terug? (package) |
@@ -411,13 +431,24 @@ valt pas op als de twee lagen dezelfde bron verschillend lezen, en dan is het te
 
 ## `dataset` is het gezicht, niet de bak
 
-De leeslaag is intern in zes modules verdeeld (`domein`, `bestand`, `inlezen`, `klassen`,
-`codering`, `netwerk`), maar **het oppervlak ligt in `dataset`**: elke naam die nlriochecker uit
+Sinds issue #67 is `dataset` letterlijk een gezicht: `dataset.py` bevat niets dan imports en
+`__all__`. De bak eronder is in drie stukken gesneden -- `model` (het domeinmodel:
+`GwswDataset` en `GwswVersie`), `laden` (de lader: `load_dataset`, `lees_ontologie`,
+`ontologiepaden` en de bundelkeuze) en `vulwaarden` (`markeer_vulwaarden`) -- die op hun
+beurt op de zes interne leeslaagmodules (`domein`, `bestand`, `inlezen`, `klassen`,
+`codering`, `netwerk`) leunen. Elke naam in `dataset.__all__` is het identieke object (`is`)
+als in zijn nieuwe module: `dataset.load_dataset is laden.load_dataset`,
+`dataset.GwswDataset is model.GwswDataset`, `dataset.markeer_vulwaarden is
+vulwaarden.markeer_vulwaarden`, en zo de hele lijst. Waarom die drie apart moesten (de
+importcyclus die anders sluit) staat onder "De lagen" hierboven.
+
+**Het oppervlak blijft in `dataset`**: elke naam die nlriochecker uit
 `gwsw_orox_helpers.dataset` importeert komt daar naar buiten, met dezelfde handtekening
 en hetzelfde gedrag. Dat is een Harde regel uit `CLAUDE.md` en `tests/test_publieke_api.py`
-is de scheidsrechter. De publieke docstrings staan sinds issue #56 in domeintaal; welke
-nlriochecker-checkcode of -module achter elke naam zit, bewaart `docs/afnemers.md` en niet
-`help()`. Praktisch:
+is de scheidsrechter -- die pint langs handtekening, velden, constanten en `__all__` en niet
+langs `__module__`, dus een re-export uit een nieuwe module telt als hetzelfde contract. De
+publieke docstrings staan sinds issue #56 in domeintaal; welke nlriochecker-checkcode of
+-module achter elke naam zit, bewaart `docs/afnemers.md` en niet `help()`. Praktisch:
 
 - de waardeobjecten (`Node`, `Conduit`, `Aspect`, `Inwinning`, `Vulwaarde`,
   `Koppelingsherstel`, `DecodeFallback`) staan in `domein`/`codering` en worden door

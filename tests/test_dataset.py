@@ -13,7 +13,7 @@ import pytest
 from rdflib import RDF, URIRef
 from rdflib.term import Node as RdfNode
 
-from gwsw_orox_helpers import dataset as dataset_module
+from gwsw_orox_helpers import laden as laden_module
 from gwsw_orox_helpers.bronnen import gebundelde_ontologie_voor
 from gwsw_orox_helpers.dataset import (
     GWSW,
@@ -608,7 +608,10 @@ def test_onderdeel_label_leest_het_label_van_een_willekeurig_subject() -> None:
 
 def test_onderdeel_aspecten_geeft_dezelfde_kenmerken_als_de_private_lezing() -> None:
     """De publieke aspectlezing is exact de private `_read_aspects` op de graaf."""
-    from gwsw_orox_helpers.dataset import _read_aspects
+    # `_read_aspects` woont sinds issue #67 niet meer in `dataset` (dat is een re-exportgezicht)
+    # maar in zijn definitiemodule `inlezen`; `GwswDataset.onderdeel_aspecten` (in `model`)
+    # leest hem daar.
+    from gwsw_orox_helpers.inlezen import _read_aspects
 
     dataset = load_dataset(TTL_DIR / "adm007_overstort_met_drempel.ttl", ontology_paths=[])
     drempel = "http://example.org/toets#DrempelO"
@@ -1055,13 +1058,16 @@ def test_cyclische_gc_ligt_ook_stil_tijdens_de_objectopbouw(
     """
     assert gc.isenabled(), "voorwaarde: de testrun begint met een ingeschakelde GC"
     gezien: list[bool] = []
-    echte_read_nodes = dataset_module._read_nodes
+    # `load_dataset` woont sinds issue #67 in `laden` en zoekt `_read_nodes` in de globals
+    # van díé module op; het onderscheppen moet dus op `laden` en niet op het
+    # re-exportgezicht `dataset`.
+    echte_read_nodes = laden_module._read_nodes
 
     def bespied(*args: object, **kwargs: object) -> object:
         gezien.append(gc.isenabled())
         return echte_read_nodes(*args, **kwargs)  # type: ignore[arg-type]
 
-    monkeypatch.setattr(dataset_module, "_read_nodes", bespied)
+    monkeypatch.setattr(laden_module, "_read_nodes", bespied)
 
     dataset = load_dataset(TTL_DIR / "dataset_voorbeeld.ttl", ontology_paths=[])
 
@@ -1176,13 +1182,16 @@ def test_lees_ontologie_levert_de_restrictiebron_van_load_dataset(
     niets opgeeft; het tripelaantal is de ijkwaarde uit issue #19.
     """
     gevangen: list[GraafIndex] = []
-    echte_afsluiting = dataset_module._subclass_closure
+    # `load_dataset` (sinds issue #67 in `laden`) zoekt `_subclass_closure` in de globals van
+    # `laden` op; het onderscheppen moet daar gebeuren en niet op het re-exportgezicht
+    # `dataset`.
+    echte_afsluiting = laden_module._subclass_closure
 
     def bespied(bron: GraafIndex) -> dict[str, frozenset[str]]:
         gevangen.append(bron)
         return echte_afsluiting(bron)
 
-    monkeypatch.setattr(dataset_module, "_subclass_closure", bespied)
+    monkeypatch.setattr(laden_module, "_subclass_closure", bespied)
     load_dataset(TTL_DIR / "dataset_voorbeeld.ttl")
 
     (restrictiebron,) = gevangen

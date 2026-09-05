@@ -1,6 +1,26 @@
 # Changelog
 
 ## [Unreleased]
+- `dataset.py` (~1081 regels) is hersneden in drie modules en werd zelf een re-exportgezicht
+  (issue #67, wijzigingsmoeite; **additief** — geen signatuur, retourvorm of gedrag wijzigt).
+  Het domeinmodel (`GwswDataset`, `GwswVersie`) staat nu in `model`, de lader-orkestratie
+  (`load_dataset`, `lees_ontologie`, `ontologiepaden`, `_gebundelde_paden_voor_basis`,
+  `_stapel_ontologie`) in `laden`, en `markeer_vulwaarden` in `vulwaarden`. `dataset` bevat
+  nog slechts imports + `__all__`: elke naam in `dataset.__all__` is het identieke object
+  (`is`) als in zijn nieuwe module (`dataset.load_dataset is laden.load_dataset`,
+  `dataset.GwswDataset is model.GwswDataset`, enz.), dus het bevroren oppervlak dat
+  nlriochecker importeert verandert niet. Importrichting: `model` weet van de lader niets,
+  `laden` importeert `model`, `vulwaarden` importeert `model`, `dataset` importeert alle
+  drie. **De cachesleutel verandert één keer**: de drie nieuwe modules staan nu in
+  `cache.LADERMODULES`, zodat een wijziging aan het model, de lader of de vulwaarden de
+  cache invalideert; bestaande caches worden daardoor één keer opnieuw opgebouwd (bedoelde
+  mechaniek, geen gedragswijziging). De list-memo-vorm van `gwsw_versie`/`termen` blijft
+  staan (geen `functools.cached_property`): de publieke leesweg is als `property` gepind
+  (`isinstance(..., property)` in `tests/test_publieke_api.py`) en een `cached_property` is
+  geen `property`. Eén nuance: de waarschuwingen van `load_dataset` (terugvalcodering,
+  niet-1.6-versie) loggen nu onder de loggernaam `gwsw_orox_helpers.laden` in plaats van
+  `gwsw_orox_helpers.dataset`, omdat de logger de module volgt; een afnemer die op de
+  package-logger of de root filtert merkt daar niets van.
 - De terugval- en BOM-tak van de schrijfweg streamt in plaats van de hele bron als `str` in
   het geheugen te zetten (issue #66, performance; **additief** — geen signatuur-, retourvorm-
   of gedragswijziging van de publieke `lees_orox`/`schrijf_orox`/`schrijf_orox_quads`/

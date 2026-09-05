@@ -42,10 +42,13 @@ from gwsw_orox_helpers import geometry as geometry_module
 from gwsw_orox_helpers import graaf as graaf_module
 from gwsw_orox_helpers import inlezen as inlezen_module
 from gwsw_orox_helpers import klassen as klassen_module
+from gwsw_orox_helpers import laden as laden_module
+from gwsw_orox_helpers import model as model_module
 from gwsw_orox_helpers import namen as namen_module
 from gwsw_orox_helpers import netwerk as netwerk_module
 from gwsw_orox_helpers import ontologie as ontologie_module
 from gwsw_orox_helpers import rdfmotor as rdfmotor_module
+from gwsw_orox_helpers import vulwaarden as vulwaarden_module
 from gwsw_orox_helpers.bronnen import GEBUNDELDE_VERSIES, gebundelde_ontologie_voor
 from gwsw_orox_helpers.dataset import GwswDataset, load_dataset, ontologiepaden
 from gwsw_orox_helpers.errors import BestandError
@@ -117,6 +120,14 @@ _PICKLE_FOUTEN: type[Exception] = Exception
 # code ín `dataset.py` en telde zij dus al mee. Hem er nu buiten laten zou de garantie
 # stilzwijgend versmallen op het moment dat de code alleen van bestand wisselt. Te vaak
 # herbouwen kost één lezing; te weinig herbouwen geeft stil een verouderd antwoord.
+#
+# `model`, `laden` en `vulwaarden` kwamen er bij issue #67 bij, toen `dataset.py` in het
+# domeinmodel (`model`), de lader-orkestratie (`laden`) en de vulwaarden-transformatie
+# (`vulwaarden`) werd gesneden en `dataset` een re-exportgezicht werd. Dat is verplaatste en
+# niet gewijzigde code, maar de sleutel hasht *bestanden*: de hersnit verandert hem één keer
+# en bestaande caches worden één keer opnieuw opgebouwd -- bedoelde mechaniek. Ze vergeten
+# geeft geen fout maar stille cache-staleness op een wijziging aan het model, de lader of de
+# vulwaarden.
 LADERMODULES = (
     bestand_module,
     codering_module,
@@ -126,10 +137,13 @@ LADERMODULES = (
     graaf_module,
     inlezen_module,
     klassen_module,
+    laden_module,
+    model_module,
     namen_module,
     netwerk_module,
     ontologie_module,
     rdfmotor_module,
+    vulwaarden_module,
 )
 
 

@@ -149,10 +149,13 @@ WORTELRANDEN: dict[str, frozenset[str]] = {
     "bestand": frozenset({"codering", "errors", "graaf", "namen", "rdfmotor"}),
     "inlezen": frozenset({"domein", "geometry", "graaf", "klassen", "namen"}),
     "netwerk": frozenset({"domein"}),
-    "dataset": frozenset(
+    # De hersnit van issue #67: `dataset.py` werd een re-exportgezicht en zijn inhoud
+    # verhuisde naar `model` (het domeinmodel), `laden` (de lader) en `vulwaarden` (de
+    # transformatie). `model` weet van de lader niets; `laden` importeert `model`;
+    # `vulwaarden` importeert `model`; en `dataset` importeert alle drie -- een lijn, geen
+    # cyclus.
+    "model": frozenset(
         {
-            "bestand",
-            "bronnen",
             "codering",
             "domein",
             "errors",
@@ -162,9 +165,23 @@ WORTELRANDEN: dict[str, frozenset[str]] = {
             "klassen",
             "namen",
             "netwerk",
+        }
+    ),
+    "laden": frozenset(
+        {
+            "bestand",
+            "bronnen",
+            "errors",
+            "graaf",
+            "inlezen",
+            "klassen",
+            "model",
+            "namen",
             "voortgang",
         }
     ),
+    "vulwaarden": frozenset({"domein", "model"}),
+    "dataset": frozenset({"laden", "model", "vulwaarden"}),
     "cache": frozenset(
         {
             "bestand",
@@ -177,10 +194,13 @@ WORTELRANDEN: dict[str, frozenset[str]] = {
             "graaf",
             "inlezen",
             "klassen",
+            "laden",
+            "model",
             "namen",
             "netwerk",
             "ontologie",
             "rdfmotor",
+            "vulwaarden",
             "voortgang",
         }
     ),

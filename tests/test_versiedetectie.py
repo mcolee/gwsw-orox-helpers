@@ -246,9 +246,12 @@ def test_onbekende_versie_valt_terug_op_de_16_bundel_met_waarschuwing(
 ) -> None:
     """Een gedetecteerde basis zonder gebundelde ontologie (bv. 1.8) valt terug op 1.6."""
     from gwsw_orox_helpers.bronnen import gebundelde_ontologie
-    from gwsw_orox_helpers.dataset import _gebundelde_paden_voor_basis
 
-    with caplog.at_level(logging.WARNING, logger="gwsw_orox_helpers.dataset"):
+    # `_gebundelde_paden_voor_basis` woont sinds issue #67 in `laden` (de lader), niet meer in
+    # het re-exportgezicht `dataset`; de terugvalwaarschuwing komt dus uit de `laden`-logger.
+    from gwsw_orox_helpers.laden import _gebundelde_paden_voor_basis
+
+    with caplog.at_level(logging.WARNING, logger="gwsw_orox_helpers.laden"):
         paden = _gebundelde_paden_voor_basis("http://data.gwsw.nl/1.8/totaal/")
     assert paden == [gebundelde_ontologie()]
     assert "geen ontologie voor gebundeld" in caplog.text
@@ -451,7 +454,7 @@ def test_load_dataset_waarschuwt_eenmaal_bij_een_niet_16_versie(
     """Een 1.7-dataset logt precies één waarschuwing dat de 1.6-constanten niet gelden."""
     from gwsw_orox_helpers.dataset import load_dataset
 
-    with caplog.at_level(logging.WARNING, logger="gwsw_orox_helpers.dataset"):
+    with caplog.at_level(logging.WARNING, logger="gwsw_orox_helpers.laden"):
         load_dataset(TTL17)
     constanten = [
         record
@@ -466,7 +469,7 @@ def test_load_dataset_zwijgt_op_een_16_dataset(caplog: pytest.LogCaptureFixture)
     """Op de leidende 1.6-versie is er geen versiewaarschuwing (issue #51)."""
     from gwsw_orox_helpers.dataset import load_dataset
 
-    with caplog.at_level(logging.WARNING, logger="gwsw_orox_helpers.dataset"):
+    with caplog.at_level(logging.WARNING, logger="gwsw_orox_helpers.laden"):
         load_dataset(TTL16)
     assert not [r for r in caplog.records if "module-constanten" in r.getMessage()]
 
@@ -478,12 +481,12 @@ def test_cachepad_waarschuwt_niet_opnieuw_op_een_treffer(
     from gwsw_orox_helpers.cache import laad_met_cache
 
     # Eerste run: cache-misser, `load_dataset` draait, precies één waarschuwing.
-    with caplog.at_level(logging.WARNING, logger="gwsw_orox_helpers.dataset"):
+    with caplog.at_level(logging.WARNING, logger="gwsw_orox_helpers.laden"):
         laad_met_cache(TTL17, [], cache_dir=tmp_path)
     assert len([r for r in caplog.records if "module-constanten" in r.getMessage()]) == 1
     caplog.clear()
     # Tweede run: cachetreffer, geen `load_dataset`, dus geen tweede waarschuwing.
-    with caplog.at_level(logging.WARNING, logger="gwsw_orox_helpers.dataset"):
+    with caplog.at_level(logging.WARNING, logger="gwsw_orox_helpers.laden"):
         _, uitslag = laad_met_cache(TTL17, [], cache_dir=tmp_path)
     assert uitslag.bron == "cache"
     assert not [r for r in caplog.records if "module-constanten" in r.getMessage()]

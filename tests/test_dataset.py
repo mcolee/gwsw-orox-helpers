@@ -17,10 +17,15 @@ from gwsw_orox_helpers import laden as laden_module
 from gwsw_orox_helpers.bronnen import gebundelde_ontologie_voor
 from gwsw_orox_helpers.dataset import (
     GWSW,
+    HAS_ASPECT,
+    HAS_PART,
+    KLASSE_PUTDEKSELNIVEAU,
     GwswDataset,
+    aspect_holders_of,
     aspects_of,
     lees_ontologie,
     load_dataset,
+    part_holders_of,
     parts_of,
 )
 from gwsw_orox_helpers.errors import DatasetError
@@ -1571,3 +1576,167 @@ def test_subset_houdt_de_geometriefouten_bij_hun_object(tmp_path: Path) -> None:
     # Een echte deelverzameling houdt alleen de fout van het behouden object.
     alleen_putc = gelezen.subset([f"{TOETS}PutC"])
     assert set(alleen_putc.geometry_errors) == {f"{TOETS}PutC"}
+
+
+# --- De versie-juiste graafvraag-methoden (issue #72) ----------------------------------
+#
+# De acht additieve str-/objectmethoden op `GwswDataset` lezen via de gedetecteerde basis
+# (`self.termen`/de privé-lezers) en niet via de gepinde 1.6-constanten. De acceptatie-eis
+# van het issue: op een 1.7-export lezen ze niet-nul waar het 1.6-constanten-idioom stil nul
+# leest, en op een 1.6-export geven ze hetzelfde antwoord als de bestaande weg
+# (`part_holders_of`, `aspect_holders_of`, `of_class` + filter, `resolve_network_node`,
+# `graph_types_of`). De twee mini-fixtures zijn byte-voor-byte gelijk op de `gwsw:`-basis na.
+
+MINI = "http://sparql.gwsw.nl/repositories/Mini#"
+TTL17_DIR = Path(__file__).parent / "fixtures" / "ttl17"
+
+
+def test_de_graafvragen_lezen_versie_juist_op_17_waar_de_16_constanten_nul_lezen() -> None:
+    """Op een 1.7-export leest de str-laag niet-nul; het 1.6-constanten-idioom leest stil nul.
+
+    De acceptatie-eis van issue #72: `houders`/`dragers`, `kenmerkinstanties` en
+    `knopen_van`/`strengen_van` leiden hun predicaten en klasse-IRI's uit de gedetecteerde
+    basis af, dus ze treffen de 1.7-graaf. Dezelfde bevraging met de gepinde 1.6-`HAS_*`/
+    `KLASSE_*`-constanten -- die spellen 1.6 -- vindt nul.
+    """
+    mini17 = load_dataset(TTL17_DIR / "mini_orox.ttl")
+    assert mini17.gwsw_versie.versie == "1.7"
+
+    ontluchter = f"{MINI}Ontluchter_1"
+    put1_ori = f"{MINI}Put_1_ori"
+
+    # houders (hasPart) en dragers (hasAspect): versie-juist niet-nul.
+    assert mini17.houders(ontluchter) == [f"{MINI}Leiding_1"]
+    assert mini17.dragers(put1_ori) == [f"{MINI}Put_1"]
+    # Het 1.6-constanten-idioom leest hier stil nul.
+    assert list(mini17.graph.subjects(HAS_PART, URIRef(ontluchter))) == []
+    assert list(mini17.graph.subjects(HAS_ASPECT, URIRef(put1_ori))) == []
+
+    # kenmerkinstanties: één Putdekselniveau met een waarde; de hasValue-tak.
+    instanties = list(mini17.kenmerkinstanties("Putdekselniveau"))
+    assert len(instanties) == 1
+    _, waarde, referentie = instanties[0]
+    assert waarde == "10.12" and referentie is None
+    # De hasReference-tak: WijzeVanInwinning verwijst naar een GWSW-begrip, zonder waarde.
+    wijzen = list(mini17.kenmerkinstanties("WijzeVanInwinning"))
+    assert len(wijzen) == 1
+    assert wijzen[0][1] is None
+    assert wijzen[0][2] == "http://data.gwsw.nl/1.7/totaal/Ingemeten"
+    # Het 1.6-klasse-constante-idioom vindt geen enkele kenmerkinstantie op 1.7.
+    assert list(mini17.graph.subjects(RDF.type, KLASSE_PUTDEKSELNIVEAU)) == []
+
+    # knopen_van / strengen_van: niet-nul, en gelijk aan het of_class + filter-idioom.
+    verwachte_knopen = [
+        mini17.nodes[u] for u in mini17.of_class("Inspectieput") if u in mini17.nodes
+    ]
+    assert verwachte_knopen, "voorwaarde: er zijn Inspectieput-knopen op 1.7"
+    assert mini17.knopen_van("Inspectieput") == verwachte_knopen
+    verwachte_strengen = [
+        mini17.conduits[u] for u in mini17.of_class("Gemengdriool") if u in mini17.conduits
+    ]
+    assert verwachte_strengen, "voorwaarde: er is een Gemengdriool-streng op 1.7"
+    assert mini17.strengen_van("Gemengdriool") == verwachte_strengen
+
+    # typen_kort: de korte namen van graph_types_of, versie-juist.
+    assert mini17.typen_kort(f"{MINI}Put_1") == {"Inspectieput", "Putorientatie"}
+
+
+def test_de_graafvragen_op_16_geven_hetzelfde_als_de_bestaande_weg() -> None:
+    """Op de 1.6-tegenhanger geven de nieuwe methoden exact het antwoord van de oude weg.
+
+    De keerzijde van de acceptatie-eis: `houders`==`part_holders_of`, `dragers`==
+    `aspect_holders_of`, `knopen_van`/`strengen_van`==`of_class` + filter,
+    `knopen_van_streng`==`resolve_network_node` op begin en eind, `typen_kort`==de korte
+    `graph_types_of`. Alle als tekst/objecten, zodat een afnemer op 1.6 niets merkt van de
+    overgang.
+    """
+    mini16 = load_dataset(TTL_DIR / "mini_orox.ttl")
+    assert mini16.gwsw_versie.versie == "1.6"
+
+    ontluchter = f"{MINI}Ontluchter_1"
+    put1_ori = f"{MINI}Put_1_ori"
+    leiding = mini16.conduits[f"{MINI}Leiding_1"]
+    wortels = ["Put"]
+
+    assert mini16.houders(ontluchter) == [
+        str(houder) for houder in part_holders_of(mini16.graph, URIRef(ontluchter))
+    ]
+    assert mini16.houders(ontluchter) == [f"{MINI}Leiding_1"]
+    assert mini16.dragers(put1_ori) == [
+        str(drager) for drager in aspect_holders_of(mini16.graph, URIRef(put1_ori))
+    ]
+    assert mini16.dragers(put1_ori) == [f"{MINI}Put_1"]
+
+    assert mini16.knopen_van("Inspectieput") == [
+        mini16.nodes[u] for u in mini16.of_class("Inspectieput") if u in mini16.nodes
+    ]
+    assert mini16.strengen_van("Gemengdriool") == [
+        mini16.conduits[u] for u in mini16.of_class("Gemengdriool") if u in mini16.conduits
+    ]
+
+    assert mini16.knopen_van_streng(leiding, wortels) == (
+        mini16.resolve_network_node(leiding.start_node, wortels),
+        mini16.resolve_network_node(leiding.end_node, wortels),
+    )
+
+    put1 = f"{MINI}Put_1"
+    assert mini16.typen_kort(put1) == {
+        soort.rsplit("/", 1)[-1] for soort in mini16.graph_types_of(put1)
+    }
+    assert mini16.typen_kort(put1) == {"Inspectieput", "Putorientatie"}
+
+
+def test_knopen_van_streng_herleidt_begin_en_eind_via_resolve_network_node(
+    voorbeeld: GwswDataset,
+) -> None:
+    """De begin- en eindput van een streng, elk gelijk aan het losse `resolve_network_node`.
+
+    Op de referentiedataset resolven de koppelingen wél tot een put (streng "2" hangt aan een
+    compartiment, dat via hasPart onder een put valt). `knopen_van_streng` levert precies het
+    paar dat een afnemer nu met twee losse `resolve_network_node`-aanroepen bouwt.
+    """
+    streng = voorbeeld.conduits[f"{TOETS}L2"]
+
+    begin, eind = voorbeeld.knopen_van_streng(streng, NETWERKWORTELS)
+    assert (begin, eind) == (
+        voorbeeld.resolve_network_node(streng.start_node, NETWERKWORTELS),
+        voorbeeld.resolve_network_node(streng.end_node, NETWERKWORTELS),
+    )
+    assert begin == f"{TOETS}PutB"
+
+
+def test_kenmerkinstanties_ontdubbelt_niet_maar_dedupliceert_via_de_graaf(
+    voorbeeld: GwswDataset,
+) -> None:
+    """`kenmerkinstanties` is een generator; hij levert elke kenmerkknoop van de klasse.
+
+    De vergelijking met het idioom dat hij vervangt: dezelfde subjects als
+    `subjects_of_class` over exact die klasse, met de waarde en de verwijzing erbij.
+    """
+    instanties = list(voorbeeld.kenmerkinstanties("Putdekselniveau"))
+    verwacht = {
+        str(subject)
+        for subject in voorbeeld.graph.subjects(RDF.type, URIRef(f"{GWSW}Putdekselniveau"))
+    }
+    assert {uri for uri, _, _ in instanties} == verwacht
+
+
+def test_valt_onder_kiest_de_specifiekste_niet_de_alfabetische() -> None:
+    """`valt_onder` volgt de meest-specifiek-rangorde van `beheerobjecttype`, niet het alfabet.
+
+    Het gedragsverschil met de bij de afnemer gekopieerde `_soortnaam` (die alfabetisch de
+    eerste korte naam neemt): `Uitlaatconstructie` is een subklasse van `Bouwwerk`, dus de
+    specifiekste wint en niet het alfabetisch eerdere `Bouwwerk`.
+    """
+    dataset = load_dataset(TTL_DIR / "dataset_meervoudig_objecttype.ttl", ontology_paths=[])
+    uri = next(uri for uri, node in dataset.nodes.items() if node.label == "U")
+    node = dataset.nodes[uri]
+
+    assert {t.rsplit("/", 1)[-1] for t in node.types} == {"Bouwwerk", "Uitlaatconstructie"}
+    # De gekopieerde `_soortnaam` zou hier alfabetisch "Bouwwerk" gekozen hebben.
+    assert sorted(t.rsplit("/", 1)[-1] for t in node.types)[0] == "Bouwwerk"
+    # `valt_onder` kiest de specifiekste, gelijk aan `beheerobjecttype`.
+    assert dataset.valt_onder(node.types, ["Bouwwerk"]) == "Uitlaatconstructie"
+    assert dataset.valt_onder(node.types, ["Bouwwerk"]) == dataset.beheerobjecttype(uri)
+    # None als geen enkel type onder de opgegeven wortels valt.
+    assert dataset.valt_onder(node.types, ["Leiding"]) is None

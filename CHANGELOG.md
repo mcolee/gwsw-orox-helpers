@@ -1,6 +1,20 @@
 # Changelog
 
 ## [Unreleased]
+- Acht versie-juiste graafvraag-methoden op `GwswDataset` naast de #51-str-laag, plus
+  `namen.korte_naam` (issue #72; **additief** — nieuwe methoden en een nieuwe publieke functie,
+  geen bestaande signatuur, retourvorm of gedrag wijzigt). `houders`/`dragers` (hasPart- resp.
+  hasAspect-houders als `list[str]`), `kenmerkinstanties(kenmerk) -> Iterator[(uri, hasValue,
+  hasReference)]`, `knopen_van(*wortels) -> list[Node]` / `strengen_van(*wortels) -> list[Conduit]`
+  (ontdubbeld, in de `of_class`-volgorde), `knopen_van_streng(conduit, roots)` (het begin/eind-paar
+  via `resolve_network_node`), `valt_onder(types, wortels)` (de korte naam van het meest-specifieke
+  type — dezelfde rangorde als `beheerobjecttype`, **niet** het alfabet van de gekopieerde
+  `_soortnaam`) en `typen_kort(uri)` (de korte namen van `graph_types_of`). Alle lezen via de
+  gedetecteerde basis (`self.termen`/de privé-lezers), dus op een 1.7-export niet-nul waar het
+  1.6-constanten-idioom stil nul leest. `namen.korte_naam` is de publieke, versie-onafhankelijke
+  terugweg naast `klasse_iri`; `namen._short` blijft als privé-alias hetzelfde object. De
+  rdflib-typed namen en de 1.6-constanten blijven byte-voor-byte staan; `docs/afnemers.md` draagt
+  nu een aanbevolen kern met die namen als "te vermijden — gebruik de versie-juiste str-laag".
 - `CacheUitslag` krijgt het additieve veld `graaf_seconden: float | None = None` (issue #71;
   **additief** — nieuw veld met default, ná de bestaande vier, dus elke bestaande constructie en
   positionele lezing blijft werken; precedent `bereikcontrole`, #28). Het draagt op een cachetreffer

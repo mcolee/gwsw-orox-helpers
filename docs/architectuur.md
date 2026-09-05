@@ -127,6 +127,19 @@ nul. `load_dataset` waarschuwt daarom één keer (en niet nog eens op het cachep
 `load_dataset` loopt) wanneer `gwsw_versie.versie` niet 1.6 is. Dit is *additief*: de constanten,
 signaturen en retourvormen die nlriochecker importeert blijven byte-voor-byte gelijk.
 
+**Sinds issue #72 dekt die str-laag de graafvragen die een check-schrijver stelt.** Naast de drie
+#51-methoden staan er nu acht: `houders`/`dragers` (hasPart- resp. hasAspect-houders als tekst),
+`kenmerkinstanties` (per kenmerkknoop de waarde en de verwijzing), `knopen_van`/`strengen_van`
+(de `Node`/`Conduit`-objecten van een wortelklasse, ontdubbeld), `knopen_van_streng` (het begin/eind-
+paar via `resolve_network_node`), `valt_onder` (de korte naam van het meest-specifieke type — de
+`beheerobjecttype`-rangorde) en `typen_kort` (de korte namen van `graph_types_of`). Alle leunen op de
+bestaande privé-lezers en `self.termen` — geen tweede exemplaar van een IRI of een wandeling — en
+`namen.korte_naam` is de publieke tegenhanger van `_short` (naast `klasse_iri` voor `_uri`). Zo hoeft
+een afnemer die op 1.7 leest de gepinde 1.6-`HAS_*`/`KLASSE_*`-constanten en rdflib niet meer aan te
+raken; welke namen een check-schrijver hoort te leren staat als "aanbevolen kern" in
+`docs/afnemers.md`. Nog steeds additief: de constanten en de rdflib-typed namen blijven byte-voor-byte
+staan.
+
 `rdfmotor` ligt naast `codering`: allebei bladeren op `errors` na, en allebei door de
 leesweg én de schrijfweg gebruikt. De cliplaag komt er niet langs -- die parseert en
 serialiseert niet zelf maar leent `lees_orox` / `schrijf_orox_quads` van `schrijven` --

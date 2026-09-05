@@ -76,9 +76,22 @@ def klasse_iri(naam: str, basis: str) -> str:
     return _uri(naam, basis)
 
 
-def _short(uri: str) -> str:
-    """De korte klassenaam achter de laatste scheidingstekens van een URI."""
+def korte_naam(uri: str) -> str:
+    """De korte klassenaam achter de laatste scheidingstekens van een URI (issue #72).
+
+    De publieke, versie-onafhankelijke tegenhanger van het privé `_short`: waar `klasse_iri`
+    (#51) de heenweg is (korte naam -> volledige IRI in een basis), is dit de terugweg -- een
+    volledige GWSW-IRI weer tot zijn korte klassenaam. Twee `rsplit`-en, geen graaf en geen
+    versie: de korte naam hangt niet van de basis af.
+    """
     return uri.rsplit("/", 1)[-1].rsplit("#", 1)[-1]
+
+
+# De privé naam van vóór issue #72 blijft als alias werken: de interne aanroepen (`inlezen`,
+# `klassen`, `model`) én een afnemer die hem ooit privé importeerde, breken zo niet. Het is
+# hetzelfde object -- `test_de_namensnit_ligt_vast` toetst dat met `is`, net als
+# `_Leestermen`/`Leestermen` bij #51.
+_short = korte_naam
 
 
 # --------------------------------------------------------------------------------------

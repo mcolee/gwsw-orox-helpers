@@ -9,8 +9,8 @@ Regisseur: Fable 5.1 (hoofdsessie, `claude -p`). Implementers en reviewers: Opus
 |---|---|---|
 | #69 | Klein onderhoud cache.py: herstelpad leest alleen de graaf, één herstelpad in `_geladen`, één basisdetectie (conservatieve route) | ✅ 971efc4; review GOEDGEKEURD (3 minors); poort 746 passed, dekking 98,95 %; CI-run 33980434158 groen; gesloten |
 | #70 | Restposten koud laadpad: `_structural_diff`-houders hergebruiken (a), gebundelde ontologie als GraafIndex-pickle (b) | ❌ open gelaten: gebouwd, poort groen, review GOEDGEKEURD, maar end-to-end in twee onafhankelijke reeksen niet eenduidig (~0,1–0,2 s per deelstap op ~18 s, ruis 0,5–0,9 s); subfase wél eenduidig (≈ −0,39 s); auteursbeslissing; patch bewaard |
-| #71 | Beloften bijstellen, gesloten routes vastleggen, fasetabel in benchmark.py, `CacheUitslag.graaf_seconden` (additief) | ✅ gecommit; review GOEDGEKEURD (1 minor); poort 749 passed, dekking 98,95 %; CI en close volgen direct na de push |
-| #72 | Versie-juiste str-laag verbreden tot de zes graafvragen van de afnemer, plus aanbevolen kern in `docs/afnemers.md` | ⏳ wacht |
+| #71 | Beloften bijstellen, gesloten routes vastleggen, fasetabel in benchmark.py, `CacheUitslag.graaf_seconden` (additief) | ✅ 4667f91; review GOEDGEKEURD (1 minor); poort 749 passed, dekking 98,95 %; CI-run 33985540612 groen; gesloten |
+| #72 | Versie-juiste str-laag verbreden tot de zes graafvragen van de afnemer, plus aanbevolen kern in `docs/afnemers.md` | ✅ gecommit; review GOEDGEKEURD MET MINORS (2 docs-minors, door de regie gefixt); poort 763 passed, dekking 98,91 %; CI en close volgen direct na de push |
 | Release 0.2.3 | GitHub-Release, geen PyPI | ⏳ wacht op deel 1 |
 
 ## Per issue
@@ -87,6 +87,32 @@ Regisseur: Fable 5.1 (hoofdsessie, `claude -p`). Implementers en reviewers: Opus
   7,8 s voor dezelfde grootheid (de body zegt 7,7).
 - **Open aanname:** de veldnaam `graaf_seconden` is het voorstel uit de body; de auteur
   bevestigt hem achteraf (§6).
+
+### #72 — versie-juiste str-laag verbreed tot de zes graafvragen (Substantieel; Opus 4.8 + Opus 4.8)
+
+- **Landde:** acht additieve methoden op `GwswDataset` in `model.py` (`houders`, `dragers`,
+  `kenmerkinstanties`, `knopen_van`, `strengen_van`, `knopen_van_streng`, `valt_onder`,
+  `typen_kort`), alle versie-juist via `self.termen`; `namen.korte_naam` publiek met `_short`
+  als privé-alias (hetzelfde object). Geen wijziging aan `netwerk`/`inlezen`/`domein`/
+  `dataset`; importrichting intact. `HANDTEKENINGEN` in `tests/test_publieke_api.py` alleen
+  uitgebreid; fixture-acceptatie op `tests/fixtures/ttl17/mini_orox.ttl` (niet-nul waar het
+  1.6-constanten-idioom nul leest) en de 1.6-controle (gelijk aan de oude weg).
+  `docs/afnemers.md`: aanbevolen kern van 33 namen plus de "te vermijden"-lijst zonder
+  verwijdering of release te beloven; `docs/architectuur.md`-alinea; CHANGELOG-regel.
+- **nlriochecker-controle (§6, alleen gelezen):** de vereniging `houders ∪ dragers` is op één
+  plek nodig (`nulbevinding.py`, `_insluitend`); conform regiebeslissing géén derde methode,
+  de afnemer verenigt twee lijsten. `valt_onder` wijkt bewust af van de alfabetische
+  `_soortnaam` bij de afnemer (`attributen.py`, `randvoorzieningen.py`): meest-specifiek,
+  gelijk aan `beheerobjecttype`. Dat is een gedragsverschil voor de afnemer bij een
+  toekomstige omzetting.
+- **Meting:** geen perf-issue; geen meting.
+- **Review:** GOEDGEKEURD MET MINORS. Beide minors waren docs-only in `docs/afnemers.md` en
+  zijn door de regie vóór de commit gefixt: (1) de tekst claimde dat de rdflib-typed
+  *methoden* op 1.7 stil nul lezen; dat doen alleen de geëxporteerde 1.6-constanten (de
+  methoden leiden hun IRI's uit de gedetecteerde basis af, bewezen op de 1.7-fixture), dus de
+  reden voor de str-laag is daar ergonomie, niet correctheid; (2) `graph_is_a` is een
+  lidmaatschapstest en stond op `valt_onder` gekoppeld; nu een eigen rij.
+- **Open aanname:** de precieze kernlijst (33 namen) is een documentatiekeuze voor de auteur.
 
 ## Release 0.2.3
 

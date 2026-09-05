@@ -428,6 +428,25 @@ HANDTEKENINGEN: dict[str, str] = {
     "dataset.GwswDataset.buren": "(self, uri: 'str') -> 'list[str]'",
     "dataset.GwswDataset.kenmerken_met_waarde": "(self, kenmerk: 'str') -> 'list[str]'",
     "dataset.GwswDataset.uris_of_class": "(self, root: 'str') -> 'list[str]'",
+    # Additief sinds issue #72: de acht versie-juiste graafvraag-methoden ernaast. Alle lezen
+    # via `self.termen`/de bestaande privé-lezers (de gedetecteerde basis) en niet via de gepinde
+    # 1.6-constanten, zodat een 1.7-dataset niet stil nul treft. `namen.korte_naam` (de publieke
+    # tegenhanger van `_short`) staat in `test_de_versie_juiste_termen_en_str_methoden_zijn_publiek`
+    # hieronder, om dezelfde reden als `namen.klasse_iri`: `namen` staat niet in `MODULES`.
+    "dataset.GwswDataset.houders": "(self, uri: 'str') -> 'list[str]'",
+    "dataset.GwswDataset.dragers": "(self, uri: 'str') -> 'list[str]'",
+    "dataset.GwswDataset.kenmerkinstanties": (
+        "(self, kenmerk: 'str') -> 'Iterator[tuple[str, str | None, str | None]]'"
+    ),
+    "dataset.GwswDataset.knopen_van": "(self, *wortels: 'str') -> 'list[Node]'",
+    "dataset.GwswDataset.strengen_van": "(self, *wortels: 'str') -> 'list[Conduit]'",
+    "dataset.GwswDataset.knopen_van_streng": (
+        "(self, conduit: 'Conduit', roots: 'list[str]') -> 'tuple[str | None, str | None]'"
+    ),
+    "dataset.GwswDataset.valt_onder": (
+        "(self, types: 'frozenset[str]', wortels: 'list[str]') -> 'str | None'"
+    ),
+    "dataset.GwswDataset.typen_kort": "(self, uri: 'str') -> 'frozenset[str]'",
     # De grafindex.
     "graaf.GraafIndex": "() -> 'None'",
     "graaf.GraafIndex.heeft_subject": "(self, term: 'RdfNode') -> 'bool'",
@@ -623,6 +642,24 @@ def test_de_versie_juiste_termen_en_str_methoden_zijn_publiek() -> None:
         namen.klasse_iri("Punt", "http://data.gwsw.nl/1.7/totaal/")
         == "http://data.gwsw.nl/1.7/totaal/Punt"
     )
+
+
+def test_korte_naam_is_de_publieke_terugweg_van_short() -> None:
+    """`namen.korte_naam` is publiek; `_short` blijft als privé-alias hetzelfde object (issue #72).
+
+    De versie-onafhankelijke terugweg naast `klasse_iri` (de heenweg): een volledige GWSW-IRI
+    weer tot zijn korte klassenaam. Net als `klasse_iri` staat hij hier en niet in
+    `HANDTEKENINGEN`, want `namen` zit niet in `MODULES`; zijn parameters worden zonder quotes
+    gerepr'd omdat `namen` geen `from __future__ import annotations` draagt. `_short` blijft
+    werken zodat de interne aanroepen (`inlezen`, `klassen`, `model`) niet breken -- het is
+    hetzelfde object, zoals `_Leestermen`/`Leestermen` bij #51.
+    """
+    from gwsw_orox_helpers import namen
+
+    assert _handtekening(namen.korte_naam) == "(uri: str) -> str"
+    assert namen.korte_naam("http://data.gwsw.nl/1.7/totaal/Punt") == "Punt"
+    assert namen.korte_naam("http://sparql.gwsw.nl/repositories/Mini#Put_1") == "Put_1"
+    assert namen._short is namen.korte_naam
 
 
 def test_uitzonderingen_houden_hun_plaats_in_de_hierarchie() -> None:

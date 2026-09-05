@@ -27,7 +27,7 @@ scheidsrechter). `dataset` her-exporteert `__all__` van deze module ongewijzigd.
 
 from __future__ import annotations
 
-from collections.abc import Iterable
+from collections.abc import Iterable, Iterator
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 
@@ -108,6 +108,7 @@ from gwsw_orox_helpers.namen import (
     _short,
     _uri,
     basis_uit_iris,
+    korte_naam,
     versie_uit_basis,
 )
 
@@ -666,6 +667,137 @@ class GwswDataset:
             if waarde is not None:
                 waarden.append(str(waarde))
         return waarden
+
+    def houders(self, uri: str) -> list[str]:
+        """De objecten die `uri` via hasPart dragen, als tekst (issue #72).
+
+        De str-, versie-juiste tegenhanger van `part_holders_of`: dezelfde lezing in beide
+        schrijfrichtingen van hasPart (`hasPart` en de inverse `isPartOf`), maar via de
+        gedetecteerde basis -- `part_holders_of` leidt zijn predicaten uit `self.graph.gwsw_basis`
+        af -- en als `list[str]`, zodat een afnemer de graaf, `URIRef` of de 1.6-`HAS_PART`-
+        constante niet hoeft aan te raken. Die constante spelt 1.6 en treft op een 1.7-graaf
+        stil nul.
+        """
+        return [str(houder) for houder in part_holders_of(self.graph, self._subject_term(uri))]
+
+    def dragers(self, uri: str) -> list[str]:
+        """De objecten die `uri` via hasAspect dragen, als tekst (issue #72).
+
+        De str-, versie-juiste tegenhanger van `aspect_holders_of`, met dezelfde
+        beide-richtingen-lezing (`hasAspect` en de inverse `isAspectOf`) als `houders` dat voor
+        hasPart doet. `houders` en `dragers` zijn bewust twee methoden, elk voor een van de twee
+        relaties; een afnemer die de vereniging nodig heeft, verenigt de twee lijsten zelf.
+        """
+        return [str(drager) for drager in aspect_holders_of(self.graph, self._subject_term(uri))]
+
+    def kenmerkinstanties(self, kenmerk: str) -> Iterator[tuple[str, str | None, str | None]]:
+        """Per kenmerkknoop van deze klassenaam de uri, de hasValue en de hasReference (issue #72).
+
+        Versie-juist: de klasse-IRI en de `hasValue`/`hasReference`-predicaten komen uit de
+        gedetecteerde basis (`self.termen` en `self._basis`), niet uit de gepinde
+        1.6-`KLASSE_*`/`HAS_*`-constanten, die op een 1.7-graaf stil nul treffen. Vervangt het
+        `subjects(RDF.type, URIRef(GWSW + kenmerk))`-idioom van een afnemer, dat de waarde en de
+        verwijzing daarna nog per instantie zelf moet oplezen. `kenmerk` is een korte klassenaam
+        (`"Putdekselniveau"`, `"MateriaalLeiding"`); `hasValue`/`hasReference` zijn `None` waar de
+        instantie ze niet draagt. Een generator, zodat een afnemer niet de hele lijst hoeft te
+        materialiseren.
+        """
+        klasse = _uriref_snel(_uri(kenmerk, self._basis))
+        has_value = self.termen.has_value
+        has_reference = self.termen.has_reference
+        for instantie in self.graph.subjects(_RDF_TYPE, klasse):
+            waarde = self.graph.value(instantie, has_value)
+            referentie = self.graph.value(instantie, has_reference)
+            yield (
+                str(instantie),
+                str(waarde) if waarde is not None else None,
+                str(referentie) if referentie is not None else None,
+            )
+
+    def knopen_van(self, *wortels: str) -> list[Node]:
+        """De `Node`-objecten van deze wortelklassen, ontdubbeld en op volgorde (issue #72).
+
+        Vervangt het `of_class()` + `in dataset.nodes`-idioom: `of_class` levert de URI's van
+        knopen én strengen van een type, waarna een afnemer ze op `dataset.nodes` filtert en tot
+        `Node` herleidt. Hier gebeurt dat in één stap. De volgorde is die van `of_class` (de
+        invoegvolgorde van `nodes`), en over meerdere wortels heen komt elke knoop hoogstens een
+        keer terug -- de eerste wortel die hem noemt bepaalt zijn plaats. De verbindingsklasse-
+        weigering van `of_class` (zie `is_connection_class`) geldt hier net zo.
+        """
+        gezien: set[str] = set()
+        gevonden: list[Node] = []
+        for wortel in wortels:
+            for uri in self.of_class(wortel):
+                node = self.nodes.get(uri)
+                if node is not None and uri not in gezien:
+                    gezien.add(uri)
+                    gevonden.append(node)
+        return gevonden
+
+    def strengen_van(self, *wortels: str) -> list[Conduit]:
+        """De `Conduit`-objecten van deze wortelklassen, ontdubbeld en op volgorde (issue #72).
+
+        De strengtegenhanger van `knopen_van`: hetzelfde `of_class()` + `in dataset.conduits`-
+        idioom in één stap, met dezelfde ontdubbeling en dezelfde vaste volgorde.
+        """
+        gezien: set[str] = set()
+        gevonden: list[Conduit] = []
+        for wortel in wortels:
+            for uri in self.of_class(wortel):
+                conduit = self.conduits.get(uri)
+                if conduit is not None and uri not in gezien:
+                    gezien.add(uri)
+                    gevonden.append(conduit)
+        return gevonden
+
+    def knopen_van_streng(
+        self, conduit: Conduit, roots: list[str]
+    ) -> tuple[str | None, str | None]:
+        """De begin- en eindput van een streng, elk herleid via `resolve_network_node` (issue #72).
+
+        Vervangt het letterlijke `(resolve_network_node(conduit.start_node, roots),
+        resolve_network_node(conduit.end_node, roots))`-paar bij een afnemer: een streng koppelt
+        in de GWSW-praktijk aan een compartiment of een hulpstuk, en de netwerkknoop eromheen
+        volgt uit de wandeling langs hasPart omhoog. `None` waar er geen knoop boven de koppeling
+        hangt, net als `resolve_network_node`; de memo van deze dataset gaat mee.
+        """
+        return (
+            self.resolve_network_node(conduit.start_node, roots),
+            self.resolve_network_node(conduit.end_node, roots),
+        )
+
+    def valt_onder(self, types: frozenset[str], wortels: list[str]) -> str | None:
+        """De korte naam van het meest-specifieke type uit `types` binnen `wortels` (issue #72).
+
+        De versie-juiste, consistente tegenhanger van de bij een afnemer gekopieerde `_soortnaam`
+        (die alfabetisch de eerste korte naam van *alle* typen neemt). `types` zijn volledige
+        type-IRI's (zoals `Node.types`), `wortels` korte wortelklassenamen; een type valt onder
+        een wortel als het in diens `closure` zit -- die de klasse-IRI's versie-juist uit de
+        gedetecteerde basis opbouwt.
+
+        **Gedragsverschil met `_soortnaam`, met opzet.** Waar `_soortnaam` de alfabetisch eerste
+        korte naam kiest, kiest deze methode het *meest specifieke* type -- dezelfde rangorde als
+        `beheerobjecttype`: een type waarvan een ander type uit `types` een subklasse is, is de
+        algemenere en valt af; blijven er onvergelijkbare over, dan wint alfabetisch de eerste.
+        Zo krijgt een afnemer in elke uitvoervorm dezelfde, betekenisvolle soortnaam
+        (`Uitlaatconstructie`, niet het alfabetisch eerdere `Bouwwerk`). `None` als geen enkel
+        type onder een wortel valt.
+        """
+        binnen = frozenset(
+            soort for soort in types if any(soort in self.closure(wortel) for wortel in wortels)
+        )
+        namen = sorted(korte_naam(soort) for soort in self._meest_specifiek(binnen))
+        return namen[0] if namen else None
+
+    def typen_kort(self, uri: str) -> frozenset[str]:
+        """De korte namen van de typen van een willekeurige URI (issue #72).
+
+        De str-, versie-juiste tegenhanger van `graph_types_of`: dezelfde typen (uit de graaf
+        plus het domeinmodel, ook voor een onderdeel dat geen knoop of streng is), maar als korte
+        namen in plaats van volledige IRI's, zodat een afnemer niet zelf hoeft te spellen of te
+        vergelijken met een 1.6-`KLASSE_*`-constante.
+        """
+        return frozenset(korte_naam(soort) for soort in self.graph_types_of(uri))
 
     def onderdelen(self, uri: str, wortel: str | None = None) -> list[str]:
         """De directe onderdelen van een object, optioneel beperkt tot een klasse.

@@ -20,9 +20,8 @@ onbewaakte runs is aangescherpt; de punten hieronder komen uit die metingen.
   implementer plus de groene CI na de push, niet een derde run (zie de lus).
 - **Werk op `dev`.** Deze repo kent (nog) geen release-splitsing: er is geen merge naar `main`
   en geen `scripts/uitgave.py`. Uitbrengen is handwerk van de auteur. Commit na elke groene stap.
-- Lees vooraf één keer: `CLAUDE.md` en het issue zelf. Er is (nog) geen `docs/architectuur.md`
-  in deze repo; de architectuur staat in de docstrings van `src/gwsw_orox_helpers/*.py` — lees
-  het module-hoofd van de module die je raakt, één keer volledig.
+- Lees vooraf één keer: `CLAUDE.md`, `docs/architectuur.md` (de lagen, de twee paden door
+  pyoxigraph, de beloften) en het issue zelf; daarna elke module die je raakt één keer volledig.
 - **Auto-mode blokkeert een paar schrijfacties.** In een unattended run weigert de
   auto-mode-classifier soms `gh issue create` en `gh repo create` ("Blocked by classifier"), en
   soms de eerste agent-dispatch (die lukt bij herhaling). Probeer na een classifier-blokkade

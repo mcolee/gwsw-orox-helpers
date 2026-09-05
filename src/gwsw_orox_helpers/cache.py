@@ -239,29 +239,31 @@ class LuieGraaf:
         """
         if self._graaf is None:
             begin = time.perf_counter()
-            onvertrouwd = _cachepad_vertrouwd(self._pad)
-            if onvertrouwd is not None:
-                logger.warning(
-                    "De graafcache in %s is onbruikbaar (%s); graaf opnieuw "
-                    "ingelezen uit de brondata.",
-                    self._pad,
-                    onvertrouwd,
-                )
-                self._graaf = self._herstel()
-                self._schrijf_indien_vertrouwd()
-            else:
+            # Eén herstelpad, twee ingangen naar dezelfde `reden`: de rechtencheck vóór het
+            # depicklen (issue #45) geeft de reden meteen en slaat de `pickle.load` over; een
+            # vertrouwd pad probeert te laden en zet de reden alsnog als het depicklen faalt
+            # (het brede foutbeleid van issue #48). Is er een reden -- hoe dan ook -- dan is de
+            # graafcache onbruikbaar: één warning, één herstel uit de brondata, één
+            # terugschrijven naar een vertrouwde map.
+            reden = _cachepad_vertrouwd(self._pad)
+            if reden is None:
                 try:
                     with self._pad.open("rb") as bestand, bestand_module._gc_uit():
                         self._graaf = pickle.load(bestand)
                 except _PICKLE_FOUTEN as fout:
-                    logger.warning(
-                        "De graafcache in %s is onbruikbaar (%s); graaf opnieuw "
-                        "ingelezen uit de brondata.",
-                        self._pad,
-                        fout,
-                    )
-                    self._graaf = self._herstel()
-                    self._schrijf_indien_vertrouwd()
+                    reden = str(fout)
+            if reden is not None:
+                logger.warning(
+                    "De graafcache in %s is onbruikbaar (%s); graaf opnieuw "
+                    "ingelezen uit de brondata.",
+                    self._pad,
+                    reden,
+                )
+                self._graaf = self._herstel()
+                self._schrijf_indien_vertrouwd()
+            # Beide takken hebben `self._graaf` gezet (de load, of het herstel); dit maakt dat
+            # expliciet voor mypy op het samenkomstpunt.
+            assert self._graaf is not None
             logger.info(
                 "Graaf van schijf gelezen in %.1f s (%d triples).",
                 time.perf_counter() - begin,
@@ -352,7 +354,9 @@ def cachesleutel(
     1.8-bundel een 1.6-cache niet meer. Levert de prefix-scan geen gebundelde versie op (geen
     `gwsw:`-prefix, of een niet-gebundelde versie), dan valt de sleutel terug op álle bundels
     -- de veilige kant: te vaak herbouwen kost één lezing, te weinig herbouwen geeft stil een
-    verouderd antwoord.
+    verouderd antwoord. Herdeclareert een bron `gwsw:` in het venster, dan neemt de scan de
+    láátste declaratie (issue #69), net als de lader (`bestand._parse` via `parser.prefixes`),
+    zodat sleutel en lezing dezelfde basis kiezen.
 
     De terugvalcodering telt mee: ze bepaalt hoe niet-UTF-8-bytes gelezen worden
     (zie `codering.py`), en een dataset die met een andere codering ingelezen is,
@@ -396,16 +400,24 @@ def _dataset_basis_uit_kop(dataset_path: Path) -> str | None:
     zonder herkenbare `gwsw:`-prefix geeft None, en dan valt `cachesleutel` terug op alle
     gebundelde bundels. Een leesfout hier is geen fout maar dezelfde terugval -- de eigenlijke
     `BestandError` volgt straks uit `_bestandshash` op hetzelfde ontbrekende bestand.
+
+    **De láátste `gwsw:`-declaratie in het venster wint** (issue #69), net als bij de lader:
+    `bestand._parse` leidt de basis af uit `parser.prefixes`, en die houdt per prefixnaam de
+    laatst gelezen waarde. Herdeclareert een bron `gwsw:` (eerst 1.6, dan 1.7), dan koos een
+    scan op de éérste treffer 1.6 terwijl de lader 1.7 leest -- en dan hashte de sleutel de
+    verkeerde bundel. Door hier óók de laatste treffer te nemen, kiezen sleutel en lader
+    dezelfde basis. (Een tweede declaratie voorbij het venster valt buiten de scan; dat is
+    dan de veilige kant -- te vaak herbouwen kost één lezing.)
     """
     try:
         with Path(dataset_path).open("rb") as bestand:
             kop = bestand.read(_KOP_BYTES)
     except OSError:
         return None
-    match = _GWSW_PREFIX_PATROON.search(kop)
-    if match is None:
+    treffers = _GWSW_PREFIX_PATROON.findall(kop)
+    if not treffers:
         return None
-    return namen_module.basis_uit_prefixen({"gwsw": match.group(1).decode("ascii", "replace")})
+    return namen_module.basis_uit_prefixen({"gwsw": treffers[-1].decode("ascii", "replace")})
 
 
 def _te_hashen_ontologiepaden(ontology_paths: list[Path] | None, dataset_path: Path) -> list[Path]:
@@ -414,9 +426,11 @@ def _te_hashen_ontologiepaden(ontology_paths: list[Path] | None, dataset_path: P
     Bij een opgegeven lijst: precies die (via `ontologiepaden`). Bij `None`: de gebundelde
     ontologie op de versie die een goedkope prefix-scan van de dataset detecteert -- dezelfde
     bundel die `load_dataset._gebundelde_paden_voor_basis` dan kiest (issue #52), zodat een
-    toekomstige 1.8-bundel een 1.6-cache niet meer invalideert. Levert de prefix-scan geen
-    gebundelde versie op (geen `gwsw:`-prefix, of een niet-gebundelde versie), dan valt de
-    sleutel terug op álle gebundelde bundels -- de veilige kant.
+    toekomstige 1.8-bundel een 1.6-cache niet meer invalideert. De scan neemt de láátste
+    `gwsw:`-declaratie in het venster (issue #69), net als de lader, zodat beide op een
+    herdeclarerende bron dezelfde basis kiezen. Levert de prefix-scan geen gebundelde versie op
+    (geen `gwsw:`-prefix, of een niet-gebundelde versie), dan valt de sleutel terug op álle
+    gebundelde bundels -- de veilige kant.
     """
     if ontology_paths is not None:
         return ontologiepaden(ontology_paths)
@@ -513,11 +527,12 @@ def laad_met_cache(
     Sinds issue #32 wordt het hier **niet** meer vooraf naar de gebundelde 1.6-ontologie
     ingevuld: bij `None` moet `load_dataset` de gebundelde ontologie op de gedetecteerde
     dataset-versie kunnen kiezen, en dat kan alleen als het `None` ook echt ziet. `None`
-    reist daarom ongewijzigd door naar de lezing (`load_dataset`) en het herstel
-    (`_herlees_graaf`) -- die twee zien zo dezelfde bestanden. De `cachesleutel` vult `None`
-    zelf in tot de gebundelde 1.6-bundel voor de hash: de sleutel is per dataset uniek langs
-    de bytes van het dataset-bestand (die per versie verschillen), dus dat de hash de
-    1.6-bundel noemt waar de lezing de 1.7-bundel kiest, maakt hem niet dubbelzinnig.
+    reist daarom ongewijzigd door naar de lezing (`load_dataset`). Het graafherstel
+    (`_herlees_graaf`) leest sinds issue #69 alleen de datasetgraaf en heeft de ontologie niet
+    meer nodig, dus het krijgt `ontology_paths` niet mee. De `cachesleutel` hasht bij `None`
+    de gebundelde bundel van de gedetecteerde dataset-versie (issue #52; de láátste
+    `gwsw:`-declaratie, net als de lader, issue #69), niet meer stil de 1.6-bundel: zo kiezen
+    sleutel en lezing dezelfde bundel en invalideert een toekomstige 1.8-bundel geen 1.6-cache.
 
     Bij een cachetreffer wordt er niets geparseerd en start er dus geen laadfase:
     een balk die in nul seconden vol schiet zou suggereren dat het inlezen snel was
@@ -587,7 +602,7 @@ def laad_met_cache(
                 # gelezen (dat kost tot een minuut) maar pas als een check hem
                 # aanraakt. Is die dan beschadigd, dan herstelt LuieGraaf zichzelf
                 # via deze functie in plaats van de hele run te laten crashen.
-                herstel = partial(_herlees_graaf, dataset_path, ontology_paths, fallback_encoding)
+                herstel = partial(_herlees_graaf, dataset_path, fallback_encoding)
                 # `LuieGraaf` is geen GraafIndex-subklasse maar een plaatsvervanger die
                 # alles doorgeeft; het veld verwacht een GraafIndex en krijgt hier zijn gedrag.
                 # Sinds issue #34 draagt hij het leescontract expliciet en vervult hij
@@ -626,15 +641,24 @@ def laad_met_cache(
     return dataset, CacheUitslag("bestand", sleutel, time.perf_counter() - begin, melding)
 
 
-def _herlees_graaf(
-    dataset_path: Path, ontology_paths: list[Path] | None, fallback_encoding: str | None
-) -> GraafIndex:
-    """Leest de graafindex opnieuw uit de brondata; herstelweg voor `LuieGraaf`.
+def _herlees_graaf(dataset_path: Path, fallback_encoding: str | None) -> GraafIndex:
+    """Leest alleen de datasetgraaf opnieuw uit de brondata; herstelweg voor `LuieGraaf`.
 
-    Alleen `cache.py` kent paden en `load_dataset`; `LuieGraaf` krijgt enkel deze
-    kant-en-klare functie mee en hoeft van beide dus niets te weten.
+    `LuieGraaf` vervangt enkel `GwswDataset.graph`, en die graaf is object-identiek aan wat
+    `bestand._parse` oplevert: `load_dataset` zet hem ongemuteerd in het `graph`-veld, de
+    ontologie raakt alleen de `restrictiebron` en de lezers (`_read_nodes`/`_read_conduits`)
+    bevragen de graaf zonder hem te muteren (issue #69). Daarom hoeft het herstel niet de hele
+    `load_dataset` te draaien -- de ontologieparse, de klassenafleiding, de knoop- en
+    strengopbouw en de structurendiff, samen het leeuwendeel van de leestijd -- maar alleen de
+    parse. Op dit zeldzame pad (een beschadigde graafpickle bij een geldige structurencache)
+    was de rest dood werk; `ontology_paths` is daarom ook niet meer nodig.
+
+    De cyclische GC ligt stil rond de parse, net als op de gewone leesweg (`bestand._gc_uit`):
+    de heropgebouwde termen en containers wijzen alleen naar beneden. Alleen `cache.py` kent
+    paden; `LuieGraaf` krijgt enkel deze kant-en-klare functie mee.
     """
-    return load_dataset(dataset_path, ontology_paths, fallback_encoding).graph
+    with bestand_module._gc_uit():
+        return bestand_module._parse(Path(dataset_path), fallback_encoding)[0]
 
 
 def _schrijf(map_: Path, dataset: GwswDataset) -> None:

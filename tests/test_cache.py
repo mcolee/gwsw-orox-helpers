@@ -20,6 +20,7 @@ from types import ModuleType
 import pytest
 from rdflib import XSD, BNode, Literal, URIRef
 
+from gwsw_orox_helpers import bestand as bestand_module
 from gwsw_orox_helpers import cache as cache_module
 from gwsw_orox_helpers.bronnen import gebundelde_ontologie
 from gwsw_orox_helpers.cache import (
@@ -393,6 +394,35 @@ def test_de_sleutel_bij_none_hasht_de_gedetecteerde_bundel(
     voor = cachesleutel(zonder_prefix)
     kopie17.write_text("C", encoding="utf-8")
     assert cachesleutel(zonder_prefix) != voor
+
+
+def test_de_sleutelkant_en_de_laderkant_kiezen_dezelfde_basis_bij_een_herdeclaratie(
+    tmp_path: Path,
+) -> None:
+    """Twee `gwsw:`-prefixdeclaraties in de kop (eerst 1.6, dan 1.7): sleutel en lader
+    kiezen dezelfde basis (#69, conservatieve route).
+
+    De lader (`bestand._parse`) neemt de láátste declaratie -- `parser.prefixes` houdt de
+    laatste waarde per prefixnaam. De sleutelkant (`_dataset_basis_uit_kop`) neemt sinds
+    #69 óók de laatste treffer in het 8 KB-venster, in plaats van de eerste. Zo detecteren
+    beide dezelfde versie op een herdeclarerende bron en loopt de gerichte-bundel-hash (#52)
+    niet meer uiteen van de lezing -- vóór #69 hashte de sleutel de 1.6-bundel terwijl de
+    lader 1.7 las.
+    """
+    herdeclaratie = tmp_path / "herdeclaratie.ttl"
+    herdeclaratie.write_text(
+        "@prefix gwsw: <http://data.gwsw.nl/1.6/totaal/> .\n"
+        "@prefix gwsw: <http://data.gwsw.nl/1.7/totaal/> .\n"
+        "@prefix rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .\n"
+        "gwsw:PutA rdf:type gwsw:Inspectieput .\n",
+        encoding="utf-8",
+    )
+
+    sleutelkant = cache_module._dataset_basis_uit_kop(herdeclaratie)
+    laderkant = bestand_module._parse(herdeclaratie, None)[0].gwsw_basis
+
+    assert sleutelkant == "http://data.gwsw.nl/1.7/totaal/"
+    assert sleutelkant == laderkant, "sleutelkant en laderkant horen dezelfde basis te kiezen"
 
 
 # --- De cache als vertrouwensgrens (issue #45) --------------------------------

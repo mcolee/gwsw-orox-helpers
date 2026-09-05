@@ -1,6 +1,20 @@
 # Changelog
 
 ## [Unreleased]
+- Opruiming in de cache- en bestandslaag (issue #69; **additief** — alle namen privé, geen
+  signatuur, retourvorm of gedrag op de cachetreffer/-misser wijzigt). (a) `cache._herlees_graaf`
+  (de herstelweg van een beschadigde luie graafpickle) leest alleen nog de datasetgraaf via
+  `bestand._parse` binnen `_gc_uit` in plaats van de hele `load_dataset` te draaien: de graaf is
+  object-identiek aan `bestand._parse(...)[0]` (de ontologie raakt alleen de restrictiebron, de
+  lezers muteren de graaf niet), dus de ontologieparse, klassenafleiding, objectopbouw en
+  structurendiff waren op dit zeldzame pad dood werk; `ontology_paths` verviel uit de handtekening.
+  (b) `LuieGraaf._geladen` heeft nog één herstelpad (één `reden`, één warning, één herstel +
+  terugschrijven) in plaats van twee identieke blokken voor de rechtencheck en de laadfout.
+  (c) De sleutelkant (`cache._dataset_basis_uit_kop`) neemt nu de **láátste** `gwsw:`-declaratie
+  in het 8 KB-venster, net als de lader (`bestand._parse` via `parser.prefixes`); een bron die
+  `gwsw:` herdeclareert (eerst 1.6, dan 1.7) kreeg zo sleutel en lezing op dezelfde basis, waar de
+  sleutel eerder de 1.6-bundel hashte terwijl de lader 1.7 las. De gerichte-bundel-hash van #52
+  blijft staan.
 - **Harde regel: geen PyPI-interactie.** Publiceren gebeurt uitsluitend als GitHub-Release met
   de wheel en de sdist als assets. `.github/workflows/release.yml` verloor daarom zijn
   TestPyPI- en PyPI-jobs (trusted publishing, `id-token: write`, de environments); de keten is

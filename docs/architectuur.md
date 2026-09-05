@@ -541,7 +541,11 @@ Dat is de garantie dat een cache nooit achterloopt op een wijziging in de lezing
 Zonder opgegeven ontologie hasht de sleutel sinds issue #52 alleen de gebundelde bundel van
 de versie die een goedkope prefix-scan van de datasetkop detecteert -- dezelfde die de lader
 dan kiest -- in plaats van álle bundels, met terugval op alle bundels als die scan geen
-`gwsw:`-prefix vindt.
+`gwsw:`-prefix vindt. Beide detecties nemen dezelfde declaratie: de lader (`bestand._parse`)
+leidt de basis af uit `parser.prefixes`, die per prefixnaam de laatst gelezen waarde houdt,
+en de sleutelscan (`cache._dataset_basis_uit_kop`) neemt sinds issue #69 óók de láátste
+`gwsw:`-declaratie in het venster. Herdeclareert een bron `gwsw:` (eerst 1.6, dan 1.7), dan
+kiezen sleutel en lezing zo dezelfde basis in plaats van uiteen te lopen.
 `rdfmotor` staat erbij ook al deelt de schrijfweg hem: `bestand._parse` haalt zijn quads
 daarlangs, dus een andere aanroep van de motor is een andere lezing. Wie de leeslaag
 opnieuw indeelt, moet de nieuwe modules aan die lijst toevoegen: een vergeten module

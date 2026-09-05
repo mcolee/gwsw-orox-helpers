@@ -10,8 +10,8 @@ Regisseur: Fable 5.1 (hoofdsessie, `claude -p`). Implementers en reviewers: Opus
 | #69 | Klein onderhoud cache.py: herstelpad leest alleen de graaf, één herstelpad in `_geladen`, één basisdetectie (conservatieve route) | ✅ 971efc4; review GOEDGEKEURD (3 minors); poort 746 passed, dekking 98,95 %; CI-run 33980434158 groen; gesloten |
 | #70 | Restposten koud laadpad: `_structural_diff`-houders hergebruiken (a), gebundelde ontologie als GraafIndex-pickle (b) | ❌ open gelaten: gebouwd, poort groen, review GOEDGEKEURD, maar end-to-end in twee onafhankelijke reeksen niet eenduidig (~0,1–0,2 s per deelstap op ~18 s, ruis 0,5–0,9 s); subfase wél eenduidig (≈ −0,39 s); auteursbeslissing; patch bewaard |
 | #71 | Beloften bijstellen, gesloten routes vastleggen, fasetabel in benchmark.py, `CacheUitslag.graaf_seconden` (additief) | ✅ 4667f91; review GOEDGEKEURD (1 minor); poort 749 passed, dekking 98,95 %; CI-run 33985540612 groen; gesloten |
-| #72 | Versie-juiste str-laag verbreden tot de zes graafvragen van de afnemer, plus aanbevolen kern in `docs/afnemers.md` | ✅ gecommit; review GOEDGEKEURD MET MINORS (2 docs-minors, door de regie gefixt); poort 763 passed, dekking 98,91 %; CI en close volgen direct na de push |
-| Release 0.2.3 | GitHub-Release, geen PyPI | ⏳ wacht op deel 1 |
+| #72 | Versie-juiste str-laag verbreden tot de zes graafvragen van de afnemer, plus aanbevolen kern in `docs/afnemers.md` | ✅ 931b176; review GOEDGEKEURD MET MINORS (2 docs-minors, door de regie gefixt); poort 763 passed, dekking 98,91 %; CI-run 33986984317 groen; gesloten |
+| Release 0.2.3 | GitHub-Release, geen PyPI | 🔄 gestart na deel 1 (#70 open per meetprotocol; de regie leest "deel 1 volledig groen" als: werkboom, poort en CI groen en elk issue volgens protocol afgehandeld) |
 
 ## Per issue
 

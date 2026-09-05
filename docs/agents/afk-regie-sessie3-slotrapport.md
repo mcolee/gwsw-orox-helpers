@@ -11,7 +11,7 @@ Regisseur: Fable 5.1 (hoofdsessie, `claude -p`). Implementers en reviewers: Opus
 | #70 | Restposten koud laadpad: `_structural_diff`-houders hergebruiken (a), gebundelde ontologie als GraafIndex-pickle (b) | ❌ open gelaten: gebouwd, poort groen, review GOEDGEKEURD, maar end-to-end in twee onafhankelijke reeksen niet eenduidig (~0,1–0,2 s per deelstap op ~18 s, ruis 0,5–0,9 s); subfase wél eenduidig (≈ −0,39 s); auteursbeslissing; patch bewaard |
 | #71 | Beloften bijstellen, gesloten routes vastleggen, fasetabel in benchmark.py, `CacheUitslag.graaf_seconden` (additief) | ✅ 4667f91; review GOEDGEKEURD (1 minor); poort 749 passed, dekking 98,95 %; CI-run 33985540612 groen; gesloten |
 | #72 | Versie-juiste str-laag verbreden tot de zes graafvragen van de afnemer, plus aanbevolen kern in `docs/afnemers.md` | ✅ 931b176; review GOEDGEKEURD MET MINORS (2 docs-minors, door de regie gefixt); poort 763 passed, dekking 98,91 %; CI-run 33986984317 groen; gesloten |
-| Release 0.2.3 | GitHub-Release, geen PyPI | 🔄 gestart na deel 1 (#70 open per meetprotocol; de regie leest "deel 1 volledig groen" als: werkboom, poort en CI groen en elk issue volgens protocol afgehandeld) |
+| Release 0.2.3 | GitHub-Release, geen PyPI | ❌ gestopt bij de laatste schakel: versiecommit 9917590, tag `v0.2.3` gepusht, PR #76 open met de drie poort-checks groen, **niet gemergd**; release-run 33987225498 rood op de job `github-release` (`gh release create` zonder checkout: "not a git repository"); fix in `release.yml` op `dev` (bc74401); géén PyPI-interactie |
 
 ## Per issue
 
@@ -114,10 +114,88 @@ Regisseur: Fable 5.1 (hoofdsessie, `claude -p`). Implementers en reviewers: Opus
   lidmaatschapstest en stond op `valt_onder` gekoppeld; nu een eigen rij.
 - **Open aanname:** de precieze kernlijst (33 namen) is een documentatiekeuze voor de auteur.
 
-## Release 0.2.3
+## Release 0.2.3 — stap voor stap
 
-Nog niet gestart.
+Voorwaarde "deel 1 volledig groen": de regie las dat als *werkboom, poort en CI groen en elk
+issue volgens zijn eigen protocol afgehandeld*; #70 bleef open op de meetregel die het issue
+zelf stelt, wat de release niet blokkeert (restposten, ~2 %, geen contract). Wie dat anders
+leest, kan PR #76 laten staan.
+
+1. **Slotrapport-commit** b864404 (docs) vóór de bump, zodat de release hem draagt.
+2. **Bump:** `uv version --bump patch` → 0.2.3 (`pyproject.toml`, `uv.lock`); `CHANGELOG.md`:
+   `## [Unreleased]` → `## [0.2.3] - 2026-09-05` met een verse lege `## [Unreleased]` erboven.
+3. **Poort op de bumpstand, alle zes stappen groen:** ruff check "All checks passed", ruff
+   format "75 files already formatted", mypy "no issues found in 37 source files", pytest
+   763 passed, dekking 98,91 % (≥ 95), `uv build` + `twine check` PASSED + `check-wheel-contents`
+   OK (0.2.3-wheel en -sdist).
+4. **Versiecommit** `Versie 0.2.3` = **9917590** (alleen `pyproject.toml`, `uv.lock`,
+   `CHANGELOG.md`).
+5. **Tag** `v0.2.3` (annotated, zoals `v0.2.2`; een eerste lichte tag werd door
+   `--follow-tags` niet meegestuurd en is vóór de push vervangen door de annotated tag op
+   dezelfde commit — er is dus maar één tag geweest op de remote) → `git push --follow-tags`:
+   `465bca01…` → `refs/tags/v0.2.3`, op 9917590.
+6. **PR #76** `dev` → `main` ("Versie 0.2.3"): de drie verplichte checks `poort (3.12)`,
+   `poort (3.13)`, `poort (3.14)` groen; `mergeable: MERGEABLE`, `mergeStateStatus: UNSTABLE`
+   omdat de niet-verplichte check `github-release` rood is. **Niet gemergd**: de opdracht zegt
+   bij een rode release-run "niet forceren, vastleggen, stop daar".
+7. **Release-run 33987225498** (`release.yml` op de tag): `poort` 3.12/3.13/3.14 groen,
+   `controle` groen (tag = projectversie, build, twine, check-wheel-contents, rooktest van de
+   wheel in een verse venv), **`github-release` rood**. Oorzaak uit de joblog: de job doet bewust
+   geen checkout en `gh release create … --verify-tag` probeert de repo uit `.git` af te leiden:
+   `failed to run git: fatal: not a git repository`. Er staat dus **geen** GitHub-Release
+   `v0.2.3` (`gh release view v0.2.3` → "release not found") en geen assets.
+8. **Fix, niet geverifieerd in CI:** commit **bc74401** op `dev` geeft `-R "$GITHUB_REPOSITORY"`
+   mee aan `gh release create`, zodat `gh` alles via de API doet. Een workflow draait uit de
+   getagde commit, dus deze fix helpt pas bij een nieuwe tagpush; een tweede tag was verboden.
+9. **Bevestiging: er is géén PyPI- of TestPyPI-interactie geweest** — geen `twine upload`,
+   geen `gh release create` met de hand, geen handmatig geüploade artefacten; `release.yml`
+   bevat geen publish-job. De lokaal gebouwde `dist/` is direct na de controle verwijderd.
+
+**Wat de auteur nog moet beslissen (in deze volgorde):**
+- PR #76 mergen als merge-commit (`gh pr merge 76 --merge`), daarna `dev` gelijk aan `main`.
+  De PR bevat nu ook bc74401 (de `release.yml`-fix).
+- De tag `v0.2.3` staat op 9917590, vóór de fix. Om de release alsnog te laten lopen: de
+  remote tag verwijderen en opnieuw zetten op de merge-commit (of op bc74401) en pushen — de
+  workflow leest dan de gefixte `release.yml` — óf bumpen naar 0.2.4. Beide zijn een
+  auteursbeslissing; de sessie heeft geen tweede tag gezet.
 
 ## Eindstand
 
-Nog niet bereikt.
+- **`dev`** = bc74401 (`release.yml`-fix) ← 9917590 (`Versie 0.2.3`, tag `v0.2.3`) ← b864404
+  (slotrapport) ← 931b176 (#72) ← 4667f91 (#71) ← 971efc4 (#69) ← 3977cb7 (start). Werkboom
+  schoon. Laatste groene toets-CI op een issue-commit: 33986984317 (931b176); de dev-pushes
+  9917590 en bc74401 draaien dezelfde poort (zie de checks op PR #76).
+- **`main`** = d3ac97a (0.2.2), ongewijzigd; PR #76 open.
+- **Poort op de eindstand** (gedraaid op 9917590; bc74401 raakt alleen `release.yml`): 763
+  passed, dekking 98,91 %, packaging groen.
+- **Uitgestelde minors (ledger):** #69: `None`-pickle raakt nu een `assert`; herdeclaratie
+  vóórbij 8 KB blijft uiteenlopen (docstring "veilige kant" te optimistisch); `_parse` gooit op
+  het herstelpad geen `InhoudError`. #70 (bewaarde code): pickle-inhoudstest alleen `len` +
+  basis; `_graafindex_hash` bindt `_SnellePickler` niet. #71: 7,7 vs 7,8 s in twee docstrings
+  van `cache.py`. #72: geen (beide docs-minors gefixt).
+- **Open aannames voor de auteur:** naam `CacheUitslag.graaf_seconden` (#71 §6); de kernlijst
+  van 33 namen in `docs/afnemers.md` (#72 §6); #70: subfase-acceptatie of sluiten; de
+  release-afronding hierboven.
+- **Blokkades van de auto-mode-classifier:** één keer, bij het pushen van een zijtak met de
+  #70-code; niet herhaald, de patch staat lokaal in
+  `~/gwsw-orox-helpers-onderzoek/2026-09-05-sessie3/`.
+
+## Stavaza reeks #59–#72
+
+| Issue | Onderwerp | Status |
+|---|---|---|
+| #59 | Cyclische GC stil om beide `pickle.load` in de cache: graaflading 7,7 → 2,75 s | ✅ sessie 1 |
+| #60 | Invoerbuffers loslaten in `bestand._parse`, streamende weg bij zuivere UTF-8: piek load −17 % | ✅ sessie 1 |
+| #61 | `clip_orox` laat de basisdetectie-stroom los vóór het plan: N+2 → N+1, piek −215 MiB | ✅ sessie 1 |
+| #62 | Hybride binnencontainers in `GraafIndex`: piek load 1202 → 842 MiB | ✅ sessie 1 |
+| #63 | Snelpad-pickler voor de graafcache via `dispatch_table`: 13–20 % van de graaflading weg | ✅ sessie 1 |
+| #64 | Naad plan→stroom als positietabel | ✅ sessie 2 |
+| #65 | `merge_orox`: positietabel uit de scanronde | ✅ sessie 2 |
+| #66 | Hercodeerstroom bij terugvalcodering: 347 → 31 MiB per passage | ✅ sessie 2 |
+| #67 | `dataset.py` hersneden in `model`, `laden`, `vulwaarden` | ✅ sessie 2 |
+| #68 | `ontologie` leest zijn properties via `namen.termen_voor` | ✅ sessie 2 |
+| #69 | Cache-opruiming: herstelpad, één herstelpad in `_geladen`, laatste `gwsw:`-declaratie | ✅ 971efc4 |
+| #70 | Restposten koud laadpad (a)+(b) | ❌ open: end-to-end niet eenduidig in 2 reeksen; subfase −0,39 s; patch bewaard; auteursbeslissing |
+| #71 | Beloften bijgesteld, gesloten routes, fasetabel, `CacheUitslag.graaf_seconden` | ✅ 4667f91 |
+| #72 | Versie-juiste str-laag: acht graafvragen, `korte_naam`, aanbevolen kern (33) | ✅ 931b176 |
+| Release 0.2.3 | tag + PR #76 + GitHub-Release | ❌ tag en PR staan; release-job rood (fix bc74401 op `dev`); geen PyPI |

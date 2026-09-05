@@ -21,7 +21,6 @@ from gwsw_orox_helpers.clip.termen import _KNIPSTAART, KNIP, _Kniptermen
 from gwsw_orox_helpers.errors import KnipError
 from gwsw_orox_helpers.geometry import is_multipart_literal
 from gwsw_orox_helpers.namen import GML_LITERAL
-from gwsw_orox_helpers.schrijven import lees_orox
 
 # De predicaten die een houder aan een onderdeel binden staan sinds issue #32 niet meer als
 # vaste 1.6-constanten hier maar in `_Kniptermen`, dat `clip_orox` uit de bron afleidt: op
@@ -116,9 +115,19 @@ def _genummerd(
 
 
 def _maak_plan(
-    bron: Path, vlakken: tuple[_Vlak, ...], fallback_encoding: str | None, termen: _Kniptermen
+    bron: Path,
+    quads: Iterable[pyoxigraph.Quad],
+    vlakken: tuple[_Vlak, ...],
+    termen: _Kniptermen,
 ) -> _Plan:
-    """Leest de bron een keer en bepaalt per blok naar welke vlakken het gaat."""
+    """Loopt de al geopende bronstroom één keer af en bepaalt per blok naar welke vlakken het gaat.
+
+    `quads` is de stroom die `clip_orox` al opende voor de basisdetectie, met de daar
+    verbruikte kop ervoor geketend (issue #61): `_maak_plan` opent de bron niet zelf, zodat
+    de basisdetectie en het plan samen één opening delen. `bron` is er nog alleen voor de
+    foutmeldingen. Wie hem los aanroept, geeft dus `lees_orox(bron, ...).quads` mee (met de
+    kop ervoor als de basisdetectie al liep).
+    """
     plan = _Plan(namen=tuple(vlak.naam for vlak in vlakken))
     ouder_van: dict[str, str] = {}
     randen: list[tuple[str, str]] = []
@@ -128,7 +137,7 @@ def _maak_plan(
     houder_naar_onderdeel = termen.houder_naar_onderdeel
     onderdeel_naar_houder = termen.onderdeel_naar_houder
 
-    for quad, onderwerp, voorwerp in _genummerd(lees_orox(bron, fallback_encoding).quads):
+    for quad, onderwerp, voorwerp in _genummerd(quads):
         subjecten.add(onderwerp)
         if voorwerp is not None and voorwerp.startswith("_:"):
             ouder_van.setdefault(voorwerp, onderwerp)

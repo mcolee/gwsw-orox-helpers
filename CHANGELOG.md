@@ -1,6 +1,22 @@
 # Changelog
 
 ## [Unreleased]
+- `clip_orox` opent de bron nog N+1 keer in plaats van N+2 (issue #61, performance;
+  **additief** — geen signatuur-, retourvorm- of gedragswijziging van de publieke
+  `clip_orox`/`merge_orox`; dezelfde delen, byte voor byte). De basisdetectie en de
+  analyseronde deelden sinds issue #32 elk hun eigen opening van de bron, en tussendoor bleef
+  de eerste, half-verbruikte stroom onnodig aan `orkest` gebonden — met een terugvalcodering
+  draagt die stroom de hele gedecodeerde bron. Nu detecteert `clip.termen._bronbasis_en_rest`
+  de GWSW-basis én geeft de daarbij verbruikte kop-quads terug, zet `orkest` die kop met
+  `itertools.chain` voor de rest van diezelfde opening, en accepteert `clip.plan._maak_plan`
+  die al geopende stroom in plaats van de bron zelf een tweede keer te openen; de naam naar de
+  eerste opening overleeft de deellus niet meer. `_bronbasis`, `_bronbasis_en_rest` en
+  `_maak_plan` zijn privé; `merge_orox` blijft ongemoeid. Gemeten op de cp850-export van De
+  Wolden en Hoogeveen (112 MB, gepaard n=3, referentie = HEAD-code, vers proces per run): piek
+  `clip_orox` 959 → 744 MiB (−22%, eenduidig — hoogste experiment 744 MiB onder laagste
+  referentie 955 MiB), tijd niet meetbaar omhoog (`scripts/benchmark.py`: mediaan ref 38,9 s,
+  exp 38,1 s; bereiken overlappen — ref 38,3–39,1 s, exp 38,1–39,0 s). De twee geschreven
+  delen zijn per stuk byte-gelijk aan HEAD (sha256).
 - De leesweg draagt op de piek minder buffers (issue #60, performance; **additief** — geen
   signatuur-, retourvorm- of gedragswijziging; dezelfde graaf, hetzelfde `decode_fallback`).
   `bestand._parse` liet tijdens `GraafIndex.vul_uit` drie kopieën van de bron naast elkaar

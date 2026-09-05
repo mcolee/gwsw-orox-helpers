@@ -16,7 +16,13 @@ from gwsw_orox_helpers.clip.grenzen import _bestandsnaam, _lees_grenzen
 from gwsw_orox_helpers.clip.merge import _samengevoegd, _scan_delen
 from gwsw_orox_helpers.clip.plan import _maak_plan
 from gwsw_orox_helpers.clip.stroom import _deelstroom
-from gwsw_orox_helpers.clip.termen import KNIP, KNIP_PREFIX, _bronbasis, _kniptermen
+from gwsw_orox_helpers.clip.termen import (
+    KNIP,
+    KNIP_PREFIX,
+    _bronbasis,
+    _bronbasis_en_rest,
+    _kniptermen,
+)
 from gwsw_orox_helpers.errors import KnipError
 from gwsw_orox_helpers.schrijven import lees_orox, schrijf_orox_quads
 
@@ -71,13 +77,20 @@ def clip_orox(
     """
     bron = Path(bron)
     vlakken = _lees_grenzen(grenzen, sleutel)
-    # De basis van de bron één keer detecteren en als termenset doorgeven, zodat de
-    # analyseronde en de schrijfronde tegen dezelfde (versie-juiste) predicaten vergelijken.
+    # De basis van de bron één keer detecteren en die éne opening met het plan delen: de
+    # basisdetectie verbruikt alleen de kop tot het eerste GWSW-predicaat, en de kop plus de
+    # rest gaan via `itertools.chain` als één stroom naar `_maak_plan` (issue #61). Zo wordt
+    # de bron voor plan én basis samen één keer geopend in plaats van twee keer. De naam
+    # `geopend` mag de deellus hieronder niet overleven -- met een terugvalcodering draagt die
+    # half-verbruikte stroom de hele gedecodeerde bron, en die hoort losgelaten te worden
+    # zodra het plan hem gelezen heeft, niet pas bij de eerste herbinding in de lus.
     geopend = lees_orox(bron, fallback_encoding)
-    termen = _kniptermen(_bronbasis(geopend.quads, bron))
+    basis, verbruikt = _bronbasis_en_rest(geopend.quads, bron)
+    termen = _kniptermen(basis)
     if bereikcontrole:
         _meld_bereikverschil(bron, grenzen, vlakken, fallback_encoding, termen.has_value)
-    plan = _maak_plan(bron, vlakken, fallback_encoding, termen)
+    plan = _maak_plan(bron, itertools.chain(verbruikt, geopend.quads), vlakken, termen)
+    del geopend, verbruikt
 
     uitmap = Path(uitmap)
     paden: list[Path] = []

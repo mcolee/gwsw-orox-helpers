@@ -1842,3 +1842,100 @@ def test_bronbasis_leest_de_versie_uit_de_predicaat_iris(
         basis = _bronbasis(iter([_quad("http://x/p")]), "bron")
     assert basis == GWSW
     assert "geen herkenbare GWSW-versie" in caplog.text
+
+
+# --------------------------------------------------------------------------------------
+# Eén opening voor basisdetectie én plan (issue #61)
+# --------------------------------------------------------------------------------------
+
+
+def test_bronbasis_en_rest_geeft_de_verbruikte_kop_terug() -> None:
+    """`_bronbasis_en_rest` levert naast de basis de kop-quads die het verbruikte.
+
+    De aanroeper zet de stroom voort met `itertools.chain(verbruikt, rest)`, en daarvoor
+    moet elke quad tot en met het eerste GWSW-predicaat terugkomen, in volgorde. Wat er na
+    die treffer nog in de oorspronkelijke iterator zit, blijft daar ongelezen: dat is de
+    `rest` die de aanroeper aan `verbruikt` ketent.
+    """
+    from gwsw_orox_helpers.clip.termen import _bronbasis_en_rest
+
+    named = pyoxigraph.NamedNode
+
+    def _quad(predicaat: str) -> pyoxigraph.Quad:
+        return pyoxigraph.Quad(named("http://s"), named(predicaat), named("http://o"))
+
+    kop = "http://www.w3.org/1999/02/22-rdf-syntax-ns#type"
+    stroom = iter([_quad(kop), _quad(f"{GWSW17}hasAspect"), _quad(f"{GWSW17}hasValue")])
+
+    basis, verbruikt = _bronbasis_en_rest(stroom, "bron")
+
+    assert basis == GWSW17
+    # De kop tot en met de eerste GWSW-treffer is verbruikt en teruggegeven ...
+    assert [quad.predicate.value for quad in verbruikt] == [kop, f"{GWSW17}hasAspect"]
+    # ... en de niet-verbruikte staart zit nog ongelezen in de oorspronkelijke iterator.
+    assert [quad.predicate.value for quad in stroom] == [f"{GWSW17}hasValue"]
+
+
+def test_maak_plan_zet_een_al_geopende_stroom_voort(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`_maak_plan` leest de meegegeven stroom en opent de bron niet zelf opnieuw.
+
+    Vroeger opende `_maak_plan` de bron een tweede keer; sinds issue #61 krijgt hij de
+    stroom die de basisdetectie al opende, met de verbruikte kop ervoor geketend. Wie hier
+    alsnog `lees_orox` aanroept, valt op de gesaboteerde versie stuk. Dat de verdeling
+    dezelfde blijft, blijkt uit de maskers: Put_1 hoort in West, Put_2 in Oost.
+    """
+    import itertools
+
+    import gwsw_orox_helpers.clip.plan as plan_mod
+    from gwsw_orox_helpers.clip.grenzen import _lees_grenzen
+    from gwsw_orox_helpers.clip.termen import _bronbasis_en_rest, _kniptermen
+    from gwsw_orox_helpers.schrijven import lees_orox
+
+    def _weiger(*_args: object, **_kwargs: object) -> object:
+        raise AssertionError("_maak_plan hoort de bron niet zelf te openen")
+
+    monkeypatch.setattr(plan_mod, "lees_orox", _weiger, raising=False)
+
+    vlakken = _lees_grenzen(MINI_GRENS, "gemeentenaam")
+    geopend = lees_orox(MINI)
+    basis, verbruikt = _bronbasis_en_rest(geopend.quads, MINI)
+    termen = _kniptermen(basis)
+
+    plan = plan_mod._maak_plan(MINI, itertools.chain(verbruikt, geopend.quads), vlakken, termen)
+
+    assert plan.namen == ("Mini-West", "Mini-Oost")
+    west, oost = 0b01, 0b10
+    assert plan.maskers[f"{MINI_BASIS}Put_1"] & west
+    assert not plan.maskers[f"{MINI_BASIS}Put_1"] & oost
+    assert plan.maskers[f"{MINI_BASIS}Put_2"] & oost
+    assert not plan.maskers[f"{MINI_BASIS}Put_2"] & west
+
+
+def test_clip_orox_opent_de_bron_precies_n_plus_1_keer(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`clip_orox` opent de bron N+1 keer: één opening voor plan én basis, N om te schrijven.
+
+    Sinds issue #61 delen de basisdetectie en het plan één opening; daarvoor waren het er
+    N+2. De spion telt elke fysieke opening, in welke fase ze ook valt -- vandaar dat hij
+    zowel `orkest` als `plan` beslaat.
+    """
+    import gwsw_orox_helpers.clip.orkest as orkest_mod
+    import gwsw_orox_helpers.clip.plan as plan_mod
+    from gwsw_orox_helpers.schrijven import lees_orox as _echt
+
+    telling = 0
+
+    def _spion(*args: object, **kwargs: object) -> object:
+        nonlocal telling
+        telling += 1
+        return _echt(*args, **kwargs)
+
+    for mod in (orkest_mod, plan_mod):
+        monkeypatch.setattr(mod, "lees_orox", _spion, raising=False)
+
+    delen = clip_orox(MINI, MINI_GRENS, tmp_path / "delen", sleutel="gemeentenaam")
+
+    assert telling == len(delen) + 1

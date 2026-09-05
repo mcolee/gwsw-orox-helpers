@@ -80,6 +80,31 @@ def _kniptermen(basis: str) -> _Kniptermen:
     )
 
 
+def _bronbasis_en_rest(
+    quads: Iterable[pyoxigraph.Quad], bron: object
+) -> tuple[str, list[pyoxigraph.Quad]]:
+    """De GWSW-basis van een OroX-stroom, plus de kop-quads die de detectie ervoor verbruikte.
+
+    Dezelfde detectie als `_bronbasis` (zie daar), maar deze variant houdt onderweg elke
+    geziene quad vast en geeft ze terug. Zo hoeft de aanroeper de opening niet weg te
+    gooien om alsnog de hele bron te kunnen lezen: hij zet de stroom voort met
+    `itertools.chain(verbruikt, rest)`, waarbij `rest` de niet-verbruikte staart van
+    diezelfde `quads`-iterator is. De lus stopt bij het eerste GWSW-predicaat -- verder dan
+    nodig wordt `quads` niet afgelopen, net als bij `_bronbasis` -- dus is `verbruikt` niet
+    de hele bron maar alleen de kop tot en met die eerste treffer. Geen enkel GWSW-predicaat
+    gevonden → 1.6 met een `logging.warning` (nooit stil), en dan is `verbruikt` alles wat
+    `quads` droeg.
+    """
+    verbruikt: list[pyoxigraph.Quad] = []
+    for quad in quads:
+        verbruikt.append(quad)
+        basis = namen.basis_uit_iri(quad.predicate.value)
+        if basis is not None:
+            return basis, verbruikt
+    _logger.warning(namen.terugvalmelding(bron, "de clip"))
+    return namen.GWSW, verbruikt
+
+
 def _bronbasis(quads: Iterable[pyoxigraph.Quad], bron: object) -> str:
     """De GWSW-basis van een OroX-stroom: de versie van de eerste `gwsw:`-predicaat, of 1.6.
 
@@ -93,6 +118,12 @@ def _bronbasis(quads: Iterable[pyoxigraph.Quad], bron: object) -> str:
     en de geometrie op de bronversie van `hasValue` staan. Geen enkel GWSW-predicaat gevonden
     → 1.6 met een `logging.warning` (nooit stil). `quads` wordt zover afgelopen als nodig; de
     aanroeper geeft er een stroom voor die hij zelf niet meer verwerkt.
+
+    Wie de verbruikte kop nog nodig heeft om de stroom voort te zetten (`clip_orox` deelt
+    één opening tussen basisdetectie en plan, issue #61), gebruikt `_bronbasis_en_rest`;
+    deze vorm houdt niets vast en is er voor `merge_orox`, dat de delen daarna toch opnieuw
+    leest. Bewust geen verkorting van `_bronbasis_en_rest`: die zou over een keten van delen
+    zonder enig GWSW-predicaat álle quads in een lijst verzamelen, waar deze scan O(1) blijft.
     """
     basis = namen.basis_uit_iris(quad.predicate.value for quad in quads)
     if basis is None:

@@ -593,6 +593,26 @@ intuïtie in:
 
 Wat er níét bij hoort: een veld op `GwswDataset` — zie de vorige sectie.
 
+**Een gebundelde bundel wordt niet elke lezing opnieuw geparst** (issue #70). De
+63.614-tripel-ontologie parsen kost circa 0,4 s per `load_dataset`, terwijl de uitkomst
+tussen twee lezingen niet verandert. Naast de vocabulaire-index reist daarom per versie een
+gepickelde `GraafIndex` mee (`bronnen.gebundelde_graafindex_pad_voor`), geschreven door
+`scripts/maak_gwsw_index.py` met de snelle term-reductie van de cache (`_SnellePickler`).
+`_stapel_ontologie` neemt dat snelpad alleen bij precies één pad dat een gebundelde bundel is
+én een *verse* pickle ernaast; anders parseert de lus zoals altijd. "Vers" is een hash-poort
+vóór elke `pickle.load` (`laden._gebundelde_graafindex`): het sidecar `.sha256` moet gelijk
+zijn aan `_graafindex_hash` over de bundel-TTL + `graaf.py` + de rdflib-versie — precies de
+drie dingen waarvan de picklevorm en het teruglezen (via `graaf._uriref_snel`/`_literal_*`)
+afhangen. Klopt de hash niet — een gewijzigde `graaf.py`, een andere rdflib, een ontbrekende
+of beschadigde pickle — dan valt de lezing terug op de parse en wordt
+`test_graafindex_pickle_volgt_ttl_en_graaf` rood (de auteur draait dan
+`scripts/maak_gwsw_index.py` opnieuw). De cachesleutel hoeft er niet op uitgebreid te worden:
+`cache.cachesleutel` hasht de bundel-TTL en, via `LADERMODULES`, de broncode van `graaf` en
+`laden` plus de rdflib-versie al — de pickle is een van die TTL afgeleide versnelling, geen
+extra sleutel-ingang. En omdat hij met de package meereist, is hij even vertrouwd als de
+package-code zelf: de hash-poort is een versheids-, geen veiligheidsgrens (die laatste ligt
+bij de cache, `_cachepad_vertrouwd`).
+
 ## De cache leest mee met de lader
 
 `cache.cachesleutel` hasht niet alleen de invoerbestanden en de bibliotheekversies maar

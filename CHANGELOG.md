@@ -3,6 +3,27 @@
 ## [Unreleased]
 
 ## [0.2.3] - 2026-09-05
+- Twee koude-pad-restposten op `load_dataset` (issue #70, performance; **additief** — geen
+  signatuur-, retourvorm- of gedragswijziging; `structural_diff`, het verslag en de gekozen
+  ontologie blijven byte-gelijk). **(a)** `inlezen._read_nodes`/`_read_conduits` geven de
+  bezochte houder-URI's mee terug en `inlezen._structural_diff_uit` hergebruikt die (bij
+  klassenkennis de ontologische, anders de structurele houders) in plaats van dezelfde
+  orientaties een tweede keer te lopen; de bestaande `_structural_diff` blijft (gedeelde helper
+  `_verschillen`). **(b)** Per gebundelde versie reist een gepickelde `GraafIndex` mee naast de
+  vocabulaire-index (`gwsw-graafindex-16/17.pickle` + `.sha256`), geschreven door
+  `scripts/maak_gwsw_index.py`; `laden._stapel_ontologie` depickelt hem in plaats van de
+  63.614-tripel-bundel te parsen, maar **alleen** achter een hash-poort (`_gebundelde_graafindex`
+  / `_graafindex_hash`) op bundel-TTL + `graaf.py` + rdflib-versie — anders de gewone parse.
+  `bronnen` levert de pickle- en sidecar-paden per versie (`gebundelde_graafindex_pad_voor`,
+  `versie_van_gebundelde_ontologie`) en blijft een leaf. Drifttest `test_graafindex_pickle_volgt_
+  ttl_en_graaf` bindt het gecommitte sidecar aan TTL/`graaf.py`/rdflib; de packaging neemt de
+  pickle in de wheel mee. De cachesleutel verandert niet als ingang (de pickle is van de TTL
+  afgeleid en hash-gepoort, en die TTL + `graaf`/`laden`-bron + rdflib zitten al in de sleutel).
+  Meting (gepaard, vers proces, export De Wolden/Hoogeveen): end-to-end `load_dataset` ~18 s
+  wint per deelstap ~0,1–0,2 s bij 0,5–0,9 s run-tot-run-ruis en is daarmee níét eenduidig
+  (5/5 paren gunstig voor (b), gemiddeld +0,21 s); de subfase `_stapel_ontologie` is wél
+  eenduidig ≈ −0,39 s. De auteur accepteerde de deelstappen op 06-09-2026 op die
+  subfase-meting, buiten het strikte end-to-end-protocol om.
 - Acht versie-juiste graafvraag-methoden op `GwswDataset` naast de #51-str-laag, plus
   `namen.korte_naam` (issue #72; **additief** — nieuwe methoden en een nieuwe publieke functie,
   geen bestaande signatuur, retourvorm of gedrag wijzigt). `houders`/`dragers` (hasPart- resp.

@@ -504,16 +504,23 @@ def _read_nodes(
     errors: dict[str, str],
     knooppunt_klassen: frozenset[str] | None = None,
     deksel_klassen: frozenset[str] | None = None,
-) -> dict[str, Node]:
-    """Leest de knooppunten van het netwerk.
+) -> tuple[dict[str, Node], set[str]]:
+    """Leest de knooppunten van het netwerk, met de bezochte houder-URI's ernaast (issue #70).
 
     Het GWSW definieert een knoop als een object met een orientatie van het type
     Knooppunt. Is de ontologie beschikbaar, dan wordt die definitie gevolgd; anders
     valt de lader terug op de structurele herkenning (een orientatie met een
     puntgeometrie), zodat een dataset ook zonder ontologie leesbaar blijft.
+
+    Naast de knopen levert deze lezer de verzameling houder-URI's die hij tijdens de
+    walk bezocht -- precies `_houders(graph, bron)` voor de gekozen bron, en dus per
+    constructie gelijk aan `set(nodes)`. `_structural_diff_uit` hergebruikt die in plaats
+    van dezelfde orientaties een tweede keer te lopen: bij aanwezige klassenkennis zijn
+    het de ontologische knoop-houders, zonder klassenkennis de structurele.
     """
     t = _leestermen(graph.gwsw_basis)
     nodes: dict[str, Node] = {}
+    houders: set[str] = set()
     deksel_klassen = deksel_klassen or _afsluiting({}, KLASSE_PUTDEKSEL, graph.gwsw_basis)
     # Een keer, buiten de lus: `_deksel_kenmerk` toetst deze handvol klassen per put en
     # per onderdeel daarvan, en bouwde ze tot issue #23 elke keer opnieuw uit tekst op.
@@ -535,6 +542,7 @@ def _read_nodes(
             # orientaties langskomt houdt zo de melding van zijn kapotte orientatie, ook
             # al is de `Node` al uit een eerdere, leesbare orientatie gebouwd.
             houder_gezien = True
+            houders.add(uri)
             if geometriefout is not None:
                 errors[uri] = geometriefout
             if uri in nodes:
@@ -562,7 +570,7 @@ def _read_nodes(
         if geometriefout is not None and not houder_gezien:
             errors[str(orientation)] = geometriefout
 
-    return nodes
+    return nodes, houders
 
 
 def _parents(graph: GraafIndex, subject: RdfNode) -> tuple[str, ...]:
@@ -620,14 +628,17 @@ def _read_conduits(
     errors: dict[str, str],
     verbinding_klassen: frozenset[str] | None = None,
     hulpstuk_klassen: frozenset[str] = frozenset(),
-) -> tuple[dict[str, Conduit], Koppelingsherstel]:
+) -> tuple[dict[str, Conduit], Koppelingsherstel, set[str]]:
     """Leest de verbindingen: leidingen en andere kanten van het netwerk.
 
     Net als bij de knopen geldt de ontologische definitie (een orientatie van het
     type Verbinding) zodra de ontologie beschikbaar is, met terugval op de
     structurele herkenning via begin- en eindvertices.
 
-    Geeft naast de verbindingen het herstel van de fantoomkoppeling terug (issue #60).
+    Geeft naast de verbindingen het herstel van de fantoomkoppeling terug (issue #60) en,
+    sinds issue #70, de bezochte houder-URI's -- `set(conduits)` en tegelijk
+    `_houders(graph, bron)` voor de gekozen bron, die `_structural_diff_uit` als de
+    ontologische dan wel de structurele strengen-houders hergebruikt.
     """
     t = _leestermen(graph.gwsw_basis)
     orientation_to_node = {
@@ -638,6 +649,7 @@ def _read_conduits(
     )
     hersteld: list[str] = []
     conduits: dict[str, Conduit] = {}
+    houders: set[str] = set()
 
     bron = (
         _orientations_of_class(graph, verbinding_klassen)
@@ -656,6 +668,7 @@ def _read_conduits(
             # Vóór de ontdubbelingsbewaker (issue #36), net als bij `_read_nodes`: de
             # melding hangt aan elk object dat deze kapotte orientatie draagt.
             houder_gezien = True
+            houders.add(uri)
             if geometriefout is not None:
                 errors[uri] = geometriefout
             if uri in conduits:
@@ -683,7 +696,7 @@ def _read_conduits(
         if geometriefout is not None and not houder_gezien:
             errors[str(orientation)] = geometriefout
 
-    return conduits, Koppelingsherstel(len(hersteld), len(set(hersteld)))
+    return conduits, Koppelingsherstel(len(hersteld), len(set(hersteld))), houders
 
 
 def _is_multipart(graph: GraafIndex, orientation: RdfNode, klasse: URIRef) -> bool:
@@ -802,7 +815,64 @@ def _structural_diff(graph: GraafIndex, subclasses: dict[str, frozenset[str]]) -
     )
     structureel_knopen = _houders(graph, _orientations_with(graph, _leestermen(basis).klasse_punt))
     structureel_strengen = _houders(graph, _leiding_orientations(graph))
+    return _verschillen(
+        ontologisch_knopen, structureel_knopen, ontologisch_strengen, structureel_strengen
+    )
 
+
+def _structural_diff_uit(
+    graph: GraafIndex,
+    subclasses: dict[str, frozenset[str]],
+    *,
+    knoop_houders: set[str],
+    knoop_ontologisch: bool,
+    streng_houders: set[str],
+    streng_ontologisch: bool,
+) -> dict[str, int]:
+    """Dezelfde vergelijking als `_structural_diff`, maar met hergebruikte houders (issue #70).
+
+    `load_dataset` heeft één van de twee kanten al gelopen: `_read_nodes` en `_read_conduits`
+    bezochten net de ontologische houders (als de klassenkennis er was) of de structurele
+    (bij terugval op geometrie). Die geeft de lader hier door, zodat alleen de andere kant
+    nog uit de graaf gehaald wordt in plaats van beide -- de walk over de al bezochte
+    orientaties wint dat werk terug (~0,2 s koud). De uitkomst is per constructie byte-gelijk
+    aan `_structural_diff(graph, subclasses)`: `knoop_houders` is exact
+    `_houders(graph, _orientations_of_class(graph, _afsluiting(..., WORTEL_KNOOPPUNT, basis)))`
+    wanneer `knoop_ontologisch` (want `load_dataset` roept `_read_nodes` dan met precies die
+    afsluiting aan), en anders `_houders(graph, _orientations_with(graph, Punt))`; idem voor
+    de strengen. `test_structural_diff_uit_*` in `tests/test_dataset.py` bindt de twee wegen.
+    """
+    basis = graph.gwsw_basis
+    if knoop_ontologisch:
+        ontologisch_knopen = knoop_houders
+        structureel_knopen = _houders(
+            graph, _orientations_with(graph, _leestermen(basis).klasse_punt)
+        )
+    else:
+        structureel_knopen = knoop_houders
+        ontologisch_knopen = _houders(
+            graph, _orientations_of_class(graph, _afsluiting(subclasses, WORTEL_KNOOPPUNT, basis))
+        )
+    if streng_ontologisch:
+        ontologisch_strengen = streng_houders
+        structureel_strengen = _houders(graph, _leiding_orientations(graph))
+    else:
+        structureel_strengen = streng_houders
+        ontologisch_strengen = _houders(
+            graph, _orientations_of_class(graph, _afsluiting(subclasses, WORTEL_VERBINDING, basis))
+        )
+    return _verschillen(
+        ontologisch_knopen, structureel_knopen, ontologisch_strengen, structureel_strengen
+    )
+
+
+def _verschillen(
+    ontologisch_knopen: set[str],
+    structureel_knopen: set[str],
+    ontologisch_strengen: set[str],
+    structureel_strengen: set[str],
+) -> dict[str, int]:
+    """Het verslag uit de vier houder-sets; gedeeld door beide structurele-diff-wegen."""
     verschillen: dict[str, int] = {}
     for rol, ontologisch, structureel in (
         ("knooppunten", ontologisch_knopen, structureel_knopen),

@@ -38,6 +38,21 @@ _INDEX_BESTANDEN: Final = {
     "1.6": "data/gwsw-vocabulaire-index-16.json",
     "1.7": "data/gwsw-vocabulaire-index-17.json",
 }
+# De gebundelde GraafIndex-pickle per versie en het sidecar met zijn versheidshash (issue
+# #70). Naast de vocabulaire-index reist per bundel een gepickelde `GraafIndex` mee, zodat de
+# lader de 63.614-tripel-ontologie niet elke `load_dataset` opnieuw hoeft te parsen. De
+# `.sha256` ernaast draagt de hash over de bundel-TTL + `graaf.py` + de rdflib-versie op het
+# moment van genereren; de lader (`laden._gebundelde_graafindex`) laadt de pickle alleen bij
+# een treffer op die hash en valt anders terug op de parse. Beide worden door
+# `scripts/maak_gwsw_index.py` geschreven en door `test_gwsw_index.py` aan de TTL gebonden.
+_GRAAFINDEX_BESTANDEN: Final = {
+    "1.6": "data/gwsw-graafindex-16.pickle",
+    "1.7": "data/gwsw-graafindex-17.pickle",
+}
+_GRAAFINDEX_HASH_BESTANDEN: Final = {
+    "1.6": "data/gwsw-graafindex-16.sha256",
+    "1.7": "data/gwsw-graafindex-17.sha256",
+}
 
 
 def _resource_pad(relatief: str) -> Path:
@@ -76,3 +91,33 @@ def vocabulaire_index_pad_voor(versie: str) -> Path:
     `versie` is een van `GEBUNDELDE_VERSIES`; een onbekende versie geeft `ValueError`.
     """
     return _resource_pad(_INDEX_BESTANDEN[_bekende_versie(versie)])
+
+
+def gebundelde_graafindex_pad_voor(versie: str) -> Path:
+    """Pad naar de gebundelde GraafIndex-pickle van een gebundelde versie (issue #70).
+
+    `versie` is een van `GEBUNDELDE_VERSIES`; een onbekende versie geeft `ValueError`. Het
+    bestand hoeft niet te bestaan: de lader poort er met een hash op vóór hij het laadt en
+    valt anders terug op de parse van de TTL ernaast.
+    """
+    return _resource_pad(_GRAAFINDEX_BESTANDEN[_bekende_versie(versie)])
+
+
+def gebundelde_graafindex_hash_pad_voor(versie: str) -> Path:
+    """Pad naar het sidecar met de versheidshash van de gebundelde GraafIndex-pickle (#70)."""
+    return _resource_pad(_GRAAFINDEX_HASH_BESTANDEN[_bekende_versie(versie)])
+
+
+def versie_van_gebundelde_ontologie(pad: Path) -> str | None:
+    """De gebundelde versie waarvan dit precies de meegeleverde ontologie-TTL is, of None.
+
+    Zo weet de lader of een ontologiepad een gebundelde bundel is en dus een GraafIndex-pickle
+    ernaast kan hebben. De vergelijking is op padwaarde: `load_dataset` en `lees_ontologie`
+    bouwen het pad met `gebundelde_ontologie_voor`, dus het valt samen met wat hier terugkomt.
+    Een door de afnemer opgegeven ontologiepad (ook een kopie van de bundel elders) is geen
+    gebundelde bundel en geeft None -- dan parseert de lader zoals altijd.
+    """
+    for versie in GEBUNDELDE_VERSIES:
+        if pad == gebundelde_ontologie_voor(versie):
+            return versie
+    return None

@@ -964,6 +964,102 @@ def test_structurele_vergelijking_wordt_juist_zonder_klassenkennis_gevuld(
     assert "knooppunten_zonder_geometrie" not in kaal.structural_diff
 
 
+def _structurele_diff_via_hergebruik(dataset: GwswDataset) -> dict[str, int]:
+    """Draait de hergebruikweg van `_structural_diff_uit` na, zoals `load_dataset` dat doet.
+
+    Kiest per rol dezelfde bron als de lader (`_bruikbare_afsluiting`), laat de
+    houder-teruggevende lezers erover lopen en voedt de bezochte houders aan
+    `_structural_diff_uit` -- met de klassenkennis-vlag die de lader ook zet.
+    """
+    from gwsw_orox_helpers.inlezen import (
+        _read_conduits,
+        _read_nodes,
+        _structural_diff_uit,
+    )
+    from gwsw_orox_helpers.klassen import (
+        KLASSE_PUTDEKSEL,
+        WORTEL_HULPSTUKORIENTATIE,
+        WORTEL_KNOOPPUNT,
+        WORTEL_VERBINDING,
+        _afsluiting,
+        _bruikbare_afsluiting,
+    )
+
+    graph = dataset.graph
+    subclasses = dataset.subclasses
+    basis = graph.gwsw_basis
+    knooppunt = _bruikbare_afsluiting(subclasses, WORTEL_KNOOPPUNT, basis)
+    verbinding = _bruikbare_afsluiting(subclasses, WORTEL_VERBINDING, basis)
+    deksel = _afsluiting(subclasses, KLASSE_PUTDEKSEL, basis)
+    hulpstuk = _afsluiting(subclasses, WORTEL_HULPSTUKORIENTATIE, basis)
+
+    errors: dict[str, str] = {}
+    nodes, knoop_houders = _read_nodes(graph, errors, knooppunt, deksel)
+    _conduits, _herstel, streng_houders = _read_conduits(graph, nodes, errors, verbinding, hulpstuk)
+
+    return _structural_diff_uit(
+        graph,
+        subclasses,
+        knoop_houders=knoop_houders,
+        knoop_ontologisch=knooppunt is not None,
+        streng_houders=streng_houders,
+        streng_ontologisch=verbinding is not None,
+    )
+
+
+def test_structural_diff_uit_hergebruikt_de_ontologische_houders(voorbeeld: GwswDataset) -> None:
+    """(a, issue #70) De hergebruikweg geeft byte-gelijk hetzelfde verslag als de losse functie.
+
+    Op de voorbeelddataset (met de gebundelde ontologie) is er klassenkennis, dus
+    `_read_nodes`/`_read_conduits` bezochten de ontologische houders; `_structural_diff_uit`
+    hergebruikt die en berekent alleen de structurele kant opnieuw. De uitkomst hoort
+    gelijk te zijn aan zowel de losse `_structural_diff` als aan wat de lader wegzette.
+    """
+    from gwsw_orox_helpers.inlezen import _structural_diff
+    from gwsw_orox_helpers.klassen import (
+        WORTEL_KNOOPPUNT,
+        WORTEL_VERBINDING,
+        _bruikbare_afsluiting,
+    )
+
+    basis = voorbeeld.graph.gwsw_basis
+    assert _bruikbare_afsluiting(voorbeeld.subclasses, WORTEL_KNOOPPUNT, basis) is not None
+    assert _bruikbare_afsluiting(voorbeeld.subclasses, WORTEL_VERBINDING, basis) is not None
+
+    nieuw = _structurele_diff_via_hergebruik(voorbeeld)
+
+    assert nieuw == _structural_diff(voorbeeld.graph, voorbeeld.subclasses)
+    assert nieuw == voorbeeld.structural_diff
+    assert nieuw, "voorwaarde: de voorbeelddataset heeft een niet-leeg verschil"
+
+
+def test_structural_diff_uit_hergebruikt_de_structurele_houders(tmp_path: Path) -> None:
+    """(a, issue #70) Zonder klassenkennis bezochten de lezers de structurele houders.
+
+    Dan geeft `_structural_diff_uit` de structurele kant door en berekent alleen de
+    (near-lege) ontologische kant opnieuw -- en de uitkomst blijft die van de losse functie.
+    """
+    from gwsw_orox_helpers.inlezen import _structural_diff
+    from gwsw_orox_helpers.klassen import (
+        WORTEL_KNOOPPUNT,
+        WORTEL_VERBINDING,
+        _bruikbare_afsluiting,
+    )
+
+    kaal = load_dataset(
+        _zonder_klassenhierarchie(TTL_DIR / "top001_losliggende_put.ttl", tmp_path / "kaal.ttl"),
+        ontology_paths=[],
+    )
+    basis = kaal.graph.gwsw_basis
+    assert _bruikbare_afsluiting(kaal.subclasses, WORTEL_KNOOPPUNT, basis) is None
+    assert _bruikbare_afsluiting(kaal.subclasses, WORTEL_VERBINDING, basis) is None
+
+    nieuw = _structurele_diff_via_hergebruik(kaal)
+
+    assert nieuw == _structural_diff(kaal.graph, kaal.subclasses)
+    assert nieuw == kaal.structural_diff
+
+
 FANTOOM = TTL_DIR / "dataset_fantoomkoppeling.ttl"
 
 

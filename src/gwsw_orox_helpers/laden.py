@@ -15,21 +15,30 @@ van de lader niets, zodat de importrichting `dataset -> laden -> model` een lijn
 from __future__ import annotations
 
 import logging
+import pickle
 from collections.abc import Sequence
+from hashlib import sha256
 from pathlib import Path
+from typing import cast
 
+import rdflib
+
+from gwsw_orox_helpers import graaf as graaf_module
 from gwsw_orox_helpers.bestand import _gc_uit, _parse
 from gwsw_orox_helpers.bronnen import (
     GEBUNDELDE_VERSIES,
+    gebundelde_graafindex_hash_pad_voor,
+    gebundelde_graafindex_pad_voor,
     gebundelde_ontologie,
     gebundelde_ontologie_voor,
+    versie_van_gebundelde_ontologie,
 )
 from gwsw_orox_helpers.errors import InhoudError
 from gwsw_orox_helpers.graaf import GraafIndex
 from gwsw_orox_helpers.inlezen import (
     _read_conduits,
     _read_nodes,
-    _structural_diff,
+    _structural_diff_uit,
 )
 from gwsw_orox_helpers.klassen import (
     KLASSE_PUTDEKSEL,
@@ -92,10 +101,80 @@ def _gebundelde_paden_voor_basis(basis: str) -> list[Path]:
     return [gebundelde_ontologie()]
 
 
+def _graafindex_hash(ttl_pad: Path) -> str:
+    """De versheidshash van een gebundelde GraafIndex-pickle (issue #70).
+
+    Hasht de bundel-TTL, de broncode van `graaf.py` en de rdflib-versie -- precies de drie
+    dingen waarvan de picklevorm en het teruglezen ervan afhangen: de TTL bepaalt de inhoud,
+    `graaf.py` de `GraafIndex`-structuur én de snelle term-constructors (`_uriref_snel`,
+    `_literal_*`) die het depicklen bij naam aanroept, en de rdflib-versie de interne
+    literaalvelden die die constructors zetten. `scripts/maak_gwsw_index.py` schrijft deze
+    hash in het sidecar naast de pickle; `_gebundelde_graafindex` vergelijkt hem vóór het
+    laden. Verandert een van de drie zonder dat de pickle opnieuw gebouwd wordt, dan klopt de
+    hash niet meer en valt de lader terug op de parse -- en `test_gwsw_index.py` wordt rood.
+
+    Dit is dezelfde afhankelijkheid die de cachesleutel al dekt (`cache.cachesleutel` hasht de
+    TTL-bytes en, via `LADERMODULES`, de broncode van `graaf` en `laden` plus de rdflib-versie);
+    de pickle is een van die TTL afgeleide versnelling en voegt daarom geen sleutel-ingang toe.
+    """
+    haas = sha256()
+    haas.update(ttl_pad.read_bytes())
+    haas.update(Path(cast(str, graaf_module.__file__)).read_bytes())
+    haas.update(rdflib.__version__.encode("utf-8"))
+    return haas.hexdigest()
+
+
+def _gebundelde_graafindex(pad: Path) -> GraafIndex | None:
+    """De gebundelde GraafIndex-pickle voor deze ontologie-TTL, mits vers (issue #70).
+
+    Levert de gepickelde `GraafIndex` alleen op als `pad` precies een gebundelde bundel is én
+    de opgeslagen hash bij de huidige TTL + `graaf.py` + rdflib-versie past; anders None, en
+    dan parseert `_stapel_ontologie` de TTL zoals altijd. **De hash-poort staat vóór elke
+    `pickle.load`**: klopt hij niet, of ontbreekt de pickle of het sidecar, dan wordt er niet
+    gedepickeld. Een onleesbare of beschadigde pickle valt breed terug op None (en dus op de
+    parse), zodat een kapot meegeleverd bestand de lezing nooit laat crashen.
+
+    De pickle wordt met de package meegeleverd -- hij is dus even vertrouwd als de package-code
+    zelf, niet een door de afnemer aangeleverd bestand; de hash-poort is een versheids- en geen
+    veiligheidsgrens (die laatste ligt bij de cache, `cache._cachepad_vertrouwd`).
+
+    De GC ligt hier niet apart stil: beide aanroepers (`load_dataset`, `lees_ontologie`) draaien
+    `_stapel_ontologie` al binnen `bestand._gc_uit`.
+    """
+    versie = versie_van_gebundelde_ontologie(pad)
+    if versie is None:
+        return None
+    pickle_pad = gebundelde_graafindex_pad_voor(versie)
+    hash_pad = gebundelde_graafindex_hash_pad_voor(versie)
+    try:
+        opgeslagen = hash_pad.read_text(encoding="ascii").strip()
+    except OSError:
+        return None
+    if not pickle_pad.exists() or opgeslagen != _graafindex_hash(pad):
+        return None
+    try:
+        with pickle_pad.open("rb") as bestand:
+            index = pickle.load(bestand)
+    except Exception:
+        # Een onbruikbare meegeleverde pickle is geen fout maar een gemiste versnelling: val
+        # terug op de parse. `pickle.load` kan bij een beschadigd bestand vrijwel elke
+        # uitzondering gooien, vandaar de brede vangst (zie `cache._PICKLE_FOUTEN`).
+        return None
+    return index if isinstance(index, GraafIndex) else None
+
+
 def _stapel_ontologie(
     paden: Sequence[Path], fallback_encoding: str | None, voortgang: Voortgang
 ) -> GraafIndex:
     """Parseert de ontologiebestanden op volgorde in één index, met een stap per bestand.
+
+    **Snelpad voor een gebundelde bundel** (issue #70): is er precies één pad en is dat een
+    gebundelde ontologie met een verse GraafIndex-pickle ernaast, dan wordt die pickle
+    gedepickeld in plaats van de 63.614-tripel-TTL opnieuw te parsen -- dezelfde index, ~0,2 s
+    goedkoper. Klopt de hash niet (een gewijzigde `graaf.py`, een andere rdflib-versie, een
+    ontbrekende pickle), dan valt deze lus terug op de gewone parse. Meer dan één pad -- of een
+    door de afnemer opgegeven ontologiepad dat toevallig een kopie van de bundel is -- gaat
+    altijd langs de parse, want stapelen in één bestaande index kan de losse pickle-index niet.
 
     **Zonder eigen fase, en dat is de hele reden dat deze functie bestaat.** `load_dataset`
     en `lees_ontologie` moeten hetzelfde parseerpad delen -- één plek die weet dat
@@ -113,6 +192,11 @@ def _stapel_ontologie(
     (`bestand._gc_uit`), `load_dataset` om zijn hele leesblok en `lees_ontologie` om deze
     lus.
     """
+    if len(paden) == 1:
+        vers = _gebundelde_graafindex(paden[0])
+        if vers is not None:
+            voortgang.stap(label=paden[0].name)
+            return vers
     ontology = GraafIndex()
     for pad in paden:
         _parse(pad, fallback_encoding, index=ontology)
@@ -246,8 +330,10 @@ def load_dataset(
         # klassenkennis blijft het bij Putdeksel zelf, net als bij elke andere `closure()`.
         deksel = _afsluiting(subclasses, KLASSE_PUTDEKSEL, data_basis)
         hulpstuk = _afsluiting(subclasses, WORTEL_HULPSTUKORIENTATIE, data_basis)
-        nodes = _read_nodes(graph, geometry_errors, knooppunt, deksel)
-        conduits, herstel = _read_conduits(graph, nodes, geometry_errors, verbinding, hulpstuk)
+        nodes, knoop_houders = _read_nodes(graph, geometry_errors, knooppunt, deksel)
+        conduits, herstel, streng_houders = _read_conduits(
+            graph, nodes, geometry_errors, verbinding, hulpstuk
+        )
 
     if not nodes and not conduits:
         raise InhoudError(
@@ -269,8 +355,21 @@ def load_dataset(
         koppelingsherstel=herstel,
     )
     # Altijd, en juist ook zonder klassenkennis: dan laat het verschil zien dat de
-    # ontologische route nul objecten oplevert en de hele lezing op geometrie rust.
-    dataset.structural_diff.update(_structural_diff(graph, subclasses))
+    # ontologische route nul objecten oplevert en de hele lezing op geometrie rust. De
+    # houders die `_read_nodes`/`_read_conduits` net bezochten worden hergebruikt (issue
+    # #70): bij aanwezige klassenkennis (`knooppunt`/`verbinding` niet None) zijn dat de
+    # ontologische houders, anders de structurele. Zo hoeft alleen de andere kant nog
+    # gelopen te worden; de uitkomst is byte-gelijk aan `_structural_diff(graph, subclasses)`.
+    dataset.structural_diff.update(
+        _structural_diff_uit(
+            graph,
+            subclasses,
+            knoop_houders=knoop_houders,
+            knoop_ontologisch=knooppunt is not None,
+            streng_houders=streng_houders,
+            streng_ontologisch=verbinding is not None,
+        )
+    )
     # Eén waarschuwing wanneer de dataset niet de leidende 1.6-versie is (issue #51): de
     # gepinde module-constanten (`HAS_*`, `KLASSE_*`) spellen 1.6 en treffen op deze graaf
     # stil nul. Wie versie-juist wil bevragen, gebruikt `GwswDataset.termen` of de

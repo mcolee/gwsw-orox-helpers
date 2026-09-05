@@ -69,6 +69,10 @@ jobs:
   # Tot slot de GitHub-Release, op exact dezelfde artefacten (geen tweede `uv build`), zodat
   # de release-assets byte-gelijk zijn aan wat de controle getoetst heeft. `--verify-tag` eist
   # dat de tag bestaat; `--generate-notes` schrijft de notities. Dit is de enige publicatie.
+  # Deze job doet bewust geen checkout (alleen het artifact), dus `gh` kan de repo niet uit een
+  # `.git` afleiden: zonder `-R` faalt hij met "failed to run git: fatal: not a git repository"
+  # (run 33987225498 op v0.2.3, 05-09-2026). `-R "$GITHUB_REPOSITORY"` laat `gh` alles via de
+  # API doen, ook `--verify-tag`.
   github-release:
     needs: controle
     runs-on: ubuntu-latest
@@ -83,4 +87,4 @@ jobs:
       - name: GitHub Release met wheel en sdist
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create "$GITHUB_REF_NAME" dist/* --verify-tag --generate-notes --title "$GITHUB_REF_NAME"
+        run: gh release create "$GITHUB_REF_NAME" dist/* -R "$GITHUB_REPOSITORY" --verify-tag --generate-notes --title "$GITHUB_REF_NAME"

@@ -928,7 +928,7 @@ def test_de_namensnit_ligt_vast() -> None:
     # de stille tweede spelling die deze snit uitsluit, net als de `rsplit`-helpers hierboven.
     # De klasse-IRI's (`f"{basis}Inwinning"` in `inlezen`) blijven er buiten: `namen` draagt
     # geen klassennamen, dus die spelt de leeslaag met recht zelf.
-    zelf_gespeld = re.compile(r'basis \+ "has|f"\{basis\}has')
+    zelf_gespeld = re.compile(r'basis \+ "(?:has|functie|Dt_)|f"\{basis\}(?:has|functie|Dt_)')
     spelt_zelf = {
         pad.relative_to(pakket).as_posix(): zelf_gespeld.findall(pad.read_text(encoding="utf-8"))
         for pad in sorted(pakket.rglob("*.py"))

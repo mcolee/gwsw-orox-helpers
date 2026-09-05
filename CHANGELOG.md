@@ -1,6 +1,11 @@
 # Changelog
 
 ## [Unreleased]
+- **Harde regel: geen PyPI-interactie.** Publiceren gebeurt uitsluitend als GitHub-Release met
+  de wheel en de sdist als assets. `.github/workflows/release.yml` verloor daarom zijn
+  TestPyPI- en PyPI-jobs (trusted publishing, `id-token: write`, de environments); de keten is
+  nu poort → controle → github-release. `CLAUDE.md` draagt de regel onder Harde regels
+  (besluit van de auteur, 05-09-2026). Geen wijziging aan de package zelf.
 - `ontologie` leest zijn GWSW-properties via `namen.termen_voor` en drie klassenamen-literalen
   worden constanten (issue #68, architectuur; **additief** — geen signatuur, retourvorm of
   gedrag wijzigt, dezelfde IRI-strings dus dezelfde treffers). `namen.Termen` krijgt achteraan

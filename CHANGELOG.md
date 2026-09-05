@@ -1,6 +1,29 @@
 # Changelog
 
 ## [Unreleased]
+- `GraafIndex` draagt een hybride binnenvorm (issue #62, performance; **additief** — geen
+  signatuur-, retourvorm- of gedragswijziging; het leescontract, de volgorde- en de
+  dedupe-garantie blijven byte-voor-byte gelijk, `GraafIndex()` blijft parameterloos). De
+  twee indexen droegen elke `(s, p)`-cel als een dict en elke `(p, o)`-cel als een lijst,
+  terwijl het gros precies één element vasthield — op de De Wolden en Hoogeveen-export heeft
+  94% van de `(s, p)`-paren één object en 91% van de `(p, o)`-paren één subject, elk een
+  container van 64–224 B om één verwijzing. Nu staat een enkel object/subject **kaal** en
+  wordt het pas bij het tweede een insertie-geordende dict resp. een lijst; de lezers
+  onderscheiden de twee vormen met `type(x) is dict` / `type(x) is list` (een rdflib-term is
+  nooit een dict of een lijst). Zowel `vul_uit`, `voeg_toe` als alle lezers
+  (`objects`/`subjects`/`value`/`subject_objects`/`__contains__`) doen mee. **De picklevorm
+  van `_spo`/`_pos` verandert** hierdoor; dat is bedoelde mechaniek: `cachesleutel` hasht
+  `graaf.py` via `LADERMODULES`, dus bestaande caches worden één keer opnieuw opgebouwd en
+  zijn daarna weer een treffer — géén `LADER_VERSIE`-bump nodig. Gemeten op de cp850-export
+  van De Wolden en Hoogeveen (112 MB, gepaard n=3, referentie = HEAD-code 9b6aa4e ná #60/#61,
+  vers proces per run): koud laden niet meetbaar trager (`scripts/benchmark.py load_dataset`:
+  traagste experiment 17,99 s onder snelste referentie 18,61 s) en de piek `load_dataset`
+  1009–1011 → 646 MiB (−36%, eenduidig). De kleinere index maakt de graafpickle kleiner
+  (90.551.515 → 82.924.232 B, −8%) en dat maakt het warme pad sneller: de graafpickle-lading
+  (`LuieGraaf` eerste aanraking) 3,33–3,35 → 2,38–2,46 s (traagste experiment onder snelste
+  referentie, eenduidig), warm-geheugen 1170–1172 → 778–780 MiB. Triplecount (1.877.729),
+  knopen/strengen (23.485/23.440) en de graafinhoud (sha256 over de gesorteerde tripels)
+  zijn gelijk aan HEAD.
 - `clip_orox` opent de bron nog N+1 keer in plaats van N+2 (issue #61, performance;
   **additief** — geen signatuur-, retourvorm- of gedragswijziging van de publieke
   `clip_orox`/`merge_orox`; dezelfde delen, byte voor byte). De basisdetectie en de

@@ -1114,12 +1114,16 @@ def _tripels(index: GraafIndex) -> set[tuple[RdfNode, RdfNode, RdfNode]]:
     `graaf`): het leescontract van de checks heeft die niet nodig. Voor een
     inhoudsvergelijking tussen twee indexen is ze wel nodig, en dan is de spo-index de
     enige weg erheen. Een test mag daarvoor naar binnen kijken; productiecode niet.
+
+    Sinds issue #62 is de binnencel hybride: bij precies één object staat de term kaal
+    en bij twee of meer een insertie-geordende dict. Een kaal object is geen iterabele
+    van objecten, dus de helper onderscheidt de twee vormen expliciet.
     """
     return {
         (subject, predicate, object_)
         for subject, per_predicaat in index._spo.items()
         for predicate, objecten in per_predicaat.items()
-        for object_ in objecten
+        for object_ in (objecten if type(objecten) is dict else (objecten,))
     }
 
 

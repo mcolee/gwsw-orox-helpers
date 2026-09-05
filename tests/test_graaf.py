@@ -9,6 +9,8 @@ uitvoer van de checks hangt eraan. Elke test bouwt daarom een rdflib-`Graph` en 
 
 from __future__ import annotations
 
+import hashlib
+
 import pyoxigraph
 import pytest
 from rdflib import RDF, RDFS, BNode, Graph, Literal, URIRef
@@ -361,3 +363,137 @@ def test_vul_uit_deelt_gelijke_termen_als_een_object() -> None:
     eerste = next(iter(index.objects(S1, P_TYPE)))
     tweede = next(iter(index.objects(S2, P_TYPE)))
     assert eerste is tweede
+
+
+# --------------------------------------------------------------------------------------
+# De hybride binnenvorm (issue #62): een enkel object/subject kaal, pas het tweede in een
+# container. De lezers hierboven toetsen het leescontract langs beide vulroutes; deze
+# groep bewaakt de picklevorm zelf, want die verandert (bestaande caches worden via de
+# `graaf.py`-hash in LADERMODULES één keer herbouwd).
+# --------------------------------------------------------------------------------------
+
+
+def _bouw_index(triples: list[tuple], route: str) -> GraafIndex:
+    """Bouwt een index langs de gevraagde vulroute (`voeg_toe` of `vul_uit`)."""
+    index = GraafIndex()
+    if route == "voeg_toe":
+        for s, p, o in triples:
+            index.voeg_toe(s, p, o)
+    else:
+        index.vul_uit(
+            pyoxigraph.Quad(_naar_pyoxigraph(s), _naar_pyoxigraph(p), _naar_pyoxigraph(o))
+            for s, p, o in triples
+        )
+    return index
+
+
+@pytest.mark.parametrize("route", ["voeg_toe", "vul_uit"])
+def test_een_enkel_object_en_subject_staan_kaal(route: str) -> None:
+    """Bij precies één object per (s, p) en één subject per (p, o) staat de term kaal.
+
+    Geen dict van 224 B om één verwijzing en geen lijst van 64 B om één subject; dat is
+    het hele geheugenpunt van issue #62. Een rdflib-term is nooit een `dict`/`list`, dus
+    het type is een eenduidige onderscheider.
+    """
+    index = _bouw_index([(S1, P_TYPE, O1)], route)
+    assert index._spo[S1][P_TYPE] == O1
+    assert type(index._spo[S1][P_TYPE]) is not dict
+    assert index._pos[P_TYPE][O1] == S1
+    assert type(index._pos[P_TYPE][O1]) is not list
+
+
+@pytest.mark.parametrize("route", ["voeg_toe", "vul_uit"])
+def test_het_tweede_object_maakt_een_dict_het_tweede_subject_een_lijst(route: str) -> None:
+    """Bij het tweede object wordt de (s, p)-cel een insertie-geordende dict, bij het
+    tweede subject wordt de (p, o)-cel een lijst -- beide in eerste-toevoegvolgorde."""
+    index = _bouw_index([(S1, P_TYPE, O1), (S1, P_TYPE, O2), (S3, P_TYPE, O1)], route)
+    objecten = index._spo[S1][P_TYPE]
+    assert type(objecten) is dict
+    assert list(objecten) == [O1, O2]
+    subjecten = index._pos[P_TYPE][O1]
+    assert type(subjecten) is list
+    assert subjecten == [S1, S3]
+
+
+@pytest.mark.parametrize("route", ["voeg_toe", "vul_uit"])
+def test_dedupe_en_volgorde_bij_1_2_en_3_objecten(route: str) -> None:
+    """1-, 2- en 3-objectgevallen plus een duplicaat op het tweede gelijke object: het
+    antwoord en de volgorde volgen rdflib langs beide vulroutes."""
+    triples = [
+        (S1, P_PART, O1),  # 1 object: kaal
+        (S1, P_PART, O2),  # 2 objecten: dict {O1, O2}
+        (S1, P_PART, O1),  # duplicaat van het eerste: geen effect
+        (S1, P_PART, S3),  # 3 objecten
+        (S1, P_PART, O2),  # duplicaat van het tweede: geen effect, geen herordening
+    ]
+    graf = Graph()
+    for t in triples:
+        graf.add(t)
+    index = _bouw_index(triples, route)
+    assert list(index.objects(S1, P_PART)) == list(graf.objects(S1, P_PART)) == [O1, O2, S3]
+    assert list(index.subjects(P_PART, O1)) == list(graf.subjects(P_PART, O1)) == [S1]
+    assert len(index) == len(graf) == 3
+
+
+@pytest.mark.parametrize("route", ["voeg_toe", "vul_uit"])
+def test_kaal_duplicaat_en_een_derde_subject(route: str) -> None:
+    """Een duplicaat terwijl de cel nog kaal is verandert niets, en een derde subject op
+    hetzelfde (p, o) wordt aan de bestaande lijst toegevoegd -- langs beide vulroutes."""
+    label = Literal("put twee")
+    triples = [
+        (S1, P_LABEL, label),  # kaal object
+        (S1, P_LABEL, label),  # exact duplicaat, nog kaal: geen effect
+        (S1, P_TYPE, O1),  # (P_TYPE, O1) subject 1: kaal
+        (S2, P_TYPE, O1),  # subject 2: lijst [S1, S2]
+        (S3, P_TYPE, O1),  # subject 3: append aan de bestaande lijst
+    ]
+    graf = Graph()
+    for t in triples:
+        graf.add(t)
+    index = _bouw_index(triples, route)
+    assert list(index.objects(S1, P_LABEL)) == list(graf.objects(S1, P_LABEL)) == [label]
+    assert list(index.subjects(P_TYPE, O1)) == list(graf.subjects(P_TYPE, O1)) == [S1, S2, S3]
+    assert len(index) == len(graf) == 4
+
+
+def _afdruk(index: GraafIndex) -> str:
+    """Een sha256 over `_spo`/`_pos` mét de containervorm per cel.
+
+    De vorm ('kaal' vs 'dict'/'list') gaat in de hash mee, zodat een terugval naar de
+    oude dict-in-dict-in-dict-vorm -- of elke andere wijziging aan de picklevorm -- deze
+    afdruk verandert en `test_afdruk_hash_bewaakt_de_picklevorm` rood maakt.
+    """
+    h = hashlib.sha256()
+    for subject, per_predicaat in index._spo.items():
+        for predicate, objecten in per_predicaat.items():
+            if type(objecten) is dict:
+                vorm, waarden = "dict", list(objecten)
+            else:
+                vorm, waarden = "kaal", [objecten]
+            h.update(repr((subject, predicate, vorm, waarden)).encode("utf-8"))
+    for predicate, per_object in index._pos.items():
+        for object_, subjecten in per_object.items():
+            if type(subjecten) is list:
+                vorm, waarden = "list", list(subjecten)
+            else:
+                vorm, waarden = "kaal", [subjecten]
+            h.update(repr((predicate, object_, vorm, waarden)).encode("utf-8"))
+    return h.hexdigest()
+
+
+def test_beide_vulroutes_geven_dezelfde_afdruk() -> None:
+    """`voeg_toe` en `vul_uit` bouwen exact dezelfde binnenvorm op dezelfde triples."""
+    langs_voeg_toe = _afdruk(_bouw_index(_triples(), "voeg_toe"))
+    langs_vul_uit = _afdruk(_bouw_index(_triples(), "vul_uit"))
+    assert langs_voeg_toe == langs_vul_uit
+
+
+# De verwachte afdruk van `_triples()` in de hybride vorm. Een snapshot-bewaker: hij
+# meldt zich (rood) zodra de picklevorm van `_spo`/`_pos` wijzigt. Herbereken hem bij een
+# bedoelde vormwijziging met `_afdruk(_bouw_index(_triples(), "voeg_toe"))`.
+AFDRUK_TRIPELS_HYBRIDE = "06849f64705c9a4adbcb09de524abff80dfa88501c1ecdcc33705f9cac2590dc"
+
+
+def test_afdruk_hash_bewaakt_de_picklevorm() -> None:
+    """De binnenvorm van `_spo`/`_pos` op `_triples()` staat vast op een bekende afdruk."""
+    assert _afdruk(_bouw_index(_triples(), "voeg_toe")) == AFDRUK_TRIPELS_HYBRIDE

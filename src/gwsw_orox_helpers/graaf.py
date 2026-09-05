@@ -56,7 +56,7 @@ waarom, staat bij het protocol zelf.
 from __future__ import annotations
 
 from collections.abc import Iterable, Iterator
-from typing import Protocol
+from typing import Protocol, cast
 
 import pyoxigraph
 from rdflib import BNode, Literal, URIRef
@@ -219,22 +219,47 @@ class GraafIndex:
         # handtekening is gepind in `tests/test_publieke_api.py`), en de waarde reist als
         # gewone staat mee in de pickle van de cache.
         self.gwsw_basis: str = GWSW
-        # De objecten per (s, p) zijn een insertie-geordende dict met None-waarden,
-        # geen lijst: het duplicaatfilter bij het vullen en de membership-test zijn
-        # daarmee O(1). Met een lijst kostte de dedupescan op de De Wolden en
-        # Hoogeveen-export 57 van de 97 seconden -- een gemeentebrede bucket draagt
-        # tienduizenden hasPart-objecten aan hetzelfde subject.
-        self._spo: dict[RdfNode, dict[RdfNode, dict[RdfNode, None]]] = {}
-        self._pos: dict[RdfNode, dict[RdfNode, list[RdfNode]]] = {}
+        # De binnencel is hybride (issue #62): één object per (s, p) staat kaal als term,
+        # één subject per (p, o) idem. Op de De Wolden en Hoogeveen-export heeft 94% van de
+        # (s, p)-paren precies één object en 91% van de (p, o)-paren precies één subject; een
+        # dict van 224 B om één verwijzing (of een lijst van 64 B om één subject) is dan pure
+        # overhead -- samen honderden megabytes. Pas het tweede object maakt van de cel een
+        # insertie-geordende dict met None-waarden, en pas het tweede subject een lijst.
+        # De dict-vorm houdt het duplicaatfilter en de membership-test O(1) zodra een
+        # (s, p)-paar veel objecten draagt (een gemeentebrede bucket draagt tienduizenden
+        # hasPart-objecten aan hetzelfde subject; met een lijst kostte de dedupescan 57 van
+        # de 97 seconden). De lezers onderscheiden de twee vormen met `type(x) is dict` /
+        # `type(x) is list`: een rdflib-term (`URIRef`/`BNode`/`Literal`) is nooit een dict
+        # of een lijst, dus de test is eenduidig.
+        self._spo: dict[RdfNode, dict[RdfNode, RdfNode | dict[RdfNode, None]]] = {}
+        self._pos: dict[RdfNode, dict[RdfNode, RdfNode | list[RdfNode]]] = {}
         self._aantal = 0
 
     def voeg_toe(self, subject: RdfNode, predicate: RdfNode, object_: RdfNode) -> None:
         """Voegt een triple toe; een duplicaat verandert niets, ook de volgorde niet."""
-        objecten = self._spo.setdefault(subject, {}).setdefault(predicate, {})
-        if object_ in objecten:
+        per_predicaat = self._spo.setdefault(subject, {})
+        objecten = per_predicaat.get(predicate)
+        if objecten is None:
+            per_predicaat[predicate] = object_
+        elif type(objecten) is dict:
+            if object_ in objecten:
+                return
+            objecten[object_] = None
+        elif objecten == object_:
             return
-        objecten[object_] = None
-        self._pos.setdefault(predicate, {}).setdefault(object_, []).append(subject)
+        else:
+            # `objecten` is hier geen dict maar het eerste kale object (mypy ziet de
+            # `type() is dict`-uitsluiting niet, vandaar de cast); het tweede object maakt
+            # er een insertie-geordende dict van.
+            per_predicaat[predicate] = {cast(RdfNode, objecten): None, object_: None}
+        per_object = self._pos.setdefault(predicate, {})
+        subjecten = per_object.get(object_)
+        if subjecten is None:
+            per_object[object_] = subject
+        elif type(subjecten) is list:
+            subjecten.append(subject)
+        else:
+            per_object[object_] = [cast(RdfNode, subjecten), subject]
         self._aantal += 1
 
     def vul_uit(self, quads: Iterable[pyoxigraph.Quad]) -> None:
@@ -270,17 +295,25 @@ class GraafIndex:
                     per_predicaat = spo[s] = {}
                 objecten = per_predicaat.get(p)
                 if objecten is None:
-                    objecten = per_predicaat[p] = {}
-                elif o in objecten:
+                    per_predicaat[p] = o
+                elif type(objecten) is dict:
+                    if o in objecten:
+                        continue
+                    objecten[o] = None
+                elif objecten is o or objecten == o:
                     continue
-                objecten[o] = None
+                else:
+                    per_predicaat[p] = {cast(RdfNode, objecten): None, o: None}
                 per_object = pos.get(p)
                 if per_object is None:
                     per_object = pos[p] = {}
                 subjecten = per_object.get(o)
                 if subjecten is None:
-                    subjecten = per_object[o] = []
-                subjecten.append(s)
+                    per_object[o] = s
+                elif type(subjecten) is list:
+                    subjecten.append(s)
+                else:
+                    per_object[o] = [cast(RdfNode, subjecten), s]
                 aantal += 1
         finally:
             # Ook bij een afgebroken stream klopt de teller met wat er wél in de
@@ -289,22 +322,37 @@ class GraafIndex:
 
     def objects(self, subject: RdfNode, predicate: RdfNode) -> Iterator[RdfNode]:
         """De objecten van (subject, predicate), in eerste-toevoegvolgorde."""
-        return iter(self._spo.get(subject, _LEEG).get(predicate, ()))
+        objecten = self._spo.get(subject, _LEEG).get(predicate)
+        if type(objecten) is dict:
+            return iter(objecten)
+        if objecten is None:
+            return iter(())
+        return iter((cast(RdfNode, objecten),))
 
     def subjects(self, predicate: RdfNode, object_: RdfNode) -> Iterator[RdfNode]:
         """De subjecten van (predicate, object), in eerste-toevoegvolgorde."""
-        return iter(self._pos.get(predicate, _LEEG_POS).get(object_, ()))
+        subjecten = self._pos.get(predicate, _LEEG_POS).get(object_)
+        if type(subjecten) is list:
+            return iter(subjecten)
+        if subjecten is None:
+            return iter(())
+        return iter((cast(RdfNode, subjecten),))
 
     def value(self, subject: RdfNode, predicate: RdfNode) -> RdfNode | None:
         """Het eerste object van (subject, predicate), of None."""
         objecten = self._spo.get(subject, _LEEG).get(predicate)
-        return next(iter(objecten)) if objecten else None
+        if type(objecten) is dict:
+            return next(iter(objecten))
+        return cast("RdfNode | None", objecten)
 
     def subject_objects(self, predicate: RdfNode) -> Iterator[tuple[RdfNode, RdfNode]]:
         """Alle (subject, object)-paren van dit predicaat, in pos-groepering."""
         for object_, subjecten in self._pos.get(predicate, _LEEG_POS).items():
-            for subject in subjecten:
-                yield subject, object_
+            if type(subjecten) is list:
+                for subject in subjecten:
+                    yield subject, object_
+            else:
+                yield cast(RdfNode, subjecten), object_
 
     def heeft_subject(self, term: RdfNode) -> bool:
         """Of deze term als subject in de graaf voorkomt."""
@@ -313,7 +361,10 @@ class GraafIndex:
     def __contains__(self, triple: tuple[RdfNode, RdfNode, RdfNode]) -> bool:
         """Membership van een volledig gebonden triple, in O(1)."""
         subject, predicate, object_ = triple
-        return object_ in self._spo.get(subject, _LEEG).get(predicate, ())
+        objecten = self._spo.get(subject, _LEEG).get(predicate)
+        if type(objecten) is dict:
+            return object_ in objecten
+        return objecten == object_
 
     def __len__(self) -> int:
         """Het aantal triples, zonder duplicaten."""
@@ -321,5 +372,5 @@ class GraafIndex:
 
 
 # Gedeelde lege dicts als terugval, zodat een misser geen nieuwe dict aanmaakt.
-_LEEG: dict[RdfNode, dict[RdfNode, None]] = {}
-_LEEG_POS: dict[RdfNode, list[RdfNode]] = {}
+_LEEG: dict[RdfNode, RdfNode | dict[RdfNode, None]] = {}
+_LEEG_POS: dict[RdfNode, RdfNode | list[RdfNode]] = {}

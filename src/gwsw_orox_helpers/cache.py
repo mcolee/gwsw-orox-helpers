@@ -197,6 +197,19 @@ class LuieGraaf:
         beschadigde pickle in een eigen, private map (mode 0o700) is terugschrijven wél
         veilig en herstelt het de snelle weg -- daar heelt het meteen ook de rechten van
         het bestand, want `_schrijf_atomair` maakt via `mkstemp` een vers bestand (0o600).
+
+        **Procesbreed neveneffect: de cyclische GC ligt stil tijdens het depicklen**
+        (issue #59). Om `pickle.load` heen legt deze methode de GC neer met
+        `bestand._gc_uit` -- de graafpickle bouwt bovenop de al aanwezige structurenheap
+        miljoenen rdflib-termen en dicts, en de cyclische GC loopt daar telkens opnieuw
+        doorheen zonder dat er een kringetje kan ontstaan (de heropgebouwde objecten
+        wijzen alleen naar beneden). Anders dan bij `load_dataset` gaat dit neveneffect
+        lui vanuit de eerste leesbewerking van een check af, niet vanuit een expliciete
+        productie-ingang; een afnemer hoort dat expliciet te weten. De oude GC-stand komt
+        in `_gc_uit`'s eigen `finally` terug, ook als het laden halverwege afbreekt, en een
+        aanroeper die de GC zelf al uit had houdt hem uit. Het antwoord van de graaf blijft
+        identiek; alleen de laadtijd zakt (gemeten op het warme pad circa 7,8 s -> 3,5 s;
+        de 2,75 s uit het issue was de meting in een leeg proces).
         """
         if self._graaf is None:
             begin = time.perf_counter()
@@ -212,7 +225,7 @@ class LuieGraaf:
                 self._schrijf_indien_vertrouwd()
             else:
                 try:
-                    with self._pad.open("rb") as bestand:
+                    with self._pad.open("rb") as bestand, bestand_module._gc_uit():
                         self._graaf = pickle.load(bestand)
                 except _PICKLE_FOUTEN as fout:
                     logger.warning(
@@ -492,6 +505,16 @@ def laad_met_cache(
     Elk pickle-bestand wordt daarnaast apart getoetst vóór het depicklen. Op niet-POSIX
     (Windows) draait die check niet -- daar hoort de cachemap in het gebruikersprofiel
     (`%LOCALAPPDATA%`), waar alleen de gebruiker bij kan.
+
+    **Procesbreed neveneffect: de cyclische GC ligt stil tijdens de structurenlading**
+    (issue #59). Om de `pickle.load` van de structurencache heen legt deze functie de GC
+    neer met `bestand._gc_uit` -- net als op de koude leesweg (`load_dataset`) en om
+    dezelfde reden: de pickle bouwt veel containers die alleen naar beneden wijzen, dus de
+    cyclische GC is er zuivere verspilling. De graafpickle die pas lui van schijf komt,
+    doet dat neveneffect op haar beurt (zie `LuieGraaf._geladen`). De oude GC-stand komt in
+    `_gc_uit`'s eigen `finally` terug, ook bij een afgebroken lading; een aanroeper die de
+    GC zelf al uit had houdt hem uit. Het cacheformaat en het antwoord blijven ongewijzigd,
+    alleen de laadtijd zakt.
     """
     begin = time.perf_counter()
     if not gebruik_cache:
@@ -522,7 +545,7 @@ def laad_met_cache(
             melding = f"De cache in {map_} is onbruikbaar ({onvertrouwd}); opnieuw ingelezen."
         else:
             try:
-                with pad_structuren.open("rb") as bestand:
+                with pad_structuren.open("rb") as bestand, bestand_module._gc_uit():
                     velden = pickle.load(bestand)
                 # Onder hetzelfde foutbeleid (issue #48): een pickle die wél laadt maar geen
                 # bruikbare velden geeft -- een niet-mapping, of verkeerde/ontbrekende sleutels

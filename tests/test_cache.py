@@ -7,6 +7,7 @@ in de sleutel.
 
 from __future__ import annotations
 
+import gc
 import inspect
 import logging
 import os
@@ -156,6 +157,46 @@ def test_de_luie_graaf_geeft_per_leesbewerking_hetzelfde_als_een_echte_graafinde
 
         assert vraag(warm.graph) == verwacht
         assert _graafleesregels(caplog) == 1, "en een tweede aanraking leest niet opnieuw"
+
+
+def test_de_gc_staat_uit_tijdens_beide_pickle_loads(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """De cyclische GC ligt stil rond beide `pickle.load`-plekken (issue #59).
+
+    De structurenlading in `laad_met_cache` en de graaflading in `LuieGraaf._geladen`
+    bouwen samen miljoenen containers uit de pickle; de cyclische GC loopt daar telkens
+    opnieuw doorheen zonder dat er een kringetje kan ontstaan (de heropgebouwde objecten
+    wijzen alleen naar beneden). Net als op de koude leesweg (`bestand._gc_uit`) hoort de
+    GC daarom uit te staan tijdens het laden -- en de oude stand hersteld te zijn zodra het
+    laden klaar is, ook voor een afnemer die de graaf lui vanuit een check aanraakt.
+
+    We bewijzen het aan `pickle.load` zelf: een spion legt `gc.isenabled()` vast op het
+    moment dat de load draait. Beide plekken horen `False` te zien, en de procesbrede
+    GC-stand hoort er na elke lading weer bij te staan zoals hij ervoor stond.
+    """
+    laad_met_cache(VOORBEELD, [], cache_dir=tmp_path)  # koud: bouwt de cache
+
+    gc_tijdens_load: list[bool] = []
+    echte_load = pickle.load
+
+    def spion(*args: object, **kwargs: object) -> object:
+        gc_tijdens_load.append(gc.isenabled())
+        return echte_load(*args, **kwargs)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(cache_module.pickle, "load", spion)
+
+    assert gc.isenabled(), "voorwaarde: de GC staat aan vóór het laden"
+
+    warm, uitslag = laad_met_cache(VOORBEELD, [], cache_dir=tmp_path)
+    assert uitslag.bron == "cache"
+    assert gc_tijdens_load == [False], "de GC moet uit tijdens de structuren-pickle.load"
+    assert gc.isenabled(), "de GC-stand is hersteld na de structurenlading"
+
+    assert isinstance(warm.graph, LuieGraaf)
+    len(warm.graph)  # eerste aanraking -> graaf-pickle.load
+    assert gc_tijdens_load == [False, False], "de GC moet ook uit tijdens de graaf-pickle.load"
+    assert gc.isenabled(), "de GC-stand is hersteld na de graaflading"
 
 
 def test_de_sleutel_verandert_mee_met_de_lader(tmp_path: Path, monkeypatch) -> None:

@@ -1,6 +1,18 @@
 # Changelog
 
 ## [Unreleased]
+- De cyclische GC ligt stil rond beide `pickle.load`-plekken van de cache (issue #59,
+  performance; **additief** — geen signatuur-, retourvorm- of gedragswijziging). De
+  structurenlading in `laad_met_cache` en de graaflading in `LuieGraaf._geladen` depicklen
+  nu binnen `bestand._gc_uit`, net als de koude leesweg dat al deed; de cyclische GC is er
+  zuivere verspilling omdat de heropgebouwde containers alleen naar beneden wijzen. Op het
+  warme pad zakt de graaflading gemeten van ~7,8 s naar ~3,5 s en de structurenlading van
+  ~1,8 s naar ~1,0 s (gepaard, n≥3, eenduidig; de 2,75 s uit het issue was de meting in een
+  leeg proces).
+  **Geen formaatwijziging:** de picklebytes blijven gelijk, `LADER_VERSIE` blijft `"2"` en
+  bestaande caches blijven geldig. Het neveneffect (procesbreed, en voor de graaf lui
+  afgaand vanuit de eerste leesbewerking van een check) staat in de docstrings van
+  `laad_met_cache` en `LuieGraaf._geladen`.
 - Opt-in byte-stabiele uitvoer voor de schrijflaag (issue #58, feature; **additief** — een
   nieuw keyword-only argument met default `False`, geen bestaande signatuur, retourvorm of
   byte-uitvoer geraakt). `schrijf_orox(..., *, deterministisch=False)` en

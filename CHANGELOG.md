@@ -1,6 +1,8 @@
 # Changelog
 
 ## [Unreleased]
+
+## [0.2.3] - 2026-09-05
 - Acht versie-juiste graafvraag-methoden op `GwswDataset` naast de #51-str-laag, plus
   `namen.korte_naam` (issue #72; **additief** — nieuwe methoden en een nieuwe publieke functie,
   geen bestaande signatuur, retourvorm of gedrag wijzigt). `houders`/`dragers` (hasPart- resp.

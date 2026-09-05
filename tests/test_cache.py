@@ -18,7 +18,7 @@ from pathlib import Path
 from types import ModuleType
 
 import pytest
-from rdflib import URIRef
+from rdflib import XSD, BNode, Literal, URIRef
 
 from gwsw_orox_helpers import cache as cache_module
 from gwsw_orox_helpers.bronnen import gebundelde_ontologie
@@ -756,21 +756,86 @@ def test_schrijf_atomair_ruimt_het_tijdelijke_bestand_op_bij_een_afgebroken_schr
 
     `_schrijf_atomair` schrijft eerst naar een `mkstemp`-bestand en hernoemt dat pas
     atomisch naar de doelnaam, zodat een lezer nooit een half geschreven bestand als
-    geldige cache ziet. Breekt het schrijven af -- hier een `KeyboardInterrupt` in
-    `pickle.dump`, precies de "afgebroken schrijfactie" uit de docstring -- dan vangt de
-    brede `except BaseException` hem op, verwijdert het tijdelijke bestand en gooit de fout
-    door. De `except` is bewust op `BaseException` en niet op `Exception`: juist een
-    Ctrl-C midden in de schrijf mag geen half bestand achterlaten.
+    geldige cache ziet. Breekt het schrijven af -- hier een `KeyboardInterrupt` in de
+    `dump` van `_SnellePickler` (sinds issue #63 de pickler van de schrijfweg), precies de
+    "afgebroken schrijfactie" uit de docstring -- dan vangt de brede `except BaseException`
+    hem op, verwijdert het tijdelijke bestand en gooit de fout door. De `except` is bewust op
+    `BaseException` en niet op `Exception`: juist een Ctrl-C midden in de schrijf mag geen
+    half bestand achterlaten.
     """
     pad = tmp_path / BESTAND_GRAAF
 
-    def afgebroken_dump(*args: object, **kwargs: object) -> None:
+    def afgebroken_dump(self: object, obj: object) -> None:
         raise KeyboardInterrupt("afgebroken tijdens het schrijven")
 
-    monkeypatch.setattr(cache_module.pickle, "dump", afgebroken_dump)
+    monkeypatch.setattr(cache_module._SnellePickler, "dump", afgebroken_dump)
 
     with pytest.raises(KeyboardInterrupt):
         cache_module._schrijf_atomair(pad, {"iets": 1})
 
     assert not pad.exists(), "de atomische hernoeming mag niet gebeurd zijn"
     assert list(tmp_path.glob("*.tijdelijk")) == [], "het tijdelijke bestand is opgeruimd"
+
+
+# --- Het snelpad in de schrijfweg (issue #63) ----------------------------------
+#
+# `_schrijf_atomair` pickelt de rdflib-termen via een `dispatch_table` die ze naar de snelle
+# constructors van `graaf` reduceert, in plaats van via de validerende `URIRef`/`Literal`-
+# constructors. pickle noemt die functies bij naam, dus het teruglezen kiest het snelpad
+# vanzelf. De picklevorm verandert daardoor; bestaande caches worden één keer herbouwd (de
+# `graaf.py`-hash in `LADERMODULES` plus de `LADER_VERSIE`-bump).
+
+
+def _kleine_index() -> GraafIndex:
+    """Een index met elke termvorm die de dispatch_table apart behandelt."""
+    index = GraafIndex()
+    s = URIRef("http://voorbeeld/s")
+    label = URIRef(RDFS + "label")
+    index.voeg_toe(s, TYPE, URIRef("http://voorbeeld/O"))  # URIRef-object
+    index.voeg_toe(BNode("b1"), label, Literal("kaal"))  # kale Literal + BNode-subject
+    index.voeg_toe(s, label, Literal("twee", lang="nl"))  # taal-literaal
+    index.voeg_toe(s, URIRef("http://voorbeeld/n"), Literal("42", datatype=XSD.integer))
+    return index
+
+
+def test_de_schrijfweg_pickelt_de_termen_via_de_snelpaden(tmp_path: Path) -> None:
+    """De pickle uit `_schrijf_atomair` refereert de snelpaden bij naam; teruglezen is graaf-gelijk.
+
+    Dat de reduce-functies de snelpaden noemen (en niet `URIRef`/`Literal`) is precies wat het
+    teruglezen langs `URIRef.__new__`/`Literal.__new__` weghaalt: pickle roept bij het laden de
+    genoemde functie aan. We tonen het aan de opcodes zelf (`pickletools` geeft elke globale naam
+    als stringargument terug) en bewijzen daarnaast dat het teruggelezen resultaat op elk punt
+    gelijk is aan het origineel.
+    """
+    import pickletools
+
+    index = _kleine_index()
+    pad = tmp_path / BESTAND_GRAAF
+    cache_module._schrijf_atomair(pad, index)
+
+    namen = {arg for _, arg, _ in pickletools.genops(pad.read_bytes()) if isinstance(arg, str)}
+    assert "_uriref_snel" in namen, "URIRef hoort via _uriref_snel gepickeld te zijn"
+    assert "_literal_string_snel" in namen, "de kale Literal hoort via _literal_string_snel te gaan"
+    assert "_literal_snel" in namen, "de taal-/getypeerde Literal hoort via _literal_snel te gaan"
+    assert "BNode" in namen, "de BNode hoort via de BNode-constructor terug te komen"
+    # Geen validerende constructors meer in de reduce-tupels.
+    assert "_uriref_snel" in namen and "URIRef" not in namen
+
+    with pad.open("rb") as bestand:
+        terug = pickle.load(bestand)
+
+    assert terug.gwsw_basis == index.gwsw_basis
+    assert len(terug) == len(index)
+    assert terug._spo == index._spo
+    assert terug._pos == index._pos
+    # De typen komen exact terug -- `==` op een dict zou een verkeerd termtype niet zien.
+    for (s_o, pp_o), (s_t, pp_t) in zip(index._spo.items(), terug._spo.items(), strict=True):
+        assert type(s_o) is type(s_t)
+        for (p_o, o_o), (p_t, o_t) in zip(pp_o.items(), pp_t.items(), strict=True):
+            assert type(p_o) is type(p_t)
+            assert type(o_o) is type(o_t)
+    # En de getypeerde literaal draagt na teruglezen nog datatype én de berekende waarde.
+    getal = terug._spo[URIRef("http://voorbeeld/s")][URIRef("http://voorbeeld/n")]
+    assert isinstance(getal, Literal)
+    assert getal.datatype == XSD.integer
+    assert getal.value == 42

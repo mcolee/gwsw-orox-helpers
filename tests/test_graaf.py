@@ -13,9 +13,14 @@ import hashlib
 
 import pyoxigraph
 import pytest
-from rdflib import RDF, RDFS, BNode, Graph, Literal, URIRef
+from rdflib import RDF, RDFS, XSD, BNode, Graph, Literal, URIRef
 
-from gwsw_orox_helpers.graaf import GraafIndex, _literal_string_snel, _uriref_snel
+from gwsw_orox_helpers.graaf import (
+    GraafIndex,
+    _literal_snel,
+    _literal_string_snel,
+    _uriref_snel,
+)
 
 NS = "http://data.gwsw.nl/1.6/totaal/"
 P_TYPE = RDF.type
@@ -249,6 +254,53 @@ def test_literal_string_snel_is_niet_te_onderscheiden_van_de_trage_weg(waarde: s
     assert snel.toPython() == traag.toPython()
 
 
+# De literaalvormen die het snelpad voor getypeerde/taal-literalen op de proef stellen: een
+# taal-literaal, een geldige integer/double/dateTime (waar `Literal.__new__` een Python-waarde
+# uit de lexicale vorm rekent en `ill_typed=False` zet), een `gmlLiteral` met een niet-herkend
+# datatype (waarde `None`, `ill_typed` `None`), een ill-typed integer (waarde `None`,
+# `ill_typed=True`) en de lege string. Elk gaat als `(lexicaal, taal, datatype)` de constructor
+# in; het snelpad krijgt de vier interne velden die de constructor daaruit afleidde.
+LITERAAL_GEVALLEN = [
+    ("två", "sv", None),
+    ("42", None, XSD.integer),
+    ("3.14E0", None, XSD.double),
+    ("2020-01-01T12:00:00", None, XSD.dateTime),
+    ("<gml:Point/>", None, URIRef("http://www.opengis.net/ont/geosparql#gmlLiteral")),
+    ("geen-getal", None, XSD.integer),
+    ("", None, None),
+]
+
+
+@pytest.mark.parametrize("lexicaal,taal,datatype", LITERAAL_GEVALLEN)
+def test_literal_snel_is_niet_te_onderscheiden_van_de_trage_weg(
+    lexicaal: str, taal: str | None, datatype: URIRef | None
+) -> None:
+    """`_literal_snel(...)` levert exact wat `Literal(value, lang=..., datatype=...)` levert.
+
+    De bewaker voor het getypeerde/taal-snelpad, naast die voor de kale vorm. Het snelpad
+    zet de vier interne velden (`_language`, `_datatype`, `_value`, `_ill_typed`) rechtstreeks
+    in plaats van de validerende constructor te laten rekenen; de reduce-functie in `cache.py`
+    voedt het bij het teruglezen met precies de waarden die de trage weg had afgeleid. Daarom
+    wordt hier niet alleen `==` maar ook `hash()`, `.n3()` en alle vier de afgeleide
+    eigenschappen (plus `.toPython()`) vergeleken -- `==` alleen zou een verkeerde `_value` of
+    `_ill_typed` niet zien. Hernoemt een rdflib-upgrade een van die velden of verandert hun
+    betekenis, dan hoort deze test rood te worden.
+    """
+    traag = Literal(lexicaal, lang=taal, datatype=datatype)
+    snel = _literal_snel(str(traag), traag.language, traag.datatype, traag.value, traag.ill_typed)
+
+    assert type(snel) is type(traag) is Literal
+    assert snel == traag and traag == snel
+    assert hash(snel) == hash(traag)
+    assert str(snel) == str(traag)
+    assert _n3(snel) == _n3(traag)
+    assert snel.datatype == traag.datatype
+    assert snel.language == traag.language
+    assert snel.value == traag.value
+    assert snel.ill_typed == traag.ill_typed
+    assert snel.toPython() == traag.toPython()
+
+
 # Het aantal unieke IRI's in de gebundelde GWSW 1.6-ontologie -- subject, predicaat en
 # object samen. Net als `AANTAL_TRIPELS_GWSW16` in `tests/test_dataset.py` is dit een
 # getal dat bij een ontologie-upgrade meeschuift; het meldt zich vanzelf, want deze test
@@ -345,6 +397,24 @@ def test_literal_snelpad_zet_elk_intern_veld_dat_rdflib_zelf_zet() -> None:
 
     snel = _literal_string_snel("een waarde")
     traag = Literal("een waarde")
+
+    for veld in velden:
+        assert getattr(snel, veld) == getattr(traag, veld), veld
+
+
+def test_literal_snel_zet_elk_intern_veld_dat_rdflib_zelf_zet() -> None:
+    """Dezelfde slot-bewaker voor het getypeerde snelpad: elk `Literal`-slot dat de
+    constructor zet, hoort `_literal_snel` ook te zetten.
+
+    Een `Literal` draagt geen `__dict__`, dus een slot dat het snelpad vergeet is geen `None`
+    maar een `AttributeError` bij de eerste aanraking. Een rdflib-upgrade die een vijfde intern
+    veld toevoegt, valt hier op in plaats van veel later op de leesweg.
+    """
+    velden = _slots(Literal)
+    assert velden, "een `Literal` hoort zijn interne velden in `__slots__` te dragen"
+
+    traag = Literal("42", datatype=XSD.integer)
+    snel = _literal_snel(str(traag), traag.language, traag.datatype, traag.value, traag.ill_typed)
 
     for veld in velden:
         assert getattr(snel, veld) == getattr(traag, veld), veld

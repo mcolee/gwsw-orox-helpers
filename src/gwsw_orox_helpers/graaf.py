@@ -121,6 +121,44 @@ def _literal_string_snel(value: str) -> Literal:
     return literal
 
 
+def _literal_snel(
+    value: str,
+    language: str | None,
+    datatype: URIRef | None,
+    python_value: object,
+    ill_typed: bool | None,
+) -> Literal:
+    """Bouwt een getypeerde of taal-`Literal` zonder de constructor, uit de vier interne velden.
+
+    Waar `_literal_string_snel` alleen de kale `xsd:string`-vorm dekt (daar zijn de vier velden
+    voorspelbaar), krijgt deze functie ze alle vier mee: de taal, het datatype, de al berekende
+    Python-`value` en de `ill_typed`-vlag. Dat is precies wat er in `Literal.__new__` uit rekenen
+    komt -- `_castLexicalToPython` voor de waarde en de well-formed-check voor de vlag -- en juist
+    dat rekenwerk is bij het teruglezen van de cache dubbel: pyoxigraph heeft de literaal bij het
+    inlezen al ontleed. De reduce-functie in `cache.py` haalt de vier velden van een bestaande
+    `Literal` (via `str()` en de publieke `.language`/`.datatype`/`.value`/`.ill_typed`) en voedt
+    ze hier bij het depicklen weer in, zodat `pickle.load` deze weg neemt in plaats van
+    `Literal.__new__`.
+
+    **Dit reikt naar rdflib-interne veldnamen** (rdflib 7.6.0), net als `_literal_string_snel`, en
+    om dezelfde reden: er is geen publieke weg om de vier velden rechtstreeks te zetten. De bewaker
+    is `tests/test_graaf.py::test_literal_snel_is_niet_te_onderscheiden_van_de_trage_weg` (over een
+    reeks literaalvormen) plus de slot-bewaker `test_literal_snel_zet_elk_intern_veld_dat_rdflib_
+    zelf_zet`. Hernoemt een rdflib-upgrade een van die velden of verandert hun betekenis, dan wordt
+    die test rood.
+
+    Het `datatype` komt binnen als `URIRef` (of `None`) -- de reduce-functie geeft `term.datatype`
+    door, dat al een `URIRef` is -- en wordt rechtstreeks gezet; er is hier geen constructor die
+    het nog naar `URIRef` zou wikkelen.
+    """
+    literal = str.__new__(Literal, value)
+    literal._language = language
+    literal._datatype = datatype
+    literal._value = python_value
+    literal._ill_typed = ill_typed
+    return literal
+
+
 def naar_rdflib(
     term: pyoxigraph.NamedNode | pyoxigraph.BlankNode | pyoxigraph.Literal | pyoxigraph.Triple,
 ) -> RdfNode:

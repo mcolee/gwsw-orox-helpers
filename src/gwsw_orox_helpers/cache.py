@@ -14,6 +14,7 @@ wordt er opnieuw ingelezen.
 
 from __future__ import annotations
 
+import copyreg
 import logging
 import os
 import pickle
@@ -30,6 +31,7 @@ from typing import Any, cast
 import pyoxigraph
 import rdflib
 import shapely
+from rdflib import BNode, Literal, URIRef
 from rdflib.term import Node as RdfNode
 
 from gwsw_orox_helpers import bestand as bestand_module
@@ -47,7 +49,12 @@ from gwsw_orox_helpers import rdfmotor as rdfmotor_module
 from gwsw_orox_helpers.bronnen import GEBUNDELDE_VERSIES, gebundelde_ontologie_voor
 from gwsw_orox_helpers.dataset import GwswDataset, load_dataset, ontologiepaden
 from gwsw_orox_helpers.errors import BestandError
-from gwsw_orox_helpers.graaf import GraafIndex
+from gwsw_orox_helpers.graaf import (
+    GraafIndex,
+    _literal_snel,
+    _literal_string_snel,
+    _uriref_snel,
+)
 from gwsw_orox_helpers.voortgang import NUL_VOORTGANG, Voortgang
 
 logger = logging.getLogger(__name__)
@@ -55,7 +62,12 @@ logger = logging.getLogger(__name__)
 # Losstaand van de bestandshashes, zodat een test hem kan verzetten. Bij "2" sinds
 # issue #45: de cache is een vertrouwensgrens geworden (rechtencheck vóór elke
 # `pickle.load`), dus bestaande caches uit vóór die verharding vervallen één keer.
-LADER_VERSIE = "2"
+# Bij "3" sinds issue #63: de schrijfweg pickelt de rdflib-termen via een `dispatch_table`
+# (`_SnellePickler`) naar de snelpaden van `graaf`, wat de picklevorm verandert. `cache.py`
+# staat niet in `LADERMODULES` (het staat in `BUITEN_DE_SLEUTEL`), dus die vormwijziging
+# invalideert de sleutel niet vanzelf; deze bump doet dat wel. Bestaande caches worden zo
+# één keer herbouwd -- bedoelde mechaniek.
+LADER_VERSIE = "3"
 
 BESTAND_STRUCTUREN = "structuren.pickle"
 BESTAND_GRAAF = "graaf.pickle"
@@ -626,6 +638,68 @@ def _schrijf(map_: Path, dataset: GwswDataset) -> None:
     _schrijf_atomair(map_ / BESTAND_GRAAF, dataset.graph)
 
 
+def _reduce_uriref(term: URIRef) -> tuple[Callable[[str], URIRef], tuple[str]]:
+    """Pickelt een `URIRef` als `_uriref_snel(str)` in plaats van `URIRef(str)` (issue #63).
+
+    `URIRef.__reduce__` levert `(URIRef, (str,))`, wat bij het teruglezen `URIRef.__new__` met
+    zijn IRI-validatieregex draait -- dubbel werk, want pyoxigraph heeft de IRI bij het inlezen
+    al gecontroleerd. `_uriref_snel` neemt het `str.__new__`-pad rechtstreeks; pickle noemt de
+    functie bij naam, dus het laden kiest haar vanzelf.
+    """
+    return (_uriref_snel, (str(term),))
+
+
+def _reduce_bnode(term: BNode) -> tuple[type[BNode], tuple[str]]:
+    """Pickelt een `BNode` via zijn gewone constructor -- er is geen snelpad nodig.
+
+    `BNode(str)` doet geen validatie die de moeite van omzeilen waard is; dit reduce houdt de
+    `BNode` alleen expliciet in de `dispatch_table` zodat de vier termvormen op één plek staan.
+    """
+    return (BNode, (str(term),))
+
+
+def _reduce_literal(
+    term: Literal,
+) -> tuple[Callable[..., Literal], tuple[Any, ...]]:
+    """Pickelt een `Literal` via het passende snelpad in plaats van `Literal(str, lang, dt)`.
+
+    `Literal.__reduce__` levert `(Literal, (str, language, datatype))` en laat de vier interne
+    velden bij het teruglezen door `Literal.__new__` herberekenen (`_castLexicalToPython` en de
+    well-formed-check). Een kale `xsd:string`-literaal gaat via `_literal_string_snel` (die vier
+    velden zijn dan voorspelbaar); elke taal- of getypeerde literaal via `_literal_snel`, dat de
+    al berekende Python-`value` en de `ill_typed`-vlag meekrijgt. Beide worden uit de publieke
+    eigenschappen van de literaal gehaald, zodat de schrijfweg zelf niet naar rdflib-interne
+    velden reikt -- alleen `_literal_snel` doet dat, met zijn eigen bewaker in `tests/test_graaf`.
+    """
+    if term.language is None and term.datatype is None:
+        return (_literal_string_snel, (str(term),))
+    return (
+        _literal_snel,
+        (str(term), term.language, term.datatype, term.value, term.ill_typed),
+    )
+
+
+class _SnellePickler(pickle.Pickler):
+    """Een `Pickler` die de rdflib-termen via de snelpaden van `graaf` reduceert (issue #63).
+
+    De `dispatch_table` bepaalt hoe een object van een bepaald type gepickeld wordt; voor de
+    drie rdflib-termtypen wijst hij naar de reduce-functies hierboven. De `copyreg`-tabel gaat
+    eronder mee, want een eigen `dispatch_table` vervangt (niet: vult aan) de `copyreg`-tabel
+    die de standaardpickler zou raadplegen; die tabel is standaard leeg, maar een afnemer of
+    bibliotheek die er iets in registreert hoort hier hetzelfde antwoord te krijgen als bij
+    de kale pickler. Types die er niet in staan (ook de `datetime`- en `Decimal`-waarden van
+    getypeerde literalen) vallen op de gewone `__reduce_ex__`-weg terug, dus de containers
+    (`GraafIndex`, de dicts, de tuples) picklen ongewijzigd.
+    """
+
+    dispatch_table = {
+        **copyreg.dispatch_table,
+        URIRef: _reduce_uriref,
+        BNode: _reduce_bnode,
+        Literal: _reduce_literal,
+    }
+
+
 def _schrijf_atomair(pad: Path, inhoud: object) -> None:
     """Schrijft eerst naar een tijdelijk bestand en hernoemt dan atomisch.
 
@@ -638,6 +712,11 @@ def _schrijf_atomair(pad: Path, inhoud: object) -> None:
     runs op dezelfde sleutel (dezelfde invoer, dezelfde lader) schreven anders
     door elkaar heen naar dezelfde tijdelijke naam en het laatste `replace()` kon
     het half geschreven bestand van de ander overnemen.
+
+    De pickle loopt via `_SnellePickler` (issue #63): de rdflib-termen worden naar de snelle
+    constructors van `graaf` gereduceerd, zodat het teruglezen `URIRef.__new__`/`Literal.__new__`
+    en hun validatie overslaat. De handtekening en de atomaire garantie blijven ongewijzigd; het
+    is enkel de pickler die wisselt.
     """
     _maak_cachemap(pad.parent)
     beschrijving, tijdelijk_pad = tempfile.mkstemp(
@@ -646,7 +725,7 @@ def _schrijf_atomair(pad: Path, inhoud: object) -> None:
     tijdelijk = Path(tijdelijk_pad)
     try:
         with os.fdopen(beschrijving, "wb") as bestand:
-            pickle.dump(inhoud, bestand, protocol=5)
+            _SnellePickler(bestand, protocol=5).dump(inhoud)
         tijdelijk.replace(pad)
     except BaseException:
         tijdelijk.unlink(missing_ok=True)

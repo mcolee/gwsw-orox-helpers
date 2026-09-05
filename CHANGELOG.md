@@ -1,6 +1,18 @@
 # Changelog
 
 ## [Unreleased]
+- De cache pickelt de rdflib-termen via een snelpad (issue #63, performance; **additief** —
+  geen signatuur-, retourvorm- of gedragswijziging; `_schrijf_atomair`, `CacheUitslag`,
+  `LuieGraaf` en `laad_met_cache` houden hun vorm, het teruggelezen resultaat is graaf- en
+  byte-gelijk). `_schrijf_atomair` schrijft de pickle nu met een `pickle.Pickler`-subklasse
+  (`_SnellePickler`) met een `dispatch_table`: `URIRef → _uriref_snel`, `BNode → BNode`,
+  kale `Literal → _literal_string_snel`, taal-/getypeerde `Literal → _literal_snel` (nieuw in
+  `graaf`). Zo reconstrueert `pickle.load` de ~1,88 M termen via de snelle constructors in
+  plaats van via `URIRef.__new__`/`Literal.__new__` met hun validatie (pyoxigraph heeft de
+  termen bij het inlezen al gecontroleerd). **Formaatwijziging: bestaande caches worden één
+  keer herbouwd** — `LADER_VERSIE` gaat van `"2"` naar `"3"` (`cache.py` staat niet in
+  `LADERMODULES`, dus de bump is de knop die de sleutel verzet); de eerstvolgende run leest
+  opnieuw in en is daarna weer een treffer.
 - `GraafIndex` draagt een hybride binnenvorm (issue #62, performance; **additief** — geen
   signatuur-, retourvorm- of gedragswijziging; het leescontract, de volgorde- en de
   dedupe-garantie blijven byte-voor-byte gelijk, `GraafIndex()` blijft parameterloos). De

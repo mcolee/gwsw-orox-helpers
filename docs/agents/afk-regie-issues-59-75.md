@@ -22,13 +22,20 @@ op 05-09 in een grill; ze staan als kaart bovenaan elke issue-body en hieronder.
 
 | Sessie | Issues | Afhankelijkheden |
 |---|---|---|
-| 1 | #59 → #60 → #61 → #62 → #63 | #63 ná #62 (picklevorm) |
-| 2 | #64 → #65 → #66 → #67 → #68 | #65 ná #64 (positietabel-vorm) |
-| 3 | #69 → #70 → #71 → #72 → #73 | #70 ná #62; #73 is de laatste stap vóór release A |
-| auteur | **release A = 0.2.3**: `uv version --bump patch`, CHANGELOG, tag `v0.2.3`, PR naar `main` | zie `CLAUDE.md`, Werkwijze |
-| 4 | nlriochecker: tag-bump naar A + migratieclusters (issues daar nog aan te maken) | ná release A |
-| 5 | #74 (verwijdering, contract) → release B (auteur; minor, want breuk in de publieke API vóór 1.0) → nlriochecker bumpt naar B | ná sessie 4 |
-| los | #75 (onderzoek tussenvorm; rapport, geen merge) | past in elke sessie met ruimte |
+| 1 | #59 → #60 → #61 → #62 → #63 | #63 ná #62 (picklevorm) — **af 05-09, dev=c7ea09b** |
+| 2 | #64 → #65 → #66 → #67 → #68 | #65 ná #64 (positietabel-vorm) — **af 05-09** |
+| 3 (headless) | #69 → #70 → #71 → #72, dan **release 0.2.3** als GitHub-Release (tag, merge-commit-PR naar `main`, géén PyPI) | #70 ná #62; opdracht in `afk-regie-sessie3-start.md`, gestart door `afk-regie-sessie3-start.sh` |
+
+**Planwijziging van de auteur (05-09-2026, tijdens sessie 2).** De oorspronkelijke tabel had
+release A na #73, een nlriochecker-migratiesessie, #74 (contractverwijdering) met release B, en
+#75 (onderzoek tussenvorm). Dat is vervallen: **#73, #74 en #75 zijn verwijderd** uit de tracker,
+er zijn geen tussenreleases en geen nlriochecker-migratie in deze reeks, en alles landt op `dev`.
+Sessie 3 sluit af met de versiebump naar 0.2.3 en de merge naar `main`; publiceren is sinds
+diezelfde dag een Harde regel in `CLAUDE.md`: **alleen een GitHub-Release met wheel en sdist,
+nooit PyPI of TestPyPI** (`release.yml` is daarop omgebouwd, 1d94f86). Sessie 3 draait
+**headless** (`claude -p`, auto-permissies) via het startscript; de auteur start dat script zelf
+in een terminal, omdat de auto-mode-classifier het starten van zo'n sessie vanuit Claude
+blokkeert. Het slotrapport van sessie 3 komt in `docs/agents/afk-regie-sessie3-slotrapport.md`.
 
 Eén issue = commit + push + CI groen + comment + close vóór het volgende. Een issue dat niet
 groen of niet aangetoond is, blijft open met een comment die de echte toestand beschrijft; ga
@@ -67,11 +74,8 @@ door met het volgende issue dat er niet op leunt.
   docstrings van `LuieGraaf._geladen` en `laad_met_cache`.
 - `CacheUitslag` krijgt een additief veld met default voor de graaflaadtijd (#71); de pin in
   `tests/test_publieke_api.py` groeit mee, met CHANGELOG-regel.
-- Contract (#74): de rdflib-typed functies en álle 1.6-constanten (`GWSW`, `HAS_*`, `KLASSE_*`)
-  gaan uit het publieke oppervlak zonder deprecatiefase, en `GwswDataset.graph` wordt een
-  protocol; dat mag pas ná release A en ná de nlriochecker-migratie, met CHANGELOG en bump in
-  beide repo's en `uv lock` aan de nlriochecker-kant. Tot #73 geland is geldt de Harde regel
-  onverkort: raakt een issue eerder een bestaand contract, dan stopt de agent.
+- Contract (was #74, **verwijderd 05-09**): de contractverwijdering is uit de reeks; de Harde
+  regel geldt onverkort: raakt een issue een bestaand contract, dan stopt de agent.
 
 ## Drie aandachtspunten die de schrijvers vonden (staan in §6 van het issue)
 
@@ -81,9 +85,9 @@ door met het volgende issue dat er niet op leunt.
   comment anders zegt.
 - **#62:** `tests/test_dataset.py::_tripels` itereert over de objecten en moet mee met de hybride
   vorm; "slaagt vanzelf" uit het rapport klopt niet.
-- **#74:** `GraafLezer` heeft twee leden, `GwswDataset` gebruikt ook `subjects` en
-  `heeft_subject`; het veld letterlijk naar `GraafLezer` zetten breekt mypy. Het issue beschrijft
-  een breder protocol dat `GraafIndex` en `LuieGraaf` vervullen.
+- **#74 (verwijderd):** `GraafLezer` heeft twee leden, `GwswDataset` gebruikt ook `subjects` en
+  `heeft_subject`; het veld letterlijk naar `GraafLezer` zetten breekt mypy. Bewaard als
+  aandachtspunt voor als de auteur de contractwijziging ooit oppakt.
 
 ## Slotrapport per sessie
 

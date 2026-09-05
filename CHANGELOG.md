@@ -1,6 +1,20 @@
 # Changelog
 
 ## [Unreleased]
+- `CacheUitslag` krijgt het additieve veld `graaf_seconden: float | None = None` (issue #71;
+  **additief** — nieuw veld met default, ná de bestaande vier, dus elke bestaande constructie en
+  positionele lezing blijft werken; precedent `bereikcontrole`, #28). Het draagt op een cachetreffer
+  de wandkloktijd van de eerste graafaanraking (de luie graafpickle van schijf), en `None` zolang
+  die niet gebeurd is of het geen luie graaf was (op een misser is de graaf gretig geladen binnen
+  `seconden`); zo wordt de graaflaadtijd — de winst van rang 1 (#59) — meetbaar via de publieke API.
+  Daarnaast bijgestelde beloften (docs/docstrings, geen runtime-wijziging): de graaf komt in de
+  praktijk elke standaardrun aan de beurt maar pas bij de eerste check die hem raakt; de lui-belofte
+  van de schrijfweg is scherper geformuleerd (de bron komt nooit in het geheugen, het plan draagt een
+  positietabel van O(1) byte per quad); `docs/architectuur.md` legt vast dat `pyoxigraph.Store` geen
+  derde pad is en dat parallellisme en de Rust-routes gemeten en bewust niet gedaan zijn; de
+  fork-bnode-valkuil staat in de `rdfmotor`-docstring. `scripts/benchmark.py --profiel-map` schrijft
+  naast het cProfile-bestand een kale fasetabel. Drifttest: `"24.20"^^xsd:decimal` komt byte-gelijk
+  door `schrijf_orox`.
 - Opruiming in de cache- en bestandslaag (issue #69; **additief** — alle namen privé, geen
   signatuur, retourvorm of gedrag op de cachetreffer/-misser wijzigt). (a) `cache._herlees_graaf`
   (de herstelweg van een beschadigde luie graafpickle) leest alleen nog de datasetgraaf via

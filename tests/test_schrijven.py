@@ -558,6 +558,31 @@ def test_lege_prefixsleutel_is_de_dataset_basis(tmp_path: Path) -> None:
     assert "@prefix : <http://sparql.gwsw.nl/x#> ." in doel.read_text(encoding="utf-8")
 
 
+def test_decimal_literaal_komt_byte_gelijk_door_schrijf_orox(tmp_path: Path) -> None:
+    """`"24.20"^^xsd:decimal` blijft byte-voor-byte staan; de schrijfweg normaliseert niets (#71).
+
+    De gestreamde schrijfweg is de enige lexicaal getrouwe: een route via `pyoxigraph.Store`
+    (gemeten en gediskwalificeerd, zie `docs/architectuur.md`, "Store is geen derde pad") zou
+    `"24.20"^^xsd:decimal` tot `"24.2"` normaliseren en zo de belofte "niets genormaliseerd"
+    breken. Deze drifttest bewaakt dat de trailing nul op de geschreven bytes overleeft. De
+    serializer schrijft de decimaal in Turtle-korting (`24.20`, zonder quotes of `^^xsd:decimal`),
+    wat lexicaal identiek is aan `"24.20"^^xsd:decimal`; de nul telt, `24.2` zou normalisatie zijn.
+    """
+    bron = tmp_path / "decimaal.ttl"
+    bron.write_text(
+        "@prefix : <http://x#> .\n"
+        "@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .\n"
+        ':a :diepte "24.20"^^xsd:decimal .\n',
+        encoding="utf-8",
+    )
+    doel = tmp_path / "decimaal_terug.ttl"
+    schrijf_orox(bron, doel)
+
+    tekst = doel.read_bytes()
+    assert b"24.20" in tekst, "de trailing nul mag niet genormaliseerd worden"
+    assert b":diepte 24.2 " not in tekst, "24.20 mag niet tot 24.2 genormaliseerd zijn"
+
+
 def test_juinen_blijft_isomorf(tmp_path: Path) -> None:
     """De echte voorbeeldexport (119 kB) overleeft de heen-en-weerweg ongeschonden."""
     doel = tmp_path / "juinen_terug.ttl"

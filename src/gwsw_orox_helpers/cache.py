@@ -3,8 +3,13 @@
 Gemeten op De Wolden en Hoogeveen: de structuren teruglezen kost circa 2 s en de graafindex
 uit de pickle teruglezen circa 6 s (91 MB; de rdflib-graaf was circa 30 s). Picklen wint het
 van warm herbouwen uit de pyoxigraph-stream, dat circa 20 s kost -- de parse zelf is snel,
-maar de indexopbouw met rdflib-termen niet. De graaf wordt bovendien pas ingelezen als een
-check hem aanraakt; wie alleen geometrie- en netwerkchecks draait, betaalt hem niet.
+maar de indexopbouw met rdflib-termen niet. De graaf wordt bovendien pas ingelezen als de
+eerste check hem aanraakt -- maar dat is in de praktijk élke standaardrun: `subjects_of_class`,
+`graph_is_a`, `onderdelen`, ATTR-014 en de NET-checks bevragen de graafpickle. Het luie laden
+verschuift die kosten dus naar het eerste gebruik en spaart ze alleen op een run die
+uitsluitend geometrie of structuur leest; het warme pad meet sinds issue #59 9,9 -> ~2,7 s. De
+tweedeling van de cache verschuift de graaflaadtijd, ze bespaart hem niet -- rang 1 (issue #59)
+maakt de graafpickle zelf sneller.
 
 Het gevaar van een cache is dat hij achterloopt. De sleutel bevat daarom niet alleen
 de inhoud van de invoerbestanden maar ook de broncode van de lader en de versies van
@@ -149,21 +154,39 @@ LADERMODULES = (
 
 @dataclass(frozen=True)
 class CacheUitslag:
-    """Waar de dataset vandaan kwam en wat dat kostte."""
+    """Waar de dataset vandaan kwam en wat dat kostte.
+
+    `graaf_seconden` (issue #71) draagt de wandkloktijd van de **eerste graafaanraking** op een
+    cachetreffer -- de tijd die de luie graafpickle van schijf komt (`LuieGraaf._geladen`, sinds
+    rang 1 gemeten 7,7 -> ~3,5 s op het warme pad). Zolang die aanraking niet gebeurd is, of de
+    graaf geen luie graaf was (op een misser is hij gretig geladen binnen `seconden`), staat het
+    veld op `None`. Zo wordt de graaflaadtijd -- die niet in `seconden` zit; `seconden` meet op een
+    treffer alleen de structurenlading -- meetbaar via de publieke API in plaats van alleen via de
+    meetstraat.
+
+    **Het veld is additief en wordt lui ingevuld.** De dataclass is `frozen`, dus `laad_met_cache`
+    reikt de `LuieGraaf` een callback aan die het veld met `object.__setattr__` zet zodra
+    `_geladen` gelopen heeft; de constructie hierboven laat het op de default `None` staan. Elke
+    bestaande (positionele) constructie van `CacheUitslag` blijft daarom werken.
+    """
 
     bron: str  # 'cache' of 'bestand'
     sleutel: str
     seconden: float
     melding: str = ""
+    graaf_seconden: float | None = None
 
 
 class LuieGraaf:
     """Een graafindex die pas van schijf komt als er iets uit gevraagd wordt.
 
     De checks gebruiken de graaf voor onderdelen die niet in de structuren zitten
-    (hasPart, hasConnection, labels van drempels). Dat is een minderheid van de
-    checks, en de graaf teruglezen kost tot een minuut; hem pas laden bij het eerste
-    gebruik scheelt die tijd in alle andere runs.
+    (hasPart, hasConnection, labels van drempels). In de praktijk raakt élke standaardrun
+    hem aan -- `subjects_of_class`, `graph_is_a`, `onderdelen`, ATTR-014 en de NET-checks --
+    maar pas bij de eerste check die dat doet. Het luie laden spaart de graaf dus niet in
+    elke andere run, alleen in een run die uitsluitend geometrie of structuur leest; verder
+    verschuift het de kosten naar het eerste gebruik. De graafpickle zelf sneller maken is
+    rang 1 (issue #59; het warme pad ging 9,9 -> ~2,7 s).
 
     Blijkt de graafcache zelf beschadigd (de structurencache was dat niet, anders
     was er nooit een `LuieGraaf` gemaakt), dan is dat geen fout: `_herstel` leest
@@ -202,9 +225,18 @@ class LuieGraaf:
     Strikt luier dus, nooit gretiger -- en dat is precies waar deze klasse voor bestaat.
     """
 
-    def __init__(self, pad: Path, herstel: Callable[[], GraafIndex]) -> None:
+    def __init__(
+        self,
+        pad: Path,
+        herstel: Callable[[], GraafIndex],
+        bij_laden: Callable[[float], None] | None = None,
+    ) -> None:
         self._pad = pad
         self._herstel = herstel
+        # Optioneel: `laad_met_cache` geeft hier een callback mee die de wandkloktijd van de
+        # eerste graafaanraking op de `CacheUitslag` zet (issue #71). Additief -- de tests en
+        # het herstelpad die `LuieGraaf(pad, herstel)` met twee argumenten bouwen blijven werken.
+        self._bij_laden = bij_laden
         self._graaf: GraafIndex | None = None
 
     def _geladen(self) -> GraafIndex:
@@ -264,11 +296,17 @@ class LuieGraaf:
             # Beide takken hebben `self._graaf` gezet (de load, of het herstel); dit maakt dat
             # expliciet voor mypy op het samenkomstpunt.
             assert self._graaf is not None
+            laadtijd = time.perf_counter() - begin
             logger.info(
                 "Graaf van schijf gelezen in %.1f s (%d triples).",
-                time.perf_counter() - begin,
+                laadtijd,
                 len(self._graaf),
             )
+            # De wandkloktijd van deze eerste (en enige) aanraking terug naar de `CacheUitslag`
+            # (issue #71). Buiten de `if self._graaf is None` zou een tweede aanroep hem opnieuw
+            # melden; hierbinnen loopt hij precies één keer.
+            if self._bij_laden is not None:
+                self._bij_laden(laadtijd)
         return self._graaf
 
     def _schrijf_indien_vertrouwd(self) -> None:
@@ -611,7 +649,17 @@ def laad_met_cache(
                 # (`tests/test_publieke_api.py`), en dat veld verbreden naar een protocol is
                 # een auteursbeslissing (`CLAUDE.md`, Harde regels; apart geparkeerd). Deze
                 # cast blijft dus staan tot die stap gezet is.
-                luie = cast(GraafIndex, LuieGraaf(pad_graaf, herstel))
+                uitslag = CacheUitslag("cache", sleutel, time.perf_counter() - begin)
+
+                # De graaflaadtijd is op een treffer onzichtbaar in `seconden` (die meet de
+                # structurenlading); een callback op de luie graaf zet hem op `graaf_seconden`
+                # zodra de eerste check de graaf van schijf haalt (issue #71). `CacheUitslag` is
+                # frozen, dus via `object.__setattr__` -- hetzelfde `uitslag`-object dat we
+                # teruggeven, dus de afnemer ziet de tijd na zijn eerste graafaanraking staan.
+                def _meld_graaftijd(seconden: float) -> None:
+                    object.__setattr__(uitslag, "graaf_seconden", seconden)
+
+                luie = cast(GraafIndex, LuieGraaf(pad_graaf, herstel, bij_laden=_meld_graaftijd))
                 # `source` (en bij een expliciete ontologieopgave ook `ontologies`) komt uit
                 # de pickle van de éérste lezing. De sleutel hasht alleen `pad.name`, dus een
                 # gelijknamig, inhoudsgelijk bestand uit een andere map treft dezelfde cache;
@@ -621,7 +669,7 @@ def laad_met_cache(
                 dataset = replace(gecachet, graph=luie, source=Path(dataset_path))
                 if ontology_paths is not None:
                     dataset = replace(dataset, ontologies=tuple(ontologiepaden(ontology_paths)))
-                return dataset, CacheUitslag("cache", sleutel, time.perf_counter() - begin)
+                return dataset, uitslag
 
     dataset = load_dataset(dataset_path, ontology_paths, fallback_encoding, voortgang=voortgang)
     # De lezing is al geslaagd; kan de cache niet weggeschreven worden (een read-only

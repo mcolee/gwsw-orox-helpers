@@ -8,6 +8,12 @@ ongewijzigd de deur uit (Turtle kent geen benoemde grafen, dus byte-gelijk aan d
 Triple). Staat hij aan, dan komen waar een geknipte geometrieknoop stond de stukken met hun
 knipmerken, en krijgen blanke knopen hun vaste stroomvolgorde-naam. Wat er wel en niet over
 de grens mag blijven wijzen, staat in de docstring van `gwsw_orox_helpers.clip`.
+
+Scherp geformuleerd is de lui-belofte van de schrijfweg: **de bron zelf komt nooit in het
+geheugen; het plan mag een positietabel van O(1) byte per quad dragen.** De positietabel
+hierboven (issue #64) is per constructie conform die belofte -- een masker-byte plus een
+vlag per stroompositie, geen quads. Een variant die de hele bron één keer als graaf of als
+`str` in het geheugen zou zetten, keert de belofte om en hoort hier dus niet thuis.
 """
 
 from __future__ import annotations

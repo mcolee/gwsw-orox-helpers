@@ -476,8 +476,14 @@ HANDTEKENINGEN: dict[str, str] = {
         "fallback_encoding: 'str | None' = None) -> 'str'"
     ),
     "cache.standaard_cachemap": "() -> 'Path'",
+    # `graaf_seconden` kwam er additief bij in issue #71: een nieuw veld met default, ná de
+    # bestaande vier, dat op een cachetreffer de wandkloktijd van de eerste graafaanraking draagt
+    # (en `None` blijft zolang de luie graaf niet geladen is of het geen luie graaf was). Elke
+    # bestaande constructie en elke positionele lezing blijft werken -- precedent `bereikcontrole`
+    # (#28). CHANGELOG-regel; geen contractbreuk, dus geen bump in nlriochecker nodig.
     "cache.CacheUitslag": (
-        "(bron: 'str', sleutel: 'str', seconden: 'float', melding: 'str' = '') -> None"
+        "(bron: 'str', sleutel: 'str', seconden: 'float', melding: 'str' = '', "
+        "graaf_seconden: 'float | None' = None) -> None"
     ),
     # Voortgang als protocol.
     "voortgang.NulVoortgang": "()",
@@ -541,7 +547,7 @@ VELDEN: dict[str, tuple[str, ...]] = {
     "dataset.Aspect": ("kind", "value", "reference", "inwinning"),
     "dataset.Inwinning": ("wijze", "datum"),
     "dataset.Vulwaarde": ("kind", "value"),
-    "cache.CacheUitslag": ("bron", "sleutel", "seconden", "melding"),
+    "cache.CacheUitslag": ("bron", "sleutel", "seconden", "melding", "graaf_seconden"),
 }
 
 # De IRI-constanten die nlriochecker rechtstreeks importeert; hun waarde is het contract.

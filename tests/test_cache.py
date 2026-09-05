@@ -160,6 +160,38 @@ def test_de_luie_graaf_geeft_per_leesbewerking_hetzelfde_als_een_echte_graafinde
         assert _graafleesregels(caplog) == 1, "en een tweede aanraking leest niet opnieuw"
 
 
+def test_de_cacheuitslag_draagt_de_graaflaadtijd_op_het_cachepad(tmp_path: Path) -> None:
+    """`graaf_seconden` is None tot de luie graaf geladen is, daarna een float > 0 (issue #71).
+
+    Het additieve veld maakt de winst van rang 1 (de graaflaadtijd, 7,7 -> ~2,75 s in een leeg
+    proces, ~3,5 s op het warme pad) meetbaar via de publieke API. Op een cachetreffer meet
+    `seconden` alleen de structurenlading; de graaf komt pas lui van schijf bij de eerste
+    aanraking, en dán -- en niet eerder -- draagt `graaf_seconden` zijn wandkloktijd.
+    """
+    laad_met_cache(VOORBEELD, [], cache_dir=tmp_path)  # koud: bouwt de cache
+    warm, uitslag = laad_met_cache(VOORBEELD, [], cache_dir=tmp_path)
+
+    assert uitslag.bron == "cache"
+    assert uitslag.graaf_seconden is None, "vóór de eerste aanraking is de graaftijd onbekend"
+
+    assert isinstance(warm.graph, LuieGraaf)
+    len(warm.graph)  # eerste aanraking -> graaf-pickle.load
+
+    assert isinstance(uitslag.graaf_seconden, float)
+    assert uitslag.graaf_seconden > 0, "na de eerste aanraking draagt het veld de laadtijd"
+
+
+def test_de_cacheuitslag_op_de_misser_heeft_geen_graaftijd(tmp_path: Path) -> None:
+    """Op een misser is de graaf gretig geladen binnen `seconden`; `graaf_seconden` blijft None.
+
+    Er is dan geen luie graaf om een aparte tijd voor te melden: `load_dataset` bouwt de graaf
+    binnen de gemeten `seconden`. `graaf_seconden` hoort dus `None` te zijn en te blijven.
+    """
+    _, uitslag = laad_met_cache(VOORBEELD, [], cache_dir=tmp_path)
+    assert uitslag.bron == "bestand"
+    assert uitslag.graaf_seconden is None
+
+
 def test_de_gc_staat_uit_tijdens_beide_pickle_loads(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

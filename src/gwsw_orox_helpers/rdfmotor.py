@@ -26,6 +26,16 @@ grens van deze module. Dat de naad er ook echt één blijft, is geen belofte in 
 docstring maar een test: `test_alleen_rdfmotor_roept_de_motor_aan` loopt de AST van elke
 module in de package af en laat een vijfde `pyoxigraph.parse` niet toe.
 
+**De fork-bnode-valkuil, voor een toekomstig parallel pad.** Anonieme blanke-knoop-labels
+komen uit proces-toestand (pyoxigraph 0.5.9 mint ze lui). Een parallel pad dat *forkt ná een
+parse in de ouder* en de labels doorgeeft, levert op een bron met `[ ]`-knopen stille
+graafcorruptie: elk kind erft dezelfde toestand en kan hetzelfde blanke-knoop-label opnieuw
+munten voor een andere knoop, zodat twee knopen na de hereniging samenvallen. Parallelle
+kinderen spawnen of nummeren de knopen zelf; nooit forken-na-parse-en-de-labels-doorgeven.
+Elke parallel-optie die ooit toegevoegd wordt, hoort daarom een isomorfietest te krijgen op
+een bron met `[ ]`-knopen. Vandaag is dit alleen een genoteerde voorwaarde -- er is geen
+fork- of spawn-pad in de package (`grep fork/spawn` in `src/`+`docs/` = 0).
+
 **De versiepoort staat naast de cap in `pyproject.toml` en niet in plaats daarvan.** De
 cap (`pyoxigraph>=0.5,<0.6`) voorkomt dat een verse install een ongetoetste minor trekt;
 hij kan omzeild worden (`pip install --no-deps`, een conda-omgeving, een handmatige

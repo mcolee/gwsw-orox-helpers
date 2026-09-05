@@ -320,7 +320,11 @@ Er zijn twee wegen van een TTL-bestand naar triples, en ze zijn met opzet versch
   stroompositie, geen quads), en een quad die niet herschreven hoeft te worden gaat
   ongewijzigd naar de serializer. Dat maakt de per-vlak-stroom een gemengde Quad/Triple-
   stroom, die pyoxigraph in Turtle byte-gelijk wegschrijft omdat een benoemde graaf daar
-  niet bestaat.
+  niet bestaat. Scherp geformuleerd is de lui-belofte van deze weg: **de bron zelf komt
+  nooit in het geheugen; het plan mag een positietabel van O(1) byte per quad dragen.** De
+  positietabellen van issue #64/#65 (rang 5 en 9 uit de archperf-swarm) zijn per constructie
+  conform die belofte; een variant die de hele bron één keer in het geheugen zou zetten (LD1,
+  rang 17) keert haar om en is daarom geen weg die de package neemt.
 
 Ze samenvoegen zou de ene helft opzadelen met wat de andere nodig heeft: de leesweg is
 gretig (de index is er pas als alles gelezen is), de schrijfweg is lui (een syntaxfout op
@@ -406,6 +410,51 @@ opvallen als de leeslaag en de knip dezelfde literaal verschillend gaan lezen. W
 uitkomst betreft is de eenpaslezer per contract `(parse_gml(l), parse_gml_z(l))`, tot en
 met de foutmelding, en `test_parse_gml_met_z_is_gelijkwaardig_aan_de_twee_losse_lezers`
 toetst dat op de geslaagde én de mislukte literalen.
+
+### Store is geen derde pad
+
+`pyoxigraph.Store` lijkt een derde weg -- een Rust-eigen index in plaats van de rdflib-`GraafIndex`,
+of een filter dat de knip Rust-zijdig doet -- maar de archperf-swarm (04-09-2026) heeft hem gemeten
+en op beide rollen gediskwalificeerd, en dat staat hier zodat een volgende swarm het niet opnieuw
+prototypeert:
+
+- **Als index** is `Store.bulk_load` 7,3–7,6 s, trager dan de kale parse, en een opzoeking kost
+  2,3 µs; op de ~3,4 miljoen opzoekingen van de leesweg is dat ≈ 8 s -- de winst van de eigen
+  index is er niet.
+- **Lexicaal ontrouw.** Een `Store` normaliseert `"24.20"^^xsd:decimal` naar `"24.2"` en mint
+  verse blanke-knoop-ids per `bulk_load`. Dat breekt de belofte "niets genormaliseerd" van de
+  schrijflaag; de gestreamde weg is de enige lexicaal getrouwe (`test_decimal_literaal_komt_
+  byte_gelijk_door_schrijf_orox` in `tests/test_schrijven.py` bewaakt de decimaal).
+- **Als knip-filter** is clip via een `Store` 46,9 s / 2055 MiB -- ver boven de gestreamde weg.
+- Het N-Triples-tussenformaat scheelt −1,3 % op tijd tegen +245 MiB, en de GIL wordt tijdens
+  `parse` niet vrijgegeven (parse 4,78 s + busy 4,78 s = samen 9,48 s), dus een tweede Python-thread
+  ernaast levert niets.
+
+Wat hier bewust een **open noot** blijft en geen gesloten route: een CONSTRUCT-serialize uit een
+`Store` voor de knip is niet uitgesloten, alleen ongemeten. Wie dat ooit oppakt, meet het en zet
+het hier bij de gemeten uitkomsten.
+
+## Wat gemeten is en bewust niet gedaan
+
+Naast de `Store` heeft de archperf-swarm parallellisme en twee Rust-routes gemeten en om
+gearticuleerde redenen laten liggen. Ze staan hier genoteerd, niet gedaan -- het zijn
+auteursbeslissingen, geen agent-werk.
+
+- **Parallellisme.** De N schrijfpassages van `clip_orox` opt-in parallel gaven −23,6 % (fork,
+  k=2, gemeten, sha256 gelijk); `schrijf_orox` in K stukken −27 % (spawn) tot −42,5 % (fork,
+  bnode-vrij). De **leesfase** forken kost daarentegen +2–3 % (copy-on-write op een 1,2 GB
+  refcounted heap raakt elke pagina aan) en is dus een regressie. Elke fork-optie hangt bovendien
+  aan de fork-bnode-voorwaarde in `rdfmotor`: forken ná een parse en de blanke-knoop-labels
+  doorgeven levert stille graafcorruptie op een bron met `[ ]`-knopen, dus zo'n optie hoort een
+  isomorfietest op zulke knopen te krijgen.
+- **De Rust-routes** zijn de enige gearticuleerde weg onder ~13 s koud (rang 18: een Rust-eigen
+  index onder `GwswDataset.graph`) respectievelijk ~20 s clip (rang 19: een Rust-zijdig
+  knip-filter). Rang 18 is contract-rakend (`GwswDataset.graph` staat gepind op `GraafIndex`) en
+  rang 19 is een nieuwe gecompileerde dependency; beide zijn ongeprototypeerd. Auteursbeslissingen.
+
+De cijfers in dit hoofdstuk en in de aangepaste docstrings komen uit de meting van de
+archperf-swarm (04-09-2026), niet uit een verse meting; dit issue legt vast wat gemeten is en
+bewust niet gedaan wordt.
 
 ## Wat "additief" hier betekent
 
@@ -570,8 +619,14 @@ wijziging aan deze module laat bestaande caches met rust; `LADER_VERSIE` is de k
 dat alsnog af te dwingen.
 
 Bij een cachetreffer krijgt `GwswDataset.graph` geen `GraafIndex` maar `cache.LuieGraaf`:
-de graafpickle is op een gemeentebrede export tientallen seconden en honderden megabytes,
-en de meeste runs raken hem niet aan. Hij komt pas van schijf bij de eerste leesbewerking
+de graafpickle is op een gemeentebrede export tientallen seconden en honderden megabytes. De
+graaf komt in de praktijk **elke standaardrun** aan de beurt, maar pas bij de eerste check die
+hem raakt: `subjects_of_class`, `graph_is_a`, `onderdelen`, ATTR-014 en de NET-checks bevragen
+de graafpickle. Het luie laden spaart hem daarom alleen op de runs die uitsluitend
+geometrie of structuur lezen; voor de rest verschuift het de graaflaadtijd naar het eerste
+gebruik en bespaart het die niet. Het warme doel is de graafpickle zelf sneller maken (rang 1,
+issue #59: het warme pad ging 9,9 -> ~2,7 s), en die winst maakt `CacheUitslag.graaf_seconden`
+sinds issue #71 meetbaar. Hij komt pas van schijf bij de eerste leesbewerking
 (`_geladen`), en is hij dan beschadigd, dan leest `_herstel` hem alsnog uit de brondata en
 schrijft de cache opnieuw weg in plaats van de run te laten crashen — `cache.py` stelt die
 functie samen, `LuieGraaf` kent zelf geen paden en geen `load_dataset`.

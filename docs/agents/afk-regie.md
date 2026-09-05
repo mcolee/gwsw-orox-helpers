@@ -99,6 +99,10 @@ Eén issue = één sessie-eenheid: commit + push + CI groen + comment + close v�
    er gemeten is naast de voorspelling uit het issue (klopt de ordegrootte? zo niet, verklaar het
    — geen nieuwe waarheid verzinnen). Schrijf de comment niet vooraf om hem later te patchen: op
    26-08 kostte dat 6 patches en één teruggenomen claim. Dan `gh issue close N`.
+   **Direct daarna een stavaza-tabel** in het antwoord aan de auteur: één rij per issue van
+   de sessie, kolommen Issue / Onderwerp / Status, met een emoticon als status (✅ dicht met
+   commit en kerncijfer, 🔄 loopt, ⏳ wacht, ❌ open gelaten met reden). De auteur volgt de
+   sessie op afstand en wil dat in één oogopslag zien; ook op "stavaza" is dit de vorm.
 9. **Vastloper?** Poort niet groen of iets echt onbeslist → meld nooit "klaar": comment met
    de échte toestand, issue open laten, door naar het volgende issue dat er niet op leunt.
 

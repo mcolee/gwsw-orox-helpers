@@ -32,6 +32,7 @@ from gwsw_orox_helpers.inlezen import (
     _structural_diff,
 )
 from gwsw_orox_helpers.klassen import (
+    KLASSE_PUTDEKSEL,
     WORTEL_HULPSTUKORIENTATIE,
     WORTEL_KNOOPPUNT,
     WORTEL_VERBINDING,
@@ -243,7 +244,7 @@ def load_dataset(
         verbinding = _bruikbare_afsluiting(subclasses, WORTEL_VERBINDING, data_basis)
         # De afsluiting, niet de kale klasse: zie `inlezen._deksel_kenmerk`. Zonder
         # klassenkennis blijft het bij Putdeksel zelf, net als bij elke andere `closure()`.
-        deksel = _afsluiting(subclasses, "Putdeksel", data_basis)
+        deksel = _afsluiting(subclasses, KLASSE_PUTDEKSEL, data_basis)
         hulpstuk = _afsluiting(subclasses, WORTEL_HULPSTUKORIENTATIE, data_basis)
         nodes = _read_nodes(graph, geometry_errors, knooppunt, deksel)
         conduits, herstel = _read_conduits(graph, nodes, geometry_errors, verbinding, hulpstuk)

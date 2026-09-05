@@ -39,6 +39,12 @@ WORTELS_VOOR_HERKENNING = (WORTEL_KNOOPPUNT, WORTEL_VERBINDING)
 WORTEL_HULPSTUK = "Hulpstuk"
 WORTEL_HULPSTUKORIENTATIE = "Hulpstukorientatie"
 
+# De Putdeksel-klasse waarvan de lezing en de lader de afsluiting maken (issue #68). Een
+# korte klassenaam, net als de `WORTEL_*` hierboven; hij stond op `inlezen` en `laden` nog
+# als kale literal naast de plekken die hem gebruikten. Een hernoeming zou anders stil langs
+# beide literalen glippen -- de put verliest dan haar dekselniveau en valt terug op maaiveld.
+KLASSE_PUTDEKSEL = "Putdeksel"
+
 
 def _afsluiting(
     subclasses: dict[str, frozenset[str]], wortel: str, basis: str = GWSW

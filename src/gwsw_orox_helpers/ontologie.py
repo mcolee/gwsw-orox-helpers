@@ -54,7 +54,7 @@ from rdflib import OWL, RDF, RDFS, XSD, URIRef
 from rdflib.term import Node as RdfNode
 
 from gwsw_orox_helpers.graaf import GraafLezer
-from gwsw_orox_helpers.namen import GWSW
+from gwsw_orox_helpers.namen import GWSW, termen_voor
 
 
 @dataclass(frozen=True)
@@ -157,12 +157,13 @@ def datatype_van_kenmerk(graph: GraafLezer, kenmerk: URIRef, basis: str = GWSW) 
     aanroep ongewijzigd blijft; op een 1.7-ontologie geeft de aanroeper de 1.7-basis mee,
     zodat `hasValue` en `Dt_` in de goede versie gespeld worden.
     """
-    has_value = URIRef(basis + "hasValue")
+    termen = termen_voor(basis)
+    has_value = URIRef(termen.has_value)
     for restrictie in graph.objects(kenmerk, RDFS.subClassOf):
         if graph.value(restrictie, OWL.onProperty) != has_value:
             continue
         doel = graph.value(restrictie, OWL.allValuesFrom)
-        if isinstance(doel, URIRef) and doel.startswith(basis + "Dt_"):
+        if isinstance(doel, URIRef) and doel.startswith(termen.dt_voorvoegsel):
             return doel
     return None
 
@@ -192,8 +193,9 @@ def verwachte_property(graph: GraafLezer, kenmerk: URIRef, basis: str = GWSW) ->
 
     `basis` (issue #32) is de GWSW-basis van de graaf; default 1.6.
     """
-    has_value = URIRef(basis + "hasValue")
-    has_reference = URIRef(basis + "hasReference")
+    termen = termen_voor(basis)
+    has_value = URIRef(termen.has_value)
+    has_reference = URIRef(termen.has_reference)
     waarde: str | None = None
     for restrictie in graph.objects(kenmerk, RDFS.subClassOf):
         op = graph.value(restrictie, OWL.onProperty)
@@ -220,7 +222,7 @@ def functie_van_klasse(graph: GraafLezer, klasse: URIRef, basis: str = GWSW) -> 
 
     `basis` (issue #32) is de GWSW-basis van de graaf; default 1.6.
     """
-    functie = URIRef(basis + "functie")
+    functie = URIRef(termen_voor(basis).functie)
     waarden = set()
     for restrictie in graph.objects(klasse, RDFS.subClassOf):
         if graph.value(restrictie, OWL.onProperty) != functie:

@@ -1,6 +1,21 @@
 # Changelog
 
 ## [Unreleased]
+- `ontologie` leest zijn GWSW-properties via `namen.termen_voor` en drie klassenamen-literalen
+  worden constanten (issue #68, architectuur; **additief** — geen signatuur, retourvorm of
+  gedrag wijzigt, dezelfde IRI-strings dus dezelfde treffers). `namen.Termen` krijgt achteraan
+  en met een default de velden `functie` (`gwsw:functie`) en `dt_voorvoegsel` (`gwsw:Dt_`), die
+  `termen_voor` uit de basis vult; `ontologie.datatype_van_kenmerk`/`verwachte_property`/
+  `functie_van_klasse` bouwen hun `URIRef`-en nu uit `termen_voor(basis)` in plaats van
+  `hasValue`/`hasReference`/`functie`/`Dt_` zelf naast `namen` te spellen. `klassen` krijgt de
+  constante `KLASSE_PUTDEKSEL` naast `WORTEL_*`; `inlezen` en `laden` gebruiken die plus
+  `WORTEL_KNOOPPUNT`/`WORTEL_VERBINDING` waar eerder de kale literals `"Putdeksel"`/`"Knooppunt"`/
+  `"Verbinding"` stonden, en `model.is_connection_class` gebruikt `WORTEL_VERBINDING`. `Leestermen`
+  (de `URIRef`-leestermenset van de leeslaag) groeit niet mee: `functie`/`Dt_` zijn een
+  ontologie-restrictiebegrip dat alleen `ontologie` via `termen_voor` nodig heeft. Geen nieuwe
+  importrand (`inlezen`/`laden` importeren `klassen` al, `ontologie` importeert `namen` al); een
+  grep-bewaker in `test_de_namensnit_ligt_vast` sluit een tweede property-spelling buiten `namen`
+  voortaan uit.
 - `dataset.py` (~1081 regels) is hersneden in drie modules en werd zelf een re-exportgezicht
   (issue #67, wijzigingsmoeite; **additief** — geen signatuur, retourvorm of gedrag wijzigt).
   Het domeinmodel (`GwswDataset`, `GwswVersie`) staat nu in `model`, de lader-orkestratie

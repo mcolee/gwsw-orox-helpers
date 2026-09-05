@@ -38,7 +38,12 @@ from gwsw_orox_helpers.geometry import (
     parse_gml_met_z,
 )
 from gwsw_orox_helpers.graaf import GraafIndex, _uriref_snel
-from gwsw_orox_helpers.klassen import _afsluiting
+from gwsw_orox_helpers.klassen import (
+    KLASSE_PUTDEKSEL,
+    WORTEL_KNOOPPUNT,
+    WORTEL_VERBINDING,
+    _afsluiting,
+)
 
 # Als naam en niet als `namen._short`, ook al staat `namen` hierboven al als module: zo
 # blijven de aanroepen hieronder letterlijk wat ze waren toen `_short` nog uit `klassen`
@@ -509,7 +514,7 @@ def _read_nodes(
     """
     t = _leestermen(graph.gwsw_basis)
     nodes: dict[str, Node] = {}
-    deksel_klassen = deksel_klassen or _afsluiting({}, "Putdeksel", graph.gwsw_basis)
+    deksel_klassen = deksel_klassen or _afsluiting({}, KLASSE_PUTDEKSEL, graph.gwsw_basis)
     # Een keer, buiten de lus: `_deksel_kenmerk` toetst deze handvol klassen per put en
     # per onderdeel daarvan, en bouwde ze tot issue #23 elke keer opnieuw uit tekst op.
     deksel_termen = frozenset(_uriref_snel(klasse) for klasse in deksel_klassen)
@@ -790,10 +795,10 @@ def _structural_diff(graph: GraafIndex, subclasses: dict[str, frozenset[str]]) -
     """
     basis = graph.gwsw_basis
     ontologisch_knopen = _houders(
-        graph, _orientations_of_class(graph, _afsluiting(subclasses, "Knooppunt", basis))
+        graph, _orientations_of_class(graph, _afsluiting(subclasses, WORTEL_KNOOPPUNT, basis))
     )
     ontologisch_strengen = _houders(
-        graph, _orientations_of_class(graph, _afsluiting(subclasses, "Verbinding", basis))
+        graph, _orientations_of_class(graph, _afsluiting(subclasses, WORTEL_VERBINDING, basis))
     )
     structureel_knopen = _houders(graph, _orientations_with(graph, _leestermen(basis).klasse_punt))
     structureel_strengen = _houders(graph, _leiding_orientations(graph))

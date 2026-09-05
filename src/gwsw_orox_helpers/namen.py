@@ -102,10 +102,18 @@ _BASIS_PATROON: Final = re.compile(r"http://data\.gwsw\.nl/(\d+\.\d+)/totaal/")
 class Termen:
     """De GWSW-properties van één basis, als tekst.
 
-    Dezelfde zeven properties die de module-constanten `HAS_*` op 1.6 spellen, maar dan voor
-    een gedetecteerde basis. `termen_voor` bouwt hem; `TERMEN_16` is de default. De lezers
-    maken er hun eigen munteenheid van (rdflib-`URIRef`, pyoxigraph-`NamedNode`), net als bij
-    de constanten -- deze module blijft alleen tekst.
+    Dezelfde zeven `hasAspect`..`hasReference`-properties die de module-constanten `HAS_*` op
+    1.6 spellen, plus sinds issue #68 `functie` (`gwsw:functie`) en `dt_voorvoegsel` (het
+    `gwsw:Dt_`-voorvoegsel van een datatype). Die twee draagt de ontologielezer
+    (`ontologie.datatype_van_kenmerk`/`.verwachte_property`/`.functie_van_klasse`) nodig; hij
+    haalt ze nu hier op in plaats van ze naast `namen` zelf te spellen. Alle negen voor een
+    gedetecteerde basis. `termen_voor` bouwt hem; `TERMEN_16` is de default. De lezers maken er
+    hun eigen munteenheid van (rdflib-`URIRef`, pyoxigraph-`NamedNode`), net als bij de
+    constanten -- deze module blijft alleen tekst.
+
+    `functie` en `dt_voorvoegsel` staan achteraan en met een default, want `Termen` is publiek:
+    een veld erbij mag alleen additief. `termen_voor` vult ze altijd, dus de default is enkel de
+    vangnetwaarde voor een aanroeper die `Termen` ooit zelf construeert.
     """
 
     basis: str
@@ -116,6 +124,8 @@ class Termen:
     has_connection: str
     has_value: str
     has_reference: str
+    functie: str = ""
+    dt_voorvoegsel: str = ""
 
 
 def termen_voor(basis: str) -> Termen:
@@ -129,6 +139,8 @@ def termen_voor(basis: str) -> Termen:
         has_connection=f"{basis}hasConnection",
         has_value=f"{basis}hasValue",
         has_reference=f"{basis}hasReference",
+        functie=f"{basis}functie",
+        dt_voorvoegsel=f"{basis}Dt_",
     )
 
 

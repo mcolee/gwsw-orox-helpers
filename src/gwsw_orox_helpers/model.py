@@ -580,7 +580,7 @@ class GwswDataset:
         Zonder ontologie is de afsluiting alleen `Verbinding` zelf, dus dan wordt
         alleen die naam herkend.
         """
-        return _uri(root, self._basis) in self.closure("Verbinding")
+        return _uri(root, self._basis) in self.closure(WORTEL_VERBINDING)
 
     def of_class(self, root: str) -> list[str]:
         """De URI's van alle knooppunten en strengen van dit type.

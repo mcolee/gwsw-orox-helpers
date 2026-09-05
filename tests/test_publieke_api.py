@@ -921,6 +921,23 @@ def test_de_namensnit_ligt_vast() -> None:
             if gevonden_helper is not None:  # `inlezen` gebruikt alleen `_short`
                 assert gevonden_helper is bron, f"{gebruiker.__name__}.{helper} is een ander object"
 
+    # Grep-bewaker (issue #68): geen module buiten `namen` spelt een GWSW-property zelf.
+    # `namen.termen_voor` is de ene bron voor `hasValue`/`hasReference` (en sinds #68 ook
+    # `functie`/`Dt_`); een teruggekopieerde `basis + "has…"` of `f"{basis}has…"` levert per
+    # constructie dezelfde string en zou dus door geen enkele gedragstest omvallen -- precies
+    # de stille tweede spelling die deze snit uitsluit, net als de `rsplit`-helpers hierboven.
+    # De klasse-IRI's (`f"{basis}Inwinning"` in `inlezen`) blijven er buiten: `namen` draagt
+    # geen klassennamen, dus die spelt de leeslaag met recht zelf.
+    zelf_gespeld = re.compile(r'basis \+ "has|f"\{basis\}has')
+    spelt_zelf = {
+        pad.relative_to(pakket).as_posix(): zelf_gespeld.findall(pad.read_text(encoding="utf-8"))
+        for pad in sorted(pakket.rglob("*.py"))
+        if pad.name != "namen.py" and zelf_gespeld.search(pad.read_text(encoding="utf-8"))
+    }
+    assert spelt_zelf == {}, (
+        f"{spelt_zelf} spelt een GWSW-property zelf; dat hoort via `namen.termen_voor` te gaan"
+    )
+
 
 def test_de_clipsubmodules_houden_de_importrichting() -> None:
     """Elke fase importeert alleen de bladeren onder de cliplaag en zusters boven zich.

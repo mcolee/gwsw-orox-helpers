@@ -36,8 +36,17 @@ HEAD) --json databaseId --jq '.[0].databaseId')` (volledige sha; een korte sha g
 lege lijst; wacht in een until-lus tot RUN gevuld is) en dan `gh run watch $RUN --exit-status`.
 
 Subagents: schrijf in elke brief dat de agent lange commando's op de voorgrond draait met een
-ruime timeout en zijn beurt nooit beëindigt om op een achtergrondtaak te wachten; een subagent
-die dat toch doet, hervat je met één SendMessage. Wacht zelf zonder te pollen.
+ruime timeout (tot 600000 ms) en zijn beurt nooit beëindigt om op een achtergrondtaak te
+wachten; een subagent die dat toch doet, hervat je met één SendMessage. Wacht zelf zonder te
+pollen. Twee lessen uit sessie 2: (1) de harness stopt **achtergrond**-commando's op deze
+machine bij geheugendruk ("running low on memory"), dus draai pytest, de dekkingsstap en de
+metingen zelf ook op de voorgrond; (2) een subagent kan uitvallen op de sessielimiet van het
+account (HTTP 429, "resets HH:MM"). Zijn werk in de werkboom blijft dan staan: lees `git
+status`/`git diff`, maak de resterende stappen zelf af als het alleen nog de poort of het
+rapport is, en dispatch anders een nieuwe agent ná de genoemde resettijd (wacht daarop met een
+`until [ "$(date +%H%M)" -ge HHMM ]; do sleep 300; done`-lus op de voorgrond). Val je zelf op
+die limiet, dan hervat de auteur je met `claude --resume`; laat de werkboom dan in een staat
+die `git status` uitlegt.
 
 Omgeving: export op ~/Development/nlriochecker/data/gwsw_orox_ttl/dewoldenhoogeveen_orox.ttl
 (zet GWSW_OROX_FIXTUREPAD daarop voor scripts/benchmark.py en de zwaar-tests). Lens-scripts

@@ -48,6 +48,15 @@ def test_termen_voor_17_spelt_de_17_basis() -> None:
     assert termen.has_aspect == f"{BASIS_17}hasAspect"
     assert termen.has_value == f"{BASIS_17}hasValue"
     assert termen.has_reference == f"{BASIS_17}hasReference"
+    # De twee velden die issue #68 toevoegt, zodat `ontologie` ze uit `termen_voor` leest.
+    assert termen.functie == f"{BASIS_17}functie"
+    assert termen.dt_voorvoegsel == f"{BASIS_17}Dt_"
+
+
+def test_termen_16_draagt_functie_en_dt_voorvoegsel() -> None:
+    """De gepinde 1.6-termenset draagt de twee nieuwe velden van issue #68."""
+    assert namen.TERMEN_16.functie == f"{BASIS_16}functie"
+    assert namen.TERMEN_16.dt_voorvoegsel == f"{BASIS_16}Dt_"
 
 
 def test_basis_voor_versie_en_terug() -> None:

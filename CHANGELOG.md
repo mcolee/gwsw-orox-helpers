@@ -1,6 +1,26 @@
 # Changelog
 
 ## [Unreleased]
+- De naad tussen de analyse- en de schrijfronde van `clip_orox` is een positietabel (issue
+  #64, performance; **additief** — geen signatuur-, retourvorm- of gedragswijziging van de
+  publieke `clip_orox`/`merge_orox`/`schrijf_orox_quads`; de geschreven delen zijn byte-gelijk).
+  De analyseronde (`clip.plan._maak_plan`) slaat tijdens haar ene lezing de per-quad-kennis plat
+  tot een tabel per stroompositie: één masker-byte (het effectieve masker ná `blok` én ná de
+  rand-predicaat-overslag) plus een herschrijf-vlag (blanke knoop of geknipte geometrieknoop).
+  Elke schrijfpass (`clip.stroom._deelstroom`) leest die tabel in plaats van hem per quad te
+  herberekenen: staat de vlag uit, dan gaat de bron-`Quad` ongewijzigd naar de serializer (geen
+  nieuwe `Triple`, geen nummering, geen `_genummerd`). Zo levert de fase een gemengde
+  Quad/Triple-stroom, die pyoxigraph in Turtle byte-gelijk wegschrijft (een default-graaf-`Quad`
+  is de gelijke `Triple`; `schrijf_orox_quads` aanvaardt de mix, de docstring vermeldt dat nu).
+  De tabel is O(1) byte per quad (`array`), nooit de bron; op een bron zonder blanke knopen staat
+  de vlag bijna overal uit. Gemeten op de cp850-export van De Wolden en Hoogeveen (112 MB, gepaard
+  en om en om, referentie = HEAD-code 91e561b, vers proces per run): één schrijfpass op deel 0
+  (1.190.591 triples) 10,47–10,88 s → 5,84–5,88 s (n=4, −45%); `clip_orox` end-to-end (twee
+  delen) 39,0–69,4 s → 33,2–33,4 s (n=3, eenduidig; de referentie liep onder een gelijktijdige
+  meting uit een andere sessie); de hermeting van de reviewer op een rustige machine gaf
+  39,1–57,2 s → 33,4–47,4 s (−12 tot −17%, elk paar in dezelfde richting); sha256 van beide delen
+  gelijk. Bijvangst: de analyseronde draagt tijdelijk twee `array('i')` van samen ~15 MB
+  (subject- en object-id per positie) die ná het platslaan losgelaten worden.
 - De cache pickelt de rdflib-termen via een snelpad (issue #63, performance; **additief** —
   geen signatuur-, retourvorm- of gedragswijziging; `_schrijf_atomair`, `CacheUitslag`,
   `LuieGraaf` en `laad_met_cache` houden hun vorm, het teruggelezen resultaat is graaf- en

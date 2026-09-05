@@ -195,8 +195,11 @@ def schrijf_orox_quads(
     Dit is de ingang voor afnemers die de bron zelf al in handen hebben -- de clip van
     fase 3 filtert de stroom van `lees_orox` en schrijft de helften hiermee weg, zonder
     de bron opnieuw te parsen. `quads` mag een luie iterator zijn; hij wordt al
-    schrijvend afgelopen en niet eerst verzameld. Quads en triples zijn niet te mengen:
-    pyoxigraph wil één van beide (Turtle kent geen benoemde grafen).
+    schrijvend afgelopen en niet eerst verzameld. Een gemengde Quad/Triple-stroom mag:
+    Turtle kent geen benoemde grafen, dus een default-graaf-`Quad` schrijft byte-gelijk aan
+    de gelijke `Triple`, en de clip van fase 3 leunt daarop (issue #64) -- hij geeft de
+    bron-`Quad` ongewijzigd door waar hij niets herschrijft en mengt dat met de `Triple`-en
+    van het herschrijfpad. Het uniontype verwoordt de stroom homogeen; de clip cast de mix.
 
     `prefixen` zijn de declaraties in de kop; zonder opgave staat er alleen
     `STANDAARD_PREFIXEN` (dus geen dataset-basis `:`, want die kent deze functie niet).

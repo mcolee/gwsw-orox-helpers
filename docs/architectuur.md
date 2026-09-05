@@ -289,7 +289,13 @@ Er zijn twee wegen van een TTL-bestand naar triples, en ze zijn met opzet versch
 - **De schrijfweg** (`schrijven.lees_orox` → `schrijf_orox_quads`) laat de quads van de
   parser rechtstreeks naar de serializer stromen. Wie terugschrijft heeft geen index
   nodig en zou hem op een export van honderden megabytes ook niet willen betalen; de
-  cliplaag hangt in diezelfde stroom en filtert hem per vlak.
+  cliplaag hangt in diezelfde stroom en filtert hem per vlak. Sinds issue #64 rekent de
+  clip die filter niet in elke pass opnieuw uit: de analyseronde slaat de per-quad-kennis
+  één keer plat tot een positietabel (een masker-byte plus een herschrijf-vlag per
+  stroompositie, geen quads), en een quad die niet herschreven hoeft te worden gaat
+  ongewijzigd naar de serializer. Dat maakt de per-vlak-stroom een gemengde Quad/Triple-
+  stroom, die pyoxigraph in Turtle byte-gelijk wegschrijft omdat een benoemde graaf daar
+  niet bestaat.
 
 Ze samenvoegen zou de ene helft opzadelen met wat de andere nodig heeft: de leesweg is
 gretig (de index is er pas als alles gelezen is), de schrijfweg is lui (een syntaxfout op

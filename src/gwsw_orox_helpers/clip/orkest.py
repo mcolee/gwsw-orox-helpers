@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import itertools
 from pathlib import Path
+from typing import TYPE_CHECKING, cast
 
 from gwsw_orox_helpers.clip.bereik import _meld_bereikverschil
 from gwsw_orox_helpers.clip.grenzen import _bestandsnaam, _lees_grenzen
@@ -25,6 +26,11 @@ from gwsw_orox_helpers.clip.termen import (
 )
 from gwsw_orox_helpers.errors import KnipError
 from gwsw_orox_helpers.schrijven import lees_orox, schrijf_orox_quads
+
+if TYPE_CHECKING:
+    from collections.abc import Iterable
+
+    import pyoxigraph
 
 
 def clip_orox(
@@ -66,7 +72,11 @@ def clip_orox(
     De bron wordt N+1 keer gelezen: een keer om te bepalen wat waarheen gaat, en daarna
     een keer per vlak om te schrijven. Dat is bewust: de toewijzing is pas rond als de
     hele graaf gezien is, en de delen daarna uit een gefilterde stroom schrijven kost
-    geen geheugen voor de triples zelf. Met `bereikcontrole=True` komt daar een lezing bij
+    geen geheugen voor de triples zelf. Sinds issue #64 rekent elke schrijfpass niet meer
+    per quad uit waar hij heen gaat: de analyseronde slaat die kennis één keer plat tot een
+    positietabel (per stroompositie een masker-byte en een herschrijf-vlag) die de pass
+    alleen nog leest, zodat een quad zonder blanke knoop of geknipte geometrie ongewijzigd
+    de deur uit gaat. Met `bereikcontrole=True` komt daar een lezing bij
     die na een klein aantal geometrieen weer wordt losgelaten; zonder de vlag verandert er
     aan het aantal lezingen niets.
 
@@ -104,7 +114,16 @@ def clip_orox(
         # reviewronde). Voor een bron mét `gwsw:`-prefix is dit dezelfde waarde en dus geen
         # bytewijziging.
         prefixen = {**geopend.prefixen, "gwsw": termen.basis, KNIP_PREFIX: KNIP}
-        schrijf_orox_quads(_deelstroom(geopend.quads, plan, index, termen), doel, prefixen=prefixen)
+        # `_deelstroom` levert sinds issue #64 een gemengde Quad/Triple-stroom (de snelle tak
+        # geeft de bron-Quad ongewijzigd door, het herschrijfpad een Triple). De serializer
+        # aanvaardt de mix -- Turtle kent geen benoemde grafen -- maar het uniontype van
+        # `schrijf_orox_quads` verwoordt hem homogeen; de cast overbrugt dat zonder de gepinde
+        # publieke signatuur te raken.
+        deelstroom = cast(
+            "Iterable[pyoxigraph.Quad] | Iterable[pyoxigraph.Triple]",
+            _deelstroom(geopend.quads, plan, index, termen),
+        )
+        schrijf_orox_quads(deelstroom, doel, prefixen=prefixen)
         paden.append(doel)
     return paden
 

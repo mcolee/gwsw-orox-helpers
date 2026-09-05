@@ -158,4 +158,13 @@ def merge_orox(delen: list[Path], doel: Path) -> None:
     quads = itertools.chain.from_iterable(lees_orox(pad).quads for pad in delen)
     termen = _kniptermen(_bronbasis(quads, delen[0]))
     scan = _scan_delen(delen, termen)
-    schrijf_orox_quads(_samengevoegd(delen, scan), doel, prefixen=scan.prefixen)
+    # `_samengevoegd` levert sinds issue #65 een gemengde Quad/Triple-stroom (de snelle tak
+    # geeft de bron-`Quad` ongewijzigd door, het herschrijfpad een `Triple`). De serializer
+    # aanvaardt de mix -- Turtle kent geen benoemde grafen -- maar het uniontype van
+    # `schrijf_orox_quads` verwoordt hem homogeen; de cast overbrugt dat zonder de gepinde
+    # publieke signatuur te raken, net als in `clip_orox` (issue #64).
+    samengevoegd = cast(
+        "Iterable[pyoxigraph.Quad] | Iterable[pyoxigraph.Triple]",
+        _samengevoegd(delen, scan),
+    )
+    schrijf_orox_quads(samengevoegd, doel, prefixen=scan.prefixen)

@@ -2142,3 +2142,107 @@ def test_clip_langs_meer_dan_acht_vlakken_blijft_rond(tmp_path: Path) -> None:
 
     assert len(delen) == 9
     assert isomorphic(_graaf(doel), _graaf(MINI))
+
+
+# --------------------------------------------------------------------------------------
+# De scanronde van de hereniging als positietabel (issue #65)
+# --------------------------------------------------------------------------------------
+
+
+def _scan_voor(delen: list[Path]) -> object:
+    """Het `_Scan`-resultaat van de eerste merge-ronde, langs dezelfde weg als `merge_orox`."""
+    import itertools
+
+    from gwsw_orox_helpers.clip.merge import _scan_delen
+    from gwsw_orox_helpers.clip.termen import _bronbasis, _kniptermen
+    from gwsw_orox_helpers.schrijven import lees_orox
+
+    quads = itertools.chain.from_iterable(lees_orox(pad).quads for pad in delen)
+    termen = _kniptermen(_bronbasis(quads, delen[0]))
+    return _scan_delen(delen, termen)
+
+
+def test_scanronde_bouwt_een_positietabel_per_deel(tmp_path: Path) -> None:
+    """`_scan_delen` laat per deel een bytetabel achter: 0 doorgeven / 1 knipmerk / 2 herschrijven.
+
+    De mini-fixture wordt door `:Leiding_1` geknipt, dus de delen dragen knip:-merken (byte 1)
+    en stukknopen die herschreven moeten worden (byte 2), naast de vele gewone benoemde quads
+    die ongewijzigd door mogen (byte 0). De tabel dekt elke stroompositie van elk deel; dit is
+    de kennis waar `_samengevoegd` sinds issue #65 op leest in plaats van hem per quad opnieuw
+    te herleiden.
+    """
+    from gwsw_orox_helpers.clip.termen import KNIP
+    from gwsw_orox_helpers.schrijven import lees_orox
+
+    delen = _geknipt(tmp_path)
+    scan = _scan_voor(delen)
+
+    assert len(scan.posities) == len(delen)  # type: ignore[attr-defined]
+    zag_0 = zag_1 = zag_2 = False
+    for deel_index, pad in enumerate(delen):
+        deelquads = list(lees_orox(pad).quads)
+        tabel = scan.posities[deel_index]  # type: ignore[attr-defined]
+        assert len(tabel) == len(deelquads)
+        for positie, quad in enumerate(deelquads):
+            byte = tabel[positie]
+            assert byte in (0, 1, 2), byte
+            if quad.predicate.value.startswith(KNIP):
+                assert byte == 1, quad  # elke knip:-quad wordt overgeslagen
+                zag_1 = True
+            elif byte == 0:
+                zag_0 = True
+            else:
+                assert byte == 2, quad
+                zag_2 = True
+    assert zag_0, "gewone benoemde quads horen byte 0 te krijgen"
+    assert zag_1, "de knip:-merken horen byte 1 te krijgen"
+    assert zag_2, "de stukknopen/ontdubbelingen horen byte 2 te krijgen"
+
+
+def test_samengevoegd_geeft_gewone_quads_door_en_mengt_met_triples(tmp_path: Path) -> None:
+    """De snelle tak van `_samengevoegd` levert de bron-`Quad`, het herschrijfpad `Triple`-en.
+
+    Zonder de mix zou elke gewone quad opnieuw als `Triple` gealloceerd en zijn sleutels
+    opnieuw herleid worden -- precies wat issue #65 vermijdt. De herstelde geometrie en de
+    ontdubbelde herkomst-triples (`Triple`) bewijzen dat het herschrijfpad ook draait, en de
+    hereniging blijft graaf-gelijk aan de bron.
+    """
+    from gwsw_orox_helpers.clip.merge import _samengevoegd
+
+    delen = _geknipt(tmp_path)  # de mini-fixture, met een door `:Leiding_1` geknipte lijn
+    scan = _scan_voor(delen)
+    uit = list(_samengevoegd(delen, scan))  # type: ignore[arg-type]
+
+    soorten = {type(item).__name__ for item in uit}
+    assert "Quad" in soorten, "de gewone quads horen ongewijzigd door te gaan"
+    assert "Triple" in soorten, "het herschrijfpad hoort Triples te leveren"
+
+
+def test_positietabel_neutraliteit_merge_blijft_isomorf(tmp_path: Path) -> None:
+    """Byte-neutraliteit: `merge(clip(bron))` blijft graaf-gelijk aan de bron met de tabel.
+
+    Een fixture met twee geknipte leidingen dwingt herstel, ontdubbeling én de knip:-overslag
+    tegelijk af, zodat alle drie de bytes van de positietabel in één hereniging langskomen. De
+    sjabloon-snit (9c) mag de herkomst-entries niet raken; dat de round-trip isomorf blijft,
+    bewaakt dat.
+    """
+    coordinaten_a = "233000.00 581000.00 8.50 233040.00 581000.00 8.40"
+    coordinaten_b = "233005.00 581010.00 7.20 233045.00 581010.00 7.10"
+    bron = _klein(
+        tmp_path,
+        ":LA a gwsw:Gemengdriool ; gwsw:hasAspect :LA_ori .\n"
+        ":LA_ori a gwsw:Leidingorientatie ; gwsw:hasAspect :LA_lij .\n"
+        f":LA_lij a gwsw:Lijn ; gwsw:hasValue {_lijn(coordinaten_a)} .\n"
+        ":LB a gwsw:Gemengdriool ; gwsw:hasAspect :LB_ori .\n"
+        ":LB_ori a gwsw:Leidingorientatie ; gwsw:hasAspect :LB_lij .\n"
+        f":LB_lij a gwsw:Lijn ; gwsw:hasValue {_lijn(coordinaten_b)} .\n",
+    )
+    delen, terug = _heen_en_terug(tmp_path, bron)
+
+    herkomsten = {
+        str(waarde)
+        for pad in delen
+        for waarde in _graaf(pad).objects(None, rdflib.URIRef(f"{KNIP}herkomst"))
+    }
+    assert len(herkomsten) == 2  # beide leidingen echt geknipt
+    assert isomorphic(terug, _graaf(bron))

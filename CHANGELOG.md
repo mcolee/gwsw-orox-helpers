@@ -1,6 +1,37 @@
 # Changelog
 
 ## [Unreleased]
+- De tweede ronde van `merge_orox` leest een positietabel uit de scanronde in plaats van de
+  per-quad-kennis opnieuw te herleiden (issue #65, performance; **additief** — geen signatuur-,
+  retourvorm- of gedragswijziging van de publieke `merge_orox`/`clip_orox`/`schrijf_orox_quads`;
+  de merge-uitvoer is byte-gelijk). Net als de schrijfronde van de clip sinds issue #64 slaat de
+  eerste ronde (`clip.merge._scan_delen`) tijdens haar ene lezing per deel een **positietabel**
+  plat (`_bouw_posities`): per stroompositie één byte — `0` doorgeven, `1` knipmerk overslaan,
+  `2` herschrijven-ontdubbelen. `_samengevoegd` leest die tabel per positie en doet alleen op
+  byte `2` nog de herkomst-substitutie, ontdubbeling en het aaneen naaien van de stukken; een
+  byte `0`-quad — verreweg de meeste — gaat als de bron-`Quad` ongewijzigd naar de serializer
+  (byte-gelijk aan de gelijke `Triple`, want Turtle kent geen benoemde grafen). Zo levert de
+  ronde een gemengde Quad/Triple-stroom; `merge_orox` cast de mix, net als `clip_orox`. Twee
+  snitten samen: **(9a)** de positietabel, en **(9c)** het GML-sjabloon wordt in de scanronde
+  alleen nog voor een stukknoop (`__knip` in de sleutel) bewaard — `_verwerk_merken` en
+  `_hersteld` lezen de sjabloon alleen voor stukknopen en hun herkomsten, dus de sjabloon van
+  een gewoon geometrie-subject was dood. De tabel is O(1) byte per quad per deel (`array('B')`);
+  tijdens de scan dragen twee transiënte `array('i')` (subject- en object-id per positie) die ná
+  het platslaan losgelaten worden. Gemeten op de cp850-export van De Wolden en Hoogeveen (112 MB,
+  gepaard n=4, om en om, referentie = HEAD-code 58b57aa in een worktree, vers proces per run):
+  `merge_orox` end-to-end op de twee delen 18,25–19,87 s → 15,58–16,66 s (mediaan ~18,9 → ~15,7 s,
+  eenduidig — traagste experiment 16,66 s onder snelste referentie 18,25 s, elk paar in dezelfde
+  richting), circa −15 %. sha256 van de merge-uitvoer gelijk over alle acht runs (referentie en
+  experiment byte-identiek). cProfile bevestigt de snit: `_gml_waarde` **358.665 → 62** aanroepen
+  (alleen de stukknopen), `_samengevoegd` tottime 7,46 → 1,07 s; de interning en de arrayopbouw
+  verhuizen naar de scanronde (`_scan_delen` tottime 4,66 → 7,64 s, plus `_bouw_posities` 0,35 s),
+  wat het theoretische plafond uit het issue (−26 %) tot de gemeten −15 % tempert. **Geen
+  parallellisme** (de fork van de scanronde, destijds "9b", is door de auteur afgewezen).
+  Kanttekening bij het meetprotocol: `merge(clip(bron))` is **niet** byte-gelijk aan het ruwe
+  bronbestand (de merge-uitvoer `55880721…` tegen de bron `afd1c989…`, óók op HEAD) — de
+  cliplaag regenereert Turtle via pyoxigraph in UTF-8 en compacter dan de cp850-BrutIS-export;
+  de gelijkheid is graaf-gelijkheid (bewaakt door de ordeloze vingerafdruk in de `zwaar`-test),
+  niet byte-gelijkheid tegen de ruwe bron.
 - De naad tussen de analyse- en de schrijfronde van `clip_orox` is een positietabel (issue
   #64, performance; **additief** — geen signatuur-, retourvorm- of gedragswijziging van de
   publieke `clip_orox`/`merge_orox`/`schrijf_orox_quads`; de geschreven delen zijn byte-gelijk).

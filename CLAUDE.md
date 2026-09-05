@@ -51,6 +51,13 @@ Eerste afnemer: nlriochecker. Nederlandse identifiers, GWSW-conform.
   CHANGELOG-regel en een versiebump in elk, en `uv lock` aan de nlriochecker-kant.
 - Geen nlriochecker-begrippen in deze package: vulwaardenlijsten, encodingkeuzes
   en checkconfiguratie zijn parameters, geen constanten.
+- **Geen PyPI-interactie, nooit.** Publiceren gebeurt uitsluitend als **GitHub-Release** met
+  de wheel en de sdist als assets (`.github/workflows/release.yml`, op de tag `v*`). Geen
+  upload naar PyPI of TestPyPI, geen `pypa/gh-action-pypi-publish`, geen trusted-publishing-
+  environments, geen `twine upload`, ook niet met de hand en ook niet "even als test".
+  Installeren gebeurt vanaf de GitHub-Release of via de git-tag
+  (`pip install git+https://github.com/mcolee/gwsw-orox-helpers@vX.Y.Z`). Besluit van de
+  auteur (05-09-2026); een agent die een PyPI-stap voorstelt of toevoegt, doet het over.
 
 ## Werkwijze
 - Python 3.12+, src-layout, uv; poort: ruff check, ruff format, mypy, pytest,
@@ -96,9 +103,9 @@ Eerste afnemer: nlriochecker. Nederlandse identifiers, GWSW-conform.
   anders hangt de tag naast `main`); zet `dev` daarna weer gelijk aan `main`. Pushen met
   `git push --follow-tags` en `timeout 45 git push …`. **De release komt vanzelf**:
   `.github/workflows/release.yml` gaat af op de tag `v*` en draait de keten poort →
-  tag-check → build + rooktest → TestPyPI → PyPI → GitHub Release, elke schakel `needs` van
-  de vorige. Publiceren gaat via trusted publishing (OIDC, environments `pypi`/`testpypi`);
-  nooit met de hand `uv build`, `twine upload` of `gh release create` draaien.
+  tag-check → build + rooktest → GitHub Release (wheel + sdist als assets), elke schakel
+  `needs` van de vorige. **Geen PyPI en geen TestPyPI** (Harde regel hierboven); nooit met
+  de hand `uv build`-artefacten uploaden of `gh release create` draaien.
   Cijfers: patch = reparaties; minor = een afgerond blok/fase of een breuk in de publieke
   API vóór 1.0; major pas ná 1.0.
 - Kies de review naar het **risico** van de wijziging, niet naar de omvang:

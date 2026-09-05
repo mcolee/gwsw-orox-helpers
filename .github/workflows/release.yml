@@ -1,14 +1,15 @@
 name: release
 # De publicatieketen draait op een versietag `vX.Y.Z` en loopt strikt in volgorde:
-#   poort -> controle -> testpypi -> pypi -> github-release.
-# Elke schakel is `needs` van de vorige, dus een release komt pas op PyPI en op de
-# GitHub-Release als álle poorten groen zijn. Faalt de poort of klopt de tag niet bij de
-# projectversie, dan stopt de keten luid vóór er iets gepubliceerd is.
+#   poort -> controle -> github-release.
+# Elke schakel is `needs` van de vorige, dus een release komt pas op de GitHub-Release als
+# álle poorten groen zijn. Faalt de poort of klopt de tag niet bij de projectversie, dan
+# stopt de keten luid vóór er iets gepubliceerd is.
 #
-# Publiceren gaat via trusted publishing (OIDC): er staan geen PyPI-tokens in de repo.
-# Daarvoor vraagt elke publish-job `id-token: write` en draait hij in een GitHub-Environment
-# (`testpypi`/`pypi`) dat op pypi.org resp. test.pypi.org als trusted publisher geregistreerd
-# is (auteurshandeling, buiten deze repo).
+# Harde regel van de auteur (05-09-2026, `CLAUDE.md`): publiceren gebeurt ALLEEN als
+# GitHub-Release met de wheel en de sdist als assets. Er is géén PyPI- of TestPyPI-interactie:
+# geen publish-job, geen `id-token: write`, geen `pypa/gh-action-pypi-publish`, geen
+# environments `pypi`/`testpypi`. Wie de package wil installeren doet dat vanaf de
+# GitHub-Release of via een git-tag (`pip install git+https://…@vX.Y.Z`).
 #
 # Alle third-party actions staan op een commit-SHA gepind (met de tagnaam als commentaar),
 # zodat een verplaatste tag geen andere code kan binnenhalen. `toets.yml` blijft bewust op
@@ -31,7 +32,7 @@ jobs:
 
   # Bewaakt vóór publicatie dat de tag bij de projectversie past en dat de gebouwde wheel
   # echt importeert en een dataset leest. Bouwt de distributies één keer en geeft ze als
-  # artifact door, zodat wat op PyPI en op de GitHub-Release landt byte-gelijk is.
+  # artifact door, zodat wat op de GitHub-Release landt precies is wat hier getoetst is.
   controle:
     needs: poort
     runs-on: ubuntu-latest
@@ -65,49 +66,11 @@ jobs:
           name: dist
           path: dist/
 
-  # Eerst een publicatie naar TestPyPI als dry-run. `skip-existing` maakt de job idempotent:
-  # een hergedraaide of eerder gepubliceerde versie laat de keten niet omvallen.
-  testpypi:
-    needs: controle
-    runs-on: ubuntu-latest
-    environment: testpypi
-    permissions:
-      id-token: write
-      contents: read
-    steps:
-      - name: Haal dist op
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
-        with:
-          name: dist
-          path: dist/
-      - name: Publiceer naar TestPyPI
-        uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # v1.14.2
-        with:
-          repository-url: https://test.pypi.org/legacy/
-          skip-existing: true
-
-  # Pas als TestPyPI groen is, de echte publicatie naar PyPI — met dezelfde artefacten.
-  pypi:
-    needs: testpypi
-    runs-on: ubuntu-latest
-    environment: pypi
-    permissions:
-      id-token: write
-      contents: read
-    steps:
-      - name: Haal dist op
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
-        with:
-          name: dist
-          path: dist/
-      - name: Publiceer naar PyPI
-        uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # v1.14.2
-
   # Tot slot de GitHub-Release, op exact dezelfde artefacten (geen tweede `uv build`), zodat
-  # de release-assets byte-gelijk zijn aan wat op PyPI staat. `--verify-tag` eist dat de tag
-  # bestaat; `--generate-notes` schrijft de notities.
+  # de release-assets byte-gelijk zijn aan wat de controle getoetst heeft. `--verify-tag` eist
+  # dat de tag bestaat; `--generate-notes` schrijft de notities. Dit is de enige publicatie.
   github-release:
-    needs: pypi
+    needs: controle
     runs-on: ubuntu-latest
     permissions:
       contents: write

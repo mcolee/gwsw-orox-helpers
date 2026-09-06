@@ -13,14 +13,19 @@ import pytest
 from rdflib import RDF, URIRef
 from rdflib.term import Node as RdfNode
 
-from gwsw_orox_helpers import dataset as dataset_module
+from gwsw_orox_helpers import laden as laden_module
 from gwsw_orox_helpers.bronnen import gebundelde_ontologie_voor
 from gwsw_orox_helpers.dataset import (
     GWSW,
+    HAS_ASPECT,
+    HAS_PART,
+    KLASSE_PUTDEKSELNIVEAU,
     GwswDataset,
+    aspect_holders_of,
     aspects_of,
     lees_ontologie,
     load_dataset,
+    part_holders_of,
     parts_of,
 )
 from gwsw_orox_helpers.errors import DatasetError
@@ -608,7 +613,10 @@ def test_onderdeel_label_leest_het_label_van_een_willekeurig_subject() -> None:
 
 def test_onderdeel_aspecten_geeft_dezelfde_kenmerken_als_de_private_lezing() -> None:
     """De publieke aspectlezing is exact de private `_read_aspects` op de graaf."""
-    from gwsw_orox_helpers.dataset import _read_aspects
+    # `_read_aspects` woont sinds issue #67 niet meer in `dataset` (dat is een re-exportgezicht)
+    # maar in zijn definitiemodule `inlezen`; `GwswDataset.onderdeel_aspecten` (in `model`)
+    # leest hem daar.
+    from gwsw_orox_helpers.inlezen import _read_aspects
 
     dataset = load_dataset(TTL_DIR / "adm007_overstort_met_drempel.ttl", ontology_paths=[])
     drempel = "http://example.org/toets#DrempelO"
@@ -956,6 +964,102 @@ def test_structurele_vergelijking_wordt_juist_zonder_klassenkennis_gevuld(
     assert "knooppunten_zonder_geometrie" not in kaal.structural_diff
 
 
+def _structurele_diff_via_hergebruik(dataset: GwswDataset) -> dict[str, int]:
+    """Draait de hergebruikweg van `_structural_diff_uit` na, zoals `load_dataset` dat doet.
+
+    Kiest per rol dezelfde bron als de lader (`_bruikbare_afsluiting`), laat de
+    houder-teruggevende lezers erover lopen en voedt de bezochte houders aan
+    `_structural_diff_uit` -- met de klassenkennis-vlag die de lader ook zet.
+    """
+    from gwsw_orox_helpers.inlezen import (
+        _read_conduits,
+        _read_nodes,
+        _structural_diff_uit,
+    )
+    from gwsw_orox_helpers.klassen import (
+        KLASSE_PUTDEKSEL,
+        WORTEL_HULPSTUKORIENTATIE,
+        WORTEL_KNOOPPUNT,
+        WORTEL_VERBINDING,
+        _afsluiting,
+        _bruikbare_afsluiting,
+    )
+
+    graph = dataset.graph
+    subclasses = dataset.subclasses
+    basis = graph.gwsw_basis
+    knooppunt = _bruikbare_afsluiting(subclasses, WORTEL_KNOOPPUNT, basis)
+    verbinding = _bruikbare_afsluiting(subclasses, WORTEL_VERBINDING, basis)
+    deksel = _afsluiting(subclasses, KLASSE_PUTDEKSEL, basis)
+    hulpstuk = _afsluiting(subclasses, WORTEL_HULPSTUKORIENTATIE, basis)
+
+    errors: dict[str, str] = {}
+    nodes, knoop_houders = _read_nodes(graph, errors, knooppunt, deksel)
+    _conduits, _herstel, streng_houders = _read_conduits(graph, nodes, errors, verbinding, hulpstuk)
+
+    return _structural_diff_uit(
+        graph,
+        subclasses,
+        knoop_houders=knoop_houders,
+        knoop_ontologisch=knooppunt is not None,
+        streng_houders=streng_houders,
+        streng_ontologisch=verbinding is not None,
+    )
+
+
+def test_structural_diff_uit_hergebruikt_de_ontologische_houders(voorbeeld: GwswDataset) -> None:
+    """(a, issue #70) De hergebruikweg geeft byte-gelijk hetzelfde verslag als de losse functie.
+
+    Op de voorbeelddataset (met de gebundelde ontologie) is er klassenkennis, dus
+    `_read_nodes`/`_read_conduits` bezochten de ontologische houders; `_structural_diff_uit`
+    hergebruikt die en berekent alleen de structurele kant opnieuw. De uitkomst hoort
+    gelijk te zijn aan zowel de losse `_structural_diff` als aan wat de lader wegzette.
+    """
+    from gwsw_orox_helpers.inlezen import _structural_diff
+    from gwsw_orox_helpers.klassen import (
+        WORTEL_KNOOPPUNT,
+        WORTEL_VERBINDING,
+        _bruikbare_afsluiting,
+    )
+
+    basis = voorbeeld.graph.gwsw_basis
+    assert _bruikbare_afsluiting(voorbeeld.subclasses, WORTEL_KNOOPPUNT, basis) is not None
+    assert _bruikbare_afsluiting(voorbeeld.subclasses, WORTEL_VERBINDING, basis) is not None
+
+    nieuw = _structurele_diff_via_hergebruik(voorbeeld)
+
+    assert nieuw == _structural_diff(voorbeeld.graph, voorbeeld.subclasses)
+    assert nieuw == voorbeeld.structural_diff
+    assert nieuw, "voorwaarde: de voorbeelddataset heeft een niet-leeg verschil"
+
+
+def test_structural_diff_uit_hergebruikt_de_structurele_houders(tmp_path: Path) -> None:
+    """(a, issue #70) Zonder klassenkennis bezochten de lezers de structurele houders.
+
+    Dan geeft `_structural_diff_uit` de structurele kant door en berekent alleen de
+    (near-lege) ontologische kant opnieuw -- en de uitkomst blijft die van de losse functie.
+    """
+    from gwsw_orox_helpers.inlezen import _structural_diff
+    from gwsw_orox_helpers.klassen import (
+        WORTEL_KNOOPPUNT,
+        WORTEL_VERBINDING,
+        _bruikbare_afsluiting,
+    )
+
+    kaal = load_dataset(
+        _zonder_klassenhierarchie(TTL_DIR / "top001_losliggende_put.ttl", tmp_path / "kaal.ttl"),
+        ontology_paths=[],
+    )
+    basis = kaal.graph.gwsw_basis
+    assert _bruikbare_afsluiting(kaal.subclasses, WORTEL_KNOOPPUNT, basis) is None
+    assert _bruikbare_afsluiting(kaal.subclasses, WORTEL_VERBINDING, basis) is None
+
+    nieuw = _structurele_diff_via_hergebruik(kaal)
+
+    assert nieuw == _structural_diff(kaal.graph, kaal.subclasses)
+    assert nieuw == kaal.structural_diff
+
+
 FANTOOM = TTL_DIR / "dataset_fantoomkoppeling.ttl"
 
 
@@ -1055,13 +1159,16 @@ def test_cyclische_gc_ligt_ook_stil_tijdens_de_objectopbouw(
     """
     assert gc.isenabled(), "voorwaarde: de testrun begint met een ingeschakelde GC"
     gezien: list[bool] = []
-    echte_read_nodes = dataset_module._read_nodes
+    # `load_dataset` woont sinds issue #67 in `laden` en zoekt `_read_nodes` in de globals
+    # van díé module op; het onderscheppen moet dus op `laden` en niet op het
+    # re-exportgezicht `dataset`.
+    echte_read_nodes = laden_module._read_nodes
 
     def bespied(*args: object, **kwargs: object) -> object:
         gezien.append(gc.isenabled())
         return echte_read_nodes(*args, **kwargs)  # type: ignore[arg-type]
 
-    monkeypatch.setattr(dataset_module, "_read_nodes", bespied)
+    monkeypatch.setattr(laden_module, "_read_nodes", bespied)
 
     dataset = load_dataset(TTL_DIR / "dataset_voorbeeld.ttl", ontology_paths=[])
 
@@ -1114,12 +1221,16 @@ def _tripels(index: GraafIndex) -> set[tuple[RdfNode, RdfNode, RdfNode]]:
     `graaf`): het leescontract van de checks heeft die niet nodig. Voor een
     inhoudsvergelijking tussen twee indexen is ze wel nodig, en dan is de spo-index de
     enige weg erheen. Een test mag daarvoor naar binnen kijken; productiecode niet.
+
+    Sinds issue #62 is de binnencel hybride: bij precies één object staat de term kaal
+    en bij twee of meer een insertie-geordende dict. Een kaal object is geen iterabele
+    van objecten, dus de helper onderscheidt de twee vormen expliciet.
     """
     return {
         (subject, predicate, object_)
         for subject, per_predicaat in index._spo.items()
         for predicate, objecten in per_predicaat.items()
-        for object_ in objecten
+        for object_ in (objecten if type(objecten) is dict else (objecten,))
     }
 
 
@@ -1172,13 +1283,16 @@ def test_lees_ontologie_levert_de_restrictiebron_van_load_dataset(
     niets opgeeft; het tripelaantal is de ijkwaarde uit issue #19.
     """
     gevangen: list[GraafIndex] = []
-    echte_afsluiting = dataset_module._subclass_closure
+    # `load_dataset` (sinds issue #67 in `laden`) zoekt `_subclass_closure` in de globals van
+    # `laden` op; het onderscheppen moet daar gebeuren en niet op het re-exportgezicht
+    # `dataset`.
+    echte_afsluiting = laden_module._subclass_closure
 
     def bespied(bron: GraafIndex) -> dict[str, frozenset[str]]:
         gevangen.append(bron)
         return echte_afsluiting(bron)
 
-    monkeypatch.setattr(dataset_module, "_subclass_closure", bespied)
+    monkeypatch.setattr(laden_module, "_subclass_closure", bespied)
     load_dataset(TTL_DIR / "dataset_voorbeeld.ttl")
 
     (restrictiebron,) = gevangen
@@ -1558,3 +1672,167 @@ def test_subset_houdt_de_geometriefouten_bij_hun_object(tmp_path: Path) -> None:
     # Een echte deelverzameling houdt alleen de fout van het behouden object.
     alleen_putc = gelezen.subset([f"{TOETS}PutC"])
     assert set(alleen_putc.geometry_errors) == {f"{TOETS}PutC"}
+
+
+# --- De versie-juiste graafvraag-methoden (issue #72) ----------------------------------
+#
+# De acht additieve str-/objectmethoden op `GwswDataset` lezen via de gedetecteerde basis
+# (`self.termen`/de privé-lezers) en niet via de gepinde 1.6-constanten. De acceptatie-eis
+# van het issue: op een 1.7-export lezen ze niet-nul waar het 1.6-constanten-idioom stil nul
+# leest, en op een 1.6-export geven ze hetzelfde antwoord als de bestaande weg
+# (`part_holders_of`, `aspect_holders_of`, `of_class` + filter, `resolve_network_node`,
+# `graph_types_of`). De twee mini-fixtures zijn byte-voor-byte gelijk op de `gwsw:`-basis na.
+
+MINI = "http://sparql.gwsw.nl/repositories/Mini#"
+TTL17_DIR = Path(__file__).parent / "fixtures" / "ttl17"
+
+
+def test_de_graafvragen_lezen_versie_juist_op_17_waar_de_16_constanten_nul_lezen() -> None:
+    """Op een 1.7-export leest de str-laag niet-nul; het 1.6-constanten-idioom leest stil nul.
+
+    De acceptatie-eis van issue #72: `houders`/`dragers`, `kenmerkinstanties` en
+    `knopen_van`/`strengen_van` leiden hun predicaten en klasse-IRI's uit de gedetecteerde
+    basis af, dus ze treffen de 1.7-graaf. Dezelfde bevraging met de gepinde 1.6-`HAS_*`/
+    `KLASSE_*`-constanten -- die spellen 1.6 -- vindt nul.
+    """
+    mini17 = load_dataset(TTL17_DIR / "mini_orox.ttl")
+    assert mini17.gwsw_versie.versie == "1.7"
+
+    ontluchter = f"{MINI}Ontluchter_1"
+    put1_ori = f"{MINI}Put_1_ori"
+
+    # houders (hasPart) en dragers (hasAspect): versie-juist niet-nul.
+    assert mini17.houders(ontluchter) == [f"{MINI}Leiding_1"]
+    assert mini17.dragers(put1_ori) == [f"{MINI}Put_1"]
+    # Het 1.6-constanten-idioom leest hier stil nul.
+    assert list(mini17.graph.subjects(HAS_PART, URIRef(ontluchter))) == []
+    assert list(mini17.graph.subjects(HAS_ASPECT, URIRef(put1_ori))) == []
+
+    # kenmerkinstanties: één Putdekselniveau met een waarde; de hasValue-tak.
+    instanties = list(mini17.kenmerkinstanties("Putdekselniveau"))
+    assert len(instanties) == 1
+    _, waarde, referentie = instanties[0]
+    assert waarde == "10.12" and referentie is None
+    # De hasReference-tak: WijzeVanInwinning verwijst naar een GWSW-begrip, zonder waarde.
+    wijzen = list(mini17.kenmerkinstanties("WijzeVanInwinning"))
+    assert len(wijzen) == 1
+    assert wijzen[0][1] is None
+    assert wijzen[0][2] == "http://data.gwsw.nl/1.7/totaal/Ingemeten"
+    # Het 1.6-klasse-constante-idioom vindt geen enkele kenmerkinstantie op 1.7.
+    assert list(mini17.graph.subjects(RDF.type, KLASSE_PUTDEKSELNIVEAU)) == []
+
+    # knopen_van / strengen_van: niet-nul, en gelijk aan het of_class + filter-idioom.
+    verwachte_knopen = [
+        mini17.nodes[u] for u in mini17.of_class("Inspectieput") if u in mini17.nodes
+    ]
+    assert verwachte_knopen, "voorwaarde: er zijn Inspectieput-knopen op 1.7"
+    assert mini17.knopen_van("Inspectieput") == verwachte_knopen
+    verwachte_strengen = [
+        mini17.conduits[u] for u in mini17.of_class("Gemengdriool") if u in mini17.conduits
+    ]
+    assert verwachte_strengen, "voorwaarde: er is een Gemengdriool-streng op 1.7"
+    assert mini17.strengen_van("Gemengdriool") == verwachte_strengen
+
+    # typen_kort: de korte namen van graph_types_of, versie-juist.
+    assert mini17.typen_kort(f"{MINI}Put_1") == {"Inspectieput", "Putorientatie"}
+
+
+def test_de_graafvragen_op_16_geven_hetzelfde_als_de_bestaande_weg() -> None:
+    """Op de 1.6-tegenhanger geven de nieuwe methoden exact het antwoord van de oude weg.
+
+    De keerzijde van de acceptatie-eis: `houders`==`part_holders_of`, `dragers`==
+    `aspect_holders_of`, `knopen_van`/`strengen_van`==`of_class` + filter,
+    `knopen_van_streng`==`resolve_network_node` op begin en eind, `typen_kort`==de korte
+    `graph_types_of`. Alle als tekst/objecten, zodat een afnemer op 1.6 niets merkt van de
+    overgang.
+    """
+    mini16 = load_dataset(TTL_DIR / "mini_orox.ttl")
+    assert mini16.gwsw_versie.versie == "1.6"
+
+    ontluchter = f"{MINI}Ontluchter_1"
+    put1_ori = f"{MINI}Put_1_ori"
+    leiding = mini16.conduits[f"{MINI}Leiding_1"]
+    wortels = ["Put"]
+
+    assert mini16.houders(ontluchter) == [
+        str(houder) for houder in part_holders_of(mini16.graph, URIRef(ontluchter))
+    ]
+    assert mini16.houders(ontluchter) == [f"{MINI}Leiding_1"]
+    assert mini16.dragers(put1_ori) == [
+        str(drager) for drager in aspect_holders_of(mini16.graph, URIRef(put1_ori))
+    ]
+    assert mini16.dragers(put1_ori) == [f"{MINI}Put_1"]
+
+    assert mini16.knopen_van("Inspectieput") == [
+        mini16.nodes[u] for u in mini16.of_class("Inspectieput") if u in mini16.nodes
+    ]
+    assert mini16.strengen_van("Gemengdriool") == [
+        mini16.conduits[u] for u in mini16.of_class("Gemengdriool") if u in mini16.conduits
+    ]
+
+    assert mini16.knopen_van_streng(leiding, wortels) == (
+        mini16.resolve_network_node(leiding.start_node, wortels),
+        mini16.resolve_network_node(leiding.end_node, wortels),
+    )
+
+    put1 = f"{MINI}Put_1"
+    assert mini16.typen_kort(put1) == {
+        soort.rsplit("/", 1)[-1] for soort in mini16.graph_types_of(put1)
+    }
+    assert mini16.typen_kort(put1) == {"Inspectieput", "Putorientatie"}
+
+
+def test_knopen_van_streng_herleidt_begin_en_eind_via_resolve_network_node(
+    voorbeeld: GwswDataset,
+) -> None:
+    """De begin- en eindput van een streng, elk gelijk aan het losse `resolve_network_node`.
+
+    Op de referentiedataset resolven de koppelingen wél tot een put (streng "2" hangt aan een
+    compartiment, dat via hasPart onder een put valt). `knopen_van_streng` levert precies het
+    paar dat een afnemer nu met twee losse `resolve_network_node`-aanroepen bouwt.
+    """
+    streng = voorbeeld.conduits[f"{TOETS}L2"]
+
+    begin, eind = voorbeeld.knopen_van_streng(streng, NETWERKWORTELS)
+    assert (begin, eind) == (
+        voorbeeld.resolve_network_node(streng.start_node, NETWERKWORTELS),
+        voorbeeld.resolve_network_node(streng.end_node, NETWERKWORTELS),
+    )
+    assert begin == f"{TOETS}PutB"
+
+
+def test_kenmerkinstanties_ontdubbelt_niet_maar_dedupliceert_via_de_graaf(
+    voorbeeld: GwswDataset,
+) -> None:
+    """`kenmerkinstanties` is een generator; hij levert elke kenmerkknoop van de klasse.
+
+    De vergelijking met het idioom dat hij vervangt: dezelfde subjects als
+    `subjects_of_class` over exact die klasse, met de waarde en de verwijzing erbij.
+    """
+    instanties = list(voorbeeld.kenmerkinstanties("Putdekselniveau"))
+    verwacht = {
+        str(subject)
+        for subject in voorbeeld.graph.subjects(RDF.type, URIRef(f"{GWSW}Putdekselniveau"))
+    }
+    assert {uri for uri, _, _ in instanties} == verwacht
+
+
+def test_valt_onder_kiest_de_specifiekste_niet_de_alfabetische() -> None:
+    """`valt_onder` volgt de meest-specifiek-rangorde van `beheerobjecttype`, niet het alfabet.
+
+    Het gedragsverschil met de bij de afnemer gekopieerde `_soortnaam` (die alfabetisch de
+    eerste korte naam neemt): `Uitlaatconstructie` is een subklasse van `Bouwwerk`, dus de
+    specifiekste wint en niet het alfabetisch eerdere `Bouwwerk`.
+    """
+    dataset = load_dataset(TTL_DIR / "dataset_meervoudig_objecttype.ttl", ontology_paths=[])
+    uri = next(uri for uri, node in dataset.nodes.items() if node.label == "U")
+    node = dataset.nodes[uri]
+
+    assert {t.rsplit("/", 1)[-1] for t in node.types} == {"Bouwwerk", "Uitlaatconstructie"}
+    # De gekopieerde `_soortnaam` zou hier alfabetisch "Bouwwerk" gekozen hebben.
+    assert sorted(t.rsplit("/", 1)[-1] for t in node.types)[0] == "Bouwwerk"
+    # `valt_onder` kiest de specifiekste, gelijk aan `beheerobjecttype`.
+    assert dataset.valt_onder(node.types, ["Bouwwerk"]) == "Uitlaatconstructie"
+    assert dataset.valt_onder(node.types, ["Bouwwerk"]) == dataset.beheerobjecttype(uri)
+    # None als geen enkel type onder de opgegeven wortels valt.
+    assert dataset.valt_onder(node.types, ["Leiding"]) is None

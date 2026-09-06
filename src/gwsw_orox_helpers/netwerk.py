@@ -27,7 +27,7 @@ Vier keuzes die opvallen als je ze niet verwacht:
   naar de techniek (`wandeling`) zou de tweede functie niet dekken -- `richting_van_geometrie`
   wandelt niet, die rekent -- en `topologie` is in het GWSW een ruimer begrip dan wat hier
   staat en zou de volgende lezer verleiden er ook aansluitingen en samenhang in te leggen.
-  Die wonen bij de afnemer (`nlriochecker.checks.netwerk`), niet in de leeslaag.
+  Die wonen bij de afnemer, niet in de leeslaag.
 - **De parameternamen zijn die van de gepinde methoden** (`uri`, `roots`, `conduit`) en
   niet de Nederlandse die `CLAUDE.md` voor nieuwe namen vraagt. Dat is hier met opzet:
   de doorgeefluik geeft ze een-op-een door, en twee namen voor hetzelfde argument zou
@@ -54,7 +54,7 @@ niet te zien is: waar de methoden elkaar via `self.` aanriepen, roepen deze func
 elkaar rechtstreeks aan. Een subklasse die `klim_naar_knoop` overschrijft of een
 `monkeypatch.setattr(GwswDataset, "resolve_network_node", ...)` wordt door de wandeling
 binnenin dus niet meer gezien; wie de wandeling wil onderscheppen, doet dat op deze
-module. Nlriochecker kent geen subklasse van `GwswDataset` en patcht geen van de drie,
+module. Een afnemer kent geen subklasse van `GwswDataset` en patcht geen van de drie,
 dus in de praktijk raakt dit niemand -- maar "puur verplaatst" gaat over de bodies, niet
 over de dispatch.
 
@@ -136,15 +136,14 @@ def klim_naar_knoop(
     de houder te zijn die op een knoop uitkomt. Een enkelpadswandeling zou dan
     leeg teruggeven terwijl er wel degelijk een put boven hangt, en welke houder
     "de eerste" is hangt af van de schrijfvolgorde van de export.
-    `nulbevinding._Joiner` loopt om diezelfde reden al in de breedte omhoog.
 
     Bij gelijke diepte wint de kleinste URI: willekeurig maar deterministisch,
     en dat is wat telt -- twee runs op dezelfde bestanden moeten dezelfde
     meldingen opleveren.
 
     De tweede uitkomst is de verzameling bezochte schakels die zelf in `nodes`
-    staan; `afbakening` heeft die nodig om ze in de analyseset te houden, anders
-    loopt dezelfde wandeling op de uitgedunde dataset dood. Bewust ruimer dan het
+    staan; een afnemer die de analyseset uitdunt heeft die nodig om ze erin te houden,
+    anders loopt dezelfde wandeling op de uitgedunde dataset dood. Bewust ruimer dan het
     gevonden pad: het zijn alle bezochte knopen, dus ook broers op de laag waar de
     knoop gevonden werd en takken die doodliepen. Met enkelvoudige houders vallen
     de twee samen; met meervoudige houders is dit een superset. Dat is de veilige
@@ -183,9 +182,9 @@ def richting_van_geometrie(
     Geeft (omgekeerd, beginput, eindput) terug, waarbij `omgekeerd` zegt of de
     lijn bij de administratieve eindput begint. None als er niets te vergelijken
     valt: geen geometrie, geen echte lijngeometrie, geen twee verschillende
-    putten, of putten zonder punt. TOP-020 en de kaartlaag met richtingspijlen
-    lezen allebei deze functie, zodat het kaartbeeld en de bevinding niet uit
-    elkaar kunnen lopen.
+    putten, of putten zonder punt. Een topologiecheck op de tekenrichting en de
+    kaartlaag met richtingspijlen lezen allebei deze functie, zodat het kaartbeeld
+    en de bevinding niet uit elkaar kunnen lopen.
 
     De twee koppelingen gaan langs `resolve_network_node` en dus langs dezelfde memo
     als de rest van de wandeling; een streng die op een compartiment aansluit hoort

@@ -51,6 +51,13 @@ Eerste afnemer: nlriochecker. Nederlandse identifiers, GWSW-conform.
   CHANGELOG-regel en een versiebump in elk, en `uv lock` aan de nlriochecker-kant.
 - Geen nlriochecker-begrippen in deze package: vulwaardenlijsten, encodingkeuzes
   en checkconfiguratie zijn parameters, geen constanten.
+- **Geen PyPI-interactie, nooit.** Publiceren gebeurt uitsluitend als **GitHub-Release** met
+  de wheel en de sdist als assets (`.github/workflows/release.yml`, op de tag `v*`). Geen
+  upload naar PyPI of TestPyPI, geen `pypa/gh-action-pypi-publish`, geen trusted-publishing-
+  environments, geen `twine upload`, ook niet met de hand en ook niet "even als test".
+  Installeren gebeurt vanaf de GitHub-Release of via de git-tag
+  (`pip install git+https://github.com/mcolee/gwsw-orox-helpers@vX.Y.Z`). Besluit van de
+  auteur (05-09-2026); een agent die een PyPI-stap voorstelt of toevoegt, doet het over.
 
 ## Werkwijze
 - Python 3.12+, src-layout, uv; poort: ruff check, ruff format, mypy, pytest,
@@ -63,7 +70,10 @@ Eerste afnemer: nlriochecker. Nederlandse identifiers, GWSW-conform.
   `uv run` volstaat, `--group dev` is niet nodig. Zo draait de dekkingsstap uit de
   gelockte set in plaats van elke keer een ongepinde download.
   Dezelfde vijf staan in `.github/workflows/toets.yml`; wijkt de een af, dan wijken ze
-  allebei af. Draai hem bij elke commit die `src/**.py` raakt en **lees de uitvoer** —
+  allebei af. CI draait daarnaast, ná die vijf, `uv build && uvx twine check dist/* && uvx
+  check-wheel-contents dist/*.whl` als sdist-/wheel-bewaker (issue #44) — een zesde stap die
+  de vijf niet raakt en die je lokaal alleen bij een packaging-wijziging hoeft te draaien.
+  Draai hem bij elke commit die `src/**.py` raakt en **lees de uitvoer** —
   "de tests draaiden" is geen bewijs, de geplakte uitvoer wel. Let op: `ruff format
   --check .` controleert óók Python-codeblokken in Markdown; een README-only commit kan
   de poort dus rood zetten (gebeurde 27-08), draai die check ook bij docs met codeblokken.
@@ -91,9 +101,11 @@ Eerste afnemer: nlriochecker. Nederlandse identifiers, GWSW-conform.
   draaien, committen als `Versie X.Y.Z` (alleen `pyproject.toml`, `uv.lock`, `CHANGELOG.md`)
   en taggen als `vX.Y.Z`. Landen op `main` via een **merge-commit-PR** (geen squash/rebase,
   anders hangt de tag naast `main`); zet `dev` daarna weer gelijk aan `main`. Pushen met
-  `git push --follow-tags` en `timeout 45 git push …`. **De wheel komt vanzelf**:
-  `.github/workflows/release.yml` gaat af op de tag `v*`, draait `uv build` en hangt de
-  wheel + sdist aan een GitHub Release — nooit met de hand `gh release create` draaien.
+  `git push --follow-tags` en `timeout 45 git push …`. **De release komt vanzelf**:
+  `.github/workflows/release.yml` gaat af op de tag `v*` en draait de keten poort →
+  tag-check → build + rooktest → GitHub Release (wheel + sdist als assets), elke schakel
+  `needs` van de vorige. **Geen PyPI en geen TestPyPI** (Harde regel hierboven); nooit met
+  de hand `uv build`-artefacten uploaden of `gh release create` draaien.
   Cijfers: patch = reparaties; minor = een afgerond blok/fase of een breuk in de publieke
   API vóór 1.0; major pas ná 1.0.
 - Kies de review naar het **risico** van de wijziging, niet naar de omvang:

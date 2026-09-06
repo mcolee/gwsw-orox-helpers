@@ -13,6 +13,11 @@ zou zo'n bump zich melden als een `TypeError` diep in de quadstroom, op de plek 
 eerste quad opgehaald wordt en niet op de plek waar de aanroep staat.
 
 **Dun, en met opzet niet meer dan dat.** Alleen ontleden en serialiseren gaan hierlangs.
+Ontleden heeft sinds issue #66 drie ingangen -- `ontleed_turtle` (bytes of str in het
+geheugen), `ontleed_turtle_bestand` (een pad, de motor opent en streamt zelf) en
+`ontleed_turtle_stroom` (een binaire file-like, `input=`) -- en geen typeswitch daarop:
+`path=` en `input=` doen iets anders (zie de docstrings hieronder en
+`docs/architectuur.md`), dus een `str`-pad zou in de inhoudstak stil de padtekst lezen.
 De term-fabrieken (`NamedNode`, `BlankNode`, `Literal`, `Quad`, `Triple`) worden
 *niet* omwikkeld: die staan op tientallen plekken in `clip/` en in `graaf`, ze zijn
 sinds 0.3 niet veranderd, en een wrapper eromheen zou een laag zijn zonder werk.
@@ -21,14 +26,26 @@ grens van deze module. Dat de naad er ook echt één blijft, is geen belofte in 
 docstring maar een test: `test_alleen_rdfmotor_roept_de_motor_aan` loopt de AST van elke
 module in de package af en laat een vijfde `pyoxigraph.parse` niet toe.
 
+**De fork-bnode-valkuil, voor een toekomstig parallel pad.** Anonieme blanke-knoop-labels
+komen uit proces-toestand (pyoxigraph 0.5.9 mint ze lui). Een parallel pad dat *forkt ná een
+parse in de ouder* en de labels doorgeeft, levert op een bron met `[ ]`-knopen stille
+graafcorruptie: elk kind erft dezelfde toestand en kan hetzelfde blanke-knoop-label opnieuw
+munten voor een andere knoop, zodat twee knopen na de hereniging samenvallen. Parallelle
+kinderen spawnen of nummeren de knopen zelf; nooit forken-na-parse-en-de-labels-doorgeven.
+Elke parallel-optie die ooit toegevoegd wordt, hoort daarom een isomorfietest te krijgen op
+een bron met `[ ]`-knopen. Vandaag is dit alleen een genoteerde voorwaarde -- er is geen
+fork- of spawn-pad in de package (`grep fork/spawn` in `src/`+`docs/` = 0).
+
 **De versiepoort staat naast de cap in `pyproject.toml` en niet in plaats daarvan.** De
 cap (`pyoxigraph>=0.5,<0.6`) voorkomt dat een verse install een ongetoetste minor trekt;
 hij kan omzeild worden (`pip install --no-deps`, een conda-omgeving, een handmatige
 upgrade in een bestaande venv) en dan is er niets meer dat waarschuwt. De poort hieronder
 is die waarschuwing. Ze staat **bij het importeren van deze module en niet per aanroep**,
 om twee redenen. Ze kost dan niets in de hete lus. En ze valt vóór het eerste bestand:
-een fout bij de aanroep zou in de `except Exception` van `bestand._parse` belanden en er
-als "geen geldige Turtle" uitkomen -- precies de misleiding die deze module wegneemt.
+een `MotorError` zit niet in de smalle vangst van `bestand._parse` (`MOTORFOUTEN` plus
+`TypeError`) en zou per aanroep dus rauw naar buiten komen op de plek waar de eerste quad
+opgehaald wordt in plaats van waar de aanroep staat. Bij het importeren valt de poort
+vóór dat alles en blijft daarom de juiste plek.
 `ONDERSTEUNDE_REEKS` en de cap worden aan elkaar geknoopt door
 `test_de_reeks_is_dezelfde_als_de_cap_in_pyproject`, zodat ze niet uit elkaar lopen.
 
@@ -130,6 +147,60 @@ def ontleed_turtle_bestand(pad: Path) -> pyoxigraph.QuadParser:
     staat, waar `schrijven._gecontroleerd` hem oppikt.
     """
     return pyoxigraph.parse(path=pad, format=_TURTLE)
+
+
+def ontleed_turtle_stroom(io: IO[bytes]) -> pyoxigraph.QuadParser:
+    """Ontleedt Turtle uit een geopende binaire file-like, als luie quadstroom.
+
+    De derde ingang, naast `ontleed_turtle(bytes | str)` en `ontleed_turtle_bestand(pad)`,
+    en geen typeswitch daarop -- om dezelfde reden dat die twee gescheiden zijn (zie boven
+    en `docs/architectuur.md`): `path=` laat de motor het bestand zelf openen, `input=`
+    ontleedt de inhoud die eruit stroomt. Deze ingang geeft altijd de file-like als
+    `input=` door en de motor leest hem blokgewijs -- hij houdt de inhoud dus niet als
+    `str` of `bytes` in het geheugen (issue #66).
+
+    Wie hem gebruikt: `schrijven.lees_orox` zodra er een terugvalcodering of een BOM in
+    het spel is, met een hercodeerstroom (`codering.hercodeerstroom`) die de bron
+    blokgewijs van de terugvalcodering naar UTF-8 hercodeert. Zo blijft de schrijfweg ook
+    op die tak streamend in plaats van de hele bron als `str` in het geheugen te zetten.
+
+    Net als bij de twee andere ingangen wordt er **niets afgevangen**: een syntaxfout
+    onderweg komt er als de fout van de motor uit, en `schrijven._gecontroleerd` maakt er
+    zijn eigen `TurtleError` van. De aanroeper opent en sluit de file-like zelf; de motor
+    leest hem enkel.
+    """
+    return pyoxigraph.parse(io, format=_TURTLE)
+
+
+# De fouttaxonomie van de motor, op één plek. `bestand._parse` en `schrijven._gecontroleerd`
+# vertalen deze fouten naar hun eigen `DatasetError`-familie; wat de motor daarbuiten laat
+# ontsnappen (`MemoryError`, `RecursionError`, een bug in eigen code) hoort niet als "geen
+# geldige Turtle" verpakt te worden en komt bij die aanroepers rauw naar buiten. Deze tuple
+# is de ene plek waar `SyntaxError` als motor-fouttype staat; de AST-sweep in
+# `tests/test_rdfmotor.py` weert hem buiten deze module.
+MOTORFOUTEN: Final = (SyntaxError, ValueError)
+
+
+def is_coderingsfout(fout: Exception) -> bool:
+    """Of een motorfout in werkelijkheid over de bytecodering gaat en niet over de syntaxis.
+
+    pyoxigraph meldt niet-UTF-8-bytes met "Invalid UTF-8" in de tekst van de fout. De
+    leeslaag en de schrijfweg onderscheiden dat van een echte syntaxfout, want de remedie
+    verschilt: daar is een terugvalcodering het antwoord, hier de inhoud van de bron. De
+    tekstmatch woont hier zodat beide aanroepers hetzelfde oordeel delen.
+    """
+    return "Invalid UTF-8" in str(fout)
+
+
+def prefixen_van(parser: pyoxigraph.QuadParser) -> dict[str, str]:
+    """De prefixdeclaraties die de parser tot nu toe uit de kop las.
+
+    Alleen gevuld nadat de kop gelezen is (in de praktijk na de eerste quad). `bestand._parse`
+    leidt er de GWSW-basis uit af, `schrijven.lees_orox` bouwt er de prefixkop mee. Dat die
+    lezing hierlangs loopt, houdt `parser.prefixes` -- net als parse en serialize -- binnen de
+    ene motor-naad; `test_de_foutvertaling_en_de_prefixen_wonen_alleen_in_rdfmotor` bewaakt dat.
+    """
+    return parser.prefixes
 
 
 def serialiseer_turtle(

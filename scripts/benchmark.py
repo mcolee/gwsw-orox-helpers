@@ -49,7 +49,8 @@ import subprocess
 import sys
 import tempfile
 import time
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Iterator, Sequence
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from importlib import metadata
 from pathlib import Path
@@ -59,8 +60,10 @@ WORTEL = Path(__file__).resolve().parents[1]
 
 # Dezelfde twee bestanden als de `zwaar`-tests in `tests/test_schrijven.py` en
 # `tests/test_clip.py`: de 112 MB-export van De Wolden en Hoogeveen (niet getrackt) en
-# de gemeentegrenzen die er in deze repo bij horen.
-BRON = Path("/home/martin/nlriochecker/data/gwsw_orox_ttl/dewoldenhoogeveen_orox.ttl")
+# de gemeentegrenzen die er in deze repo bij horen. Het exportpad staat standaard onder de
+# thuismap en is te overschrijven met GWSW_OROX_FIXTUREPAD (issue #44), net als bij de tests.
+_EXPORT_ONDER_HOME = Path("Development/nlriochecker/data/gwsw_orox_ttl/dewoldenhoogeveen_orox.ttl")
+BRON = Path(os.environ.get("GWSW_OROX_FIXTUREPAD") or Path.home() / _EXPORT_ONDER_HOME)
 GRENZEN = WORTEL / "tests" / "fixtures" / "gis" / "gemeentegrenzen_dewoldenhoogeveen.geojson"
 SLEUTEL = "gemeentenaam"
 # Deze BrutIS-export is geen zuivere UTF-8 (cp850-bytes in een straatnaam); nlriochecker
@@ -326,13 +329,108 @@ def _bouw_merge_orox(cfg: Instellingen, delen: Sequence[Path]) -> Werk:
 # --------------------------------------------------------------------------------------
 
 
-def _profielwerk(bouw: Callable[[], Werk], doel: Path, naam: str) -> Callable[[], Werk]:
-    """Wikkelt een pad in `cProfile` en schrijft de top-25 naar `doel`.
+# De zes fasen van de leesweg, in de volgorde waarin ze langskomen. Elk tripel is
+# (label, module-of-klasse-attribuutnaam via de naam die de *aanroeper* bindt): `laden`
+# importeert `_parse` en de drie `inlezen`-lezers rechtstreeks, dus daar hangt de naam die
+# `load_dataset` aanroept; `vul_uit` is een methode en wordt op de klasse gewikkeld. `_parse`
+# wordt zowel voor de dataset als (via `_stapel_ontologie`) per ontologiebestand aangeroepen.
+_FASE_VOLGORDE = (
+    "bestand._parse",
+    "GraafIndex.vul_uit",
+    "laden._stapel_ontologie",
+    "inlezen._read_nodes",
+    "inlezen._read_conduits",
+    "inlezen._structural_diff",
+)
 
-    Twee sorteringen in hetzelfde bestand: cumulatief (welke deelboom kost de tijd) en
+
+@contextmanager
+def _faseklok(fasen: dict[str, float], aantallen: dict[str, int]) -> Iterator[None]:
+    """Wikkelt de zes leesfasen tijdelijk in een `time.perf_counter`-teller (issue #71g).
+
+    Monkeypatcht binnen dit (kind)proces de zes functies met een wrapper die hun wandkloktijd
+    optelt in `fasen` en hun aantal aanroepen in `aantallen`, en zet ze in de `finally` weer
+    terug. Draait alleen onder `--profiel-map`; de gewone meting raakt deze code niet aan en
+    blijft byte-voor-byte hetzelfde doen.
+    """
+    from gwsw_orox_helpers import graaf, laden
+
+    doelen: list[tuple[str, Any, str]] = [
+        ("bestand._parse", laden, "_parse"),
+        ("laden._stapel_ontologie", laden, "_stapel_ontologie"),
+        ("inlezen._read_nodes", laden, "_read_nodes"),
+        ("inlezen._read_conduits", laden, "_read_conduits"),
+        ("inlezen._structural_diff", laden, "_structural_diff"),
+        ("GraafIndex.vul_uit", graaf.GraafIndex, "vul_uit"),
+    ]
+
+    def wikkel(label: str, functie: Callable[..., Any]) -> Callable[..., Any]:
+        def gewikkeld(*args: Any, **kwargs: Any) -> Any:
+            begin = time.perf_counter()
+            try:
+                return functie(*args, **kwargs)
+            finally:
+                fasen[label] = fasen.get(label, 0.0) + (time.perf_counter() - begin)
+                aantallen[label] = aantallen.get(label, 0) + 1
+
+        return gewikkeld
+
+    origineel: list[tuple[Any, str, Callable[..., Any]]] = []
+    try:
+        for label, houder, attribuut in doelen:
+            functie = getattr(houder, attribuut)
+            origineel.append((houder, attribuut, functie))
+            setattr(houder, attribuut, wikkel(label, functie))
+        yield
+    finally:
+        for houder, attribuut, functie in origineel:
+            setattr(houder, attribuut, functie)
+
+
+def _schrijf_fasetabel(
+    doel: Path, naam: str, fasen: dict[str, float], aantallen: dict[str, int], duur: float
+) -> None:
+    """Schrijft de fase-verdeling van een kale run (zonder cProfile-overhead) naar `doel`."""
+    doel.parent.mkdir(parents=True, exist_ok=True)
+    regels = [("fase", "tijd (s)", "n")]
+    for label in _FASE_VOLGORDE:
+        regels.append((label, f"{fasen.get(label, 0.0):.3f}", str(aantallen.get(label, 0))))
+    breedtes = [max(len(regel[kolom]) for regel in regels) for kolom in range(3)]
+    with doel.open("w", encoding="utf-8") as stroom:
+        stroom.write(
+            f"# {naam}: fase-verdeling, wandklok (time.perf_counter) per fase in EEN kale run\n"
+            f"# zonder cProfile. cProfile vertekent de lezers ~3,4x en de vullus ~1,9x, dus dit\n"
+            f"# is de eerlijke verdeling; de cProfile-top-25 staat in profiel_{naam}.txt ernaast.\n"
+            "#\n"
+            "# METHODE (gepaard/eenduidig). De fasen NESTEN: GraafIndex.vul_uit zit binnen\n"
+            "# bestand._parse, en laden._stapel_ontologie roept bestand._parse opnieuw aan per\n"
+            "# ontologiebestand -- de kolom telt dus niet op tot de totaaltijd. Eén run zegt\n"
+            "# weinig: vergelijk twee versies GEPAARD (om en om, identieke src in beide armen)\n"
+            "# en vertrouw alleen een EENDUIDIG, herhaald verschil; een enkele run vertekent\n"
+            "# door OS-cache en achtergrondlast. Nooit twee zware processen naast elkaar.\n"
+            f"# totale kale wandklok van deze run: {duur:.1f} s\n\n"
+        )
+        for nummer, regel in enumerate(regels):
+            cellen = [regel[0].ljust(breedtes[0])]
+            cellen += [regel[kolom].rjust(breedtes[kolom]) for kolom in range(1, 3)]
+            stroom.write("  ".join(cellen) + "\n")
+            if nummer == 0:
+                stroom.write("-" * (sum(breedtes) + 4) + "\n")
+
+
+def _profielwerk(bouw: Callable[[], Werk], doel: Path, naam: str) -> Callable[[], Werk]:
+    """Wikkelt een pad in `cProfile` (top-25) en schrijft een kale fasetabel ernaast.
+
+    Twee sorteringen in het cProfile-bestand: cumulatief (welke deelboom kost de tijd) en
     tottime (welke functie zelf traag is). De tijden onder cProfile zijn hoger dan de
     gemeten tijden -- de profiler telt elke aanroep -- en horen dus niet in de meting
     thuis; ze staan alleen in de kop van het profiel.
+
+    Naast het cProfile-bestand komt sinds issue #71 een fasetabel (`fasetabel_<naam>.txt`):
+    de wandkloktijd per leesfase, gemeten in een aparte **kale** run (zonder cProfile), want
+    cProfile vertekent de lezers en de vullus ongelijk. Die kale run draait vóór de
+    cProfile-run in hetzelfde kindproces -- sequentieel, nooit twee zware processen naast
+    elkaar. Voor een pad dat de leeslaag niet raakt (`clip_orox`) blijven de fasen nul.
     """
 
     def bouw_geprofileerd() -> Werk:
@@ -342,6 +440,18 @@ def _profielwerk(bouw: Callable[[], Werk], doel: Path, naam: str) -> Callable[[]
         werk = bouw()
 
         def uitvoeren() -> Any:
+            # Eerst de kale fase-meting: geen cProfile eromheen, zodat de verdeling eerlijk is.
+            fasen: dict[str, float] = {}
+            aantallen: dict[str, int] = {}
+            with _faseklok(fasen, aantallen):
+                schoon_begin = time.perf_counter()
+                werk.uitvoeren()
+                schoon_duur = time.perf_counter() - schoon_begin
+            _schrijf_fasetabel(
+                doel.with_name(f"fasetabel_{naam}.txt"), naam, fasen, aantallen, schoon_duur
+            )
+
+            # Daarna de cProfile-run zoals voorheen; die levert het teruggegeven resultaat.
             profiler = cProfile.Profile()
             begin = time.perf_counter()
             resultaat = profiler.runcall(werk.uitvoeren)

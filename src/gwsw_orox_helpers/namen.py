@@ -23,7 +23,7 @@ elke laag aan de bibliotheek van de andere.
 """
 
 import re
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from typing import Final
 
@@ -64,9 +64,34 @@ def _uri(naam: str, basis: str = GWSW) -> str:
     return naam if naam.startswith("http") else f"{basis}{naam}"
 
 
-def _short(uri: str) -> str:
-    """De korte klassenaam achter de laatste scheidingstekens van een URI."""
+def klasse_iri(naam: str, basis: str) -> str:
+    """De volledige GWSW-klasse-IRI van een korte klassenaam in een basis (issue #51).
+
+    De publieke, versie-juiste tegenhanger van het privé `_uri`: waar `_uri(naam)` op de
+    gepinde 1.6-naamruimte terugvalt, eist deze functie een expliciete `basis`, zodat een
+    afnemer die met een gedetecteerde versie werkt (`GwswDataset.gwsw_versie.basis`) een
+    1.7-klasse-IRI opbouwt in plaats van stil de 1.6-vorm. Een `naam` die al een volledige
+    IRI is, blijft ongemoeid -- net als bij `_uri`.
+    """
+    return _uri(naam, basis)
+
+
+def korte_naam(uri: str) -> str:
+    """De korte klassenaam achter de laatste scheidingstekens van een URI (issue #72).
+
+    De publieke, versie-onafhankelijke tegenhanger van het privé `_short`: waar `klasse_iri`
+    (#51) de heenweg is (korte naam -> volledige IRI in een basis), is dit de terugweg -- een
+    volledige GWSW-IRI weer tot zijn korte klassenaam. Twee `rsplit`-en, geen graaf en geen
+    versie: de korte naam hangt niet van de basis af.
+    """
     return uri.rsplit("/", 1)[-1].rsplit("#", 1)[-1]
+
+
+# De privé naam van vóór issue #72 blijft als alias werken: de interne aanroepen (`inlezen`,
+# `klassen`, `model`) én een afnemer die hem ooit privé importeerde, breken zo niet. Het is
+# hetzelfde object -- `test_de_namensnit_ligt_vast` toetst dat met `is`, net als
+# `_Leestermen`/`Leestermen` bij #51.
+_short = korte_naam
 
 
 # --------------------------------------------------------------------------------------
@@ -90,10 +115,18 @@ _BASIS_PATROON: Final = re.compile(r"http://data\.gwsw\.nl/(\d+\.\d+)/totaal/")
 class Termen:
     """De GWSW-properties van één basis, als tekst.
 
-    Dezelfde zeven properties die de module-constanten `HAS_*` op 1.6 spellen, maar dan voor
-    een gedetecteerde basis. `termen_voor` bouwt hem; `TERMEN_16` is de default. De lezers
-    maken er hun eigen munteenheid van (rdflib-`URIRef`, pyoxigraph-`NamedNode`), net als bij
-    de constanten -- deze module blijft alleen tekst.
+    Dezelfde zeven `hasAspect`..`hasReference`-properties die de module-constanten `HAS_*` op
+    1.6 spellen, plus sinds issue #68 `functie` (`gwsw:functie`) en `dt_voorvoegsel` (het
+    `gwsw:Dt_`-voorvoegsel van een datatype). Die twee draagt de ontologielezer
+    (`ontologie.datatype_van_kenmerk`/`.verwachte_property`/`.functie_van_klasse`) nodig; hij
+    haalt ze nu hier op in plaats van ze naast `namen` zelf te spellen. Alle negen voor een
+    gedetecteerde basis. `termen_voor` bouwt hem; `TERMEN_16` is de default. De lezers maken er
+    hun eigen munteenheid van (rdflib-`URIRef`, pyoxigraph-`NamedNode`), net als bij de
+    constanten -- deze module blijft alleen tekst.
+
+    `functie` en `dt_voorvoegsel` staan achteraan en met een default, want `Termen` is publiek:
+    een veld erbij mag alleen additief. `termen_voor` vult ze altijd, dus de default is enkel de
+    vangnetwaarde voor een aanroeper die `Termen` ooit zelf construeert.
     """
 
     basis: str
@@ -104,6 +137,8 @@ class Termen:
     has_connection: str
     has_value: str
     has_reference: str
+    functie: str = ""
+    dt_voorvoegsel: str = ""
 
 
 def termen_voor(basis: str) -> Termen:
@@ -117,6 +152,8 @@ def termen_voor(basis: str) -> Termen:
         has_connection=f"{basis}hasConnection",
         has_value=f"{basis}hasValue",
         has_reference=f"{basis}hasReference",
+        functie=f"{basis}functie",
+        dt_voorvoegsel=f"{basis}Dt_",
     )
 
 
@@ -164,6 +201,19 @@ def basis_uit_iri(iri: str) -> str | None:
     return match.group(0) if match is not None else None
 
 
+def basis_uit_iris(iris: Iterable[str]) -> str | None:
+    """De GWSW-basis van de eerste IRI in de reeks die er een draagt, of None (issue #52).
+
+    De terugval-scan over de IRI's van een bron, op één plek: `bestand`, `dataset` en
+    `clip.termen` deden elk hun eigen `next((b for x in ... if (b := basis_uit_iri(...))
+    ...))` en houden nu alleen hun eigen signaalbron over (de predicaat-IRI's van de graaf,
+    de typen van de knopen en strengen, de predicaten van de quadstroom). De reeks wordt
+    zover afgelopen als nodig -- de eerste treffer stopt hem -- zodat een aanroeper er een
+    luie stroom voor mag geven.
+    """
+    return next((b for iri in iris if (b := basis_uit_iri(iri)) is not None), None)
+
+
 def basis_uit_prefixen(prefixen: Mapping[str, str]) -> str | None:
     """De GWSW-basis uit de `gwsw:`-prefixdeclaratie, of None als die er niet (herkenbaar) is.
 
@@ -175,3 +225,20 @@ def basis_uit_prefixen(prefixen: Mapping[str, str]) -> str | None:
     if gwsw is None:
         return None
     return gwsw if _BASIS_PATROON.fullmatch(gwsw) is not None else None
+
+
+def terugvalmelding(bron: object, laag: str) -> str:
+    """De gedeelde waarschuwingstekst voor een bron zonder herkenbare GWSW-versie (issue #52).
+
+    `bestand._parse` (de lezing) en `clip.termen._bronbasis` (de clip) meldden elk hun eigen
+    variant van dezelfde terugval; die staan nu hier, één keer. `bron` is wat de aanroeper
+    aanwijst (een pad, een deel-URI) en `laag` benoemt wie terugvalt ("de lezing", "de
+    clip"). De kernfrase "geen herkenbare GWSW-versie" blijft staan, zodat een bestaande
+    logtoets hem terugvindt. De aanroeper logt de melding zelf; hij komt alleen op de
+    terugvalweg langs, dus de directe opmaak kost niets in de hete lus.
+    """
+    return (
+        f"{bron}: geen herkenbare GWSW-versie in de prefixen of de IRI's; {laag} valt terug "
+        f"op de gebundelde 1.6-termenset. Een bron op een andere versie wordt daarmee "
+        f"mogelijk niet correct verwerkt."
+    )

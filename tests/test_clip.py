@@ -17,6 +17,7 @@ import rdflib
 from rdflib.compare import isomorphic
 from rdflib.namespace import RDF
 
+from conftest import dewoldenhoogeveen_export
 from gwsw_orox_helpers.clip import clip_orox, merge_orox
 from gwsw_orox_helpers.errors import DatasetError
 
@@ -33,8 +34,9 @@ MINI_GRENS = GIS_DIR / "mini_grens.geojson"
 # daarom een eigen grensfixture die zijn eigen omhullende in tweeen deelt.
 JUINEN = TTL_DIR / "juinen_voorbeeld_v1_6.ttl"
 JUINEN_GRENS = GIS_DIR / "juinen_grens.geojson"
-# De export van De Wolden en Hoogeveen: 112 MB, ook niet getrackt (marker `zwaar`).
-DEWOLDEN = Path("/home/martin/nlriochecker/data/gwsw_orox_ttl/dewoldenhoogeveen_orox.ttl")
+# De export van De Wolden en Hoogeveen: 112 MB, ook niet getrackt (marker `zwaar`). Het pad
+# komt uit `conftest` (thuismap of `GWSW_OROX_FIXTUREPAD`), niet meer hard uit deze regel.
+DEWOLDEN = dewoldenhoogeveen_export()
 DEWOLDEN_GRENS = GIS_DIR / "gemeentegrenzen_dewoldenhoogeveen.geojson"
 
 MINI_BASIS = "http://sparql.gwsw.nl/repositories/Mini#"
@@ -420,6 +422,72 @@ def test_lijn_zonder_srsdimension_wordt_ook_geknipt(tmp_path: Path) -> None:
     delen, terug = _heen_en_terug(tmp_path, bron)
 
     assert len(delen) == 2
+    assert isomorphic(terug, _graaf(bron))
+
+
+# De vijf-punts lijn onder de #46-tests: West krijgt er vier (12 tokens, even), Oost drie
+# (9 tokens). Zonder srsDimension leest `geometry._dimensie_van` het even stuk als 2D.
+_VIJFPUNTS = (
+    "233000.00 581000.00 8.50 233010.00 581000.00 8.45 233015.00 581000.00 8.42 "
+    "233030.00 581000.00 8.40 233040.00 581000.00 8.35"
+)
+
+
+def test_3d_zonder_srsdimension_wordt_niet_geknipt_maar_heel_doorgegeven(tmp_path: Path) -> None:
+    """Issue #46: een 3D-posList zonder srsDimension wordt niet geknipt maar heel doorgegeven.
+
+    Zonder srsDimension kan een stuk met een even tokental (het West-stuk, 12) door
+    `geometry._dimensie_van` als 2D gelezen worden, terwijl de bron 3D is. `merge._hersteld`
+    telde de stap dan op het eerste geziene *stuk* en snoeide 2 getallen per punt waar de bron
+    er 3 schreef -- een half knippunt en een geometrie die niemand schreef, en het defect hing
+    van de stukvolgorde af. De kortste weg: zo'n lijn heel doorgeven, net als een lijn met een
+    andere verhouding dan 2 of 3 getallen per punt. Beide deelvolgordes (C2 en C4) horen dan
+    isomorf terug te komen met lege `geometry_errors`.
+    """
+    from gwsw_orox_helpers.dataset import load_dataset
+
+    bron = _klein(
+        tmp_path,
+        ":L a gwsw:Gemengdriool ; gwsw:hasAspect :L_ori .\n"
+        ":L_ori a gwsw:Leidingorientatie ; gwsw:hasAspect :L_lij .\n"
+        f":L_lij a gwsw:Lijn ; gwsw:hasValue {_lijn(_VIJFPUNTS, dimensie='')} .\n",
+    )
+    delen = clip_orox(bron, MINI_GRENS, tmp_path / "delen", sleutel="gemeentenaam")
+
+    # Niet geknipt: geen enkel deel draagt een knipmerk; de lijn staat heel in elk vlak.
+    for pad in delen:
+        helft = _graaf(pad)
+        assert (None, rdflib.URIRef(f"{KNIP}herkomst"), None) not in helft
+        assert _VIJFPUNTS in str(helft.value(_mini("L_lij"), rdflib.URIRef(f"{GWSW}hasValue")))
+
+    for label, volgorde in (("C2", delen), ("C4", delen[::-1])):
+        doel = tmp_path / f"terug_{label}.ttl"
+        merge_orox(volgorde, doel)
+        assert isomorphic(_graaf(doel), _graaf(bron)), label
+        assert not load_dataset(doel).geometry_errors, label
+
+
+def test_3d_met_srsdimension_blijft_geknipt(tmp_path: Path) -> None:
+    """Gedragsbehoud (#46): dezelfde vijf-punts lijn *met* srsDimension wordt wel geknipt.
+
+    De fix raakt alleen 3D-invoer zonder srsDimension. Een conforme export draagt de
+    srsDimension in het omhulsel -- ook op de stukken, want `vervang_coordinaten` laat hem
+    staan -- dus `_stapgrootte` leest daar 3 en de knip blijft sluitend.
+    """
+    bron = _klein(
+        tmp_path,
+        ":L a gwsw:Gemengdriool ; gwsw:hasAspect :L_ori .\n"
+        ":L_ori a gwsw:Leidingorientatie ; gwsw:hasAspect :L_lij .\n"
+        f":L_lij a gwsw:Lijn ; gwsw:hasValue {_lijn(_VIJFPUNTS)} .\n",
+    )
+    delen, terug = _heen_en_terug(tmp_path, bron)
+
+    herkomsten = {
+        str(waarde)
+        for pad in delen
+        for waarde in _graaf(pad).objects(None, rdflib.URIRef(f"{KNIP}herkomst"))
+    }
+    assert len(herkomsten) == 1  # echt geknipt: de lijn valt uiteen
     assert isomorphic(terug, _graaf(bron))
 
 
@@ -989,17 +1057,20 @@ def test_onleesbare_grenslaag_is_een_dataseterror(tmp_path: Path) -> None:
 
 
 def test_diep_geneste_grenslaag_is_een_dataseterror(tmp_path: Path) -> None:
-    """20000x `[` laat `json.loads` een kale `RecursionError` gooien (issue #22).
+    """20000x `[` laat `json.loads` op de diepte struikelen (issue #22).
 
-    Die ontsnapte uit de publieke `clip_orox`, terwijl het hele grenzenpad `DatasetError`
-    belooft. `pytest.raises(DatasetError)` legt dat allebei vast: hij faalt zowel als er
-    niets vliegt als wanneer de `RecursionError` er kaal doorheen komt.
+    De kale fout ontsnapte uit de publieke `clip_orox`, terwijl het hele grenzenpad
+    `DatasetError` belooft. `pytest.raises(DatasetError)` legt dat allebei vast: hij faalt
+    zowel als er niets vliegt als wanneer de fout er kaal doorheen komt. Het oorzaaktype
+    verschilt per interpreter -- CPython <=3.13 laat de C-scanner een `RecursionError`
+    gooien, 3.14 meldt de diepte als een `JSONDecodeError` -- maar dat is niet het contract:
+    het contract is de `DatasetError`, niet het onderliggende oorzaaktype.
     """
     pad = tmp_path / "grens.geojson"
     pad.write_text("[" * 20000, encoding="utf-8")
     with pytest.raises(DatasetError, match="geen leesbare GeoJSON") as gevangen:
         clip_orox(MINI, pad, tmp_path / "uit", sleutel="naam")
-    assert isinstance(gevangen.value.__cause__, RecursionError)
+    assert isinstance(gevangen.value.__cause__, (RecursionError, json.JSONDecodeError))
 
 
 def test_grenslaag_zonder_vlakken_is_een_dataseterror(tmp_path: Path) -> None:
@@ -1038,6 +1109,30 @@ def test_twee_vlakken_met_dezelfde_naam_is_een_dataseterror(tmp_path: Path) -> N
     pad = _grenslaag(tmp_path, {"type": "FeatureCollection", "features": [vlak, vlak]})
     with pytest.raises(DatasetError, match="op meer dan een vlak"):
         clip_orox(MINI, pad, tmp_path / "uit", sleutel="naam")
+
+
+def test_botsende_gesaneerde_namen_is_een_dataseterror(tmp_path: Path) -> None:
+    """Twee namen die na sanering hetzelfde bestand zouden opleveren, worden geweigerd.
+
+    `'a b'` en `'a/b'` verschillen als ruwe naam maar saneren allebei tot `a_b`; zonder
+    deze controle schreef het tweede deel stil over het eerste heen. De melding noemt
+    beide ruwe namen, zodat de auteur ziet welke twee botsen.
+    """
+
+    def _vlak(naam: str) -> dict[str, object]:
+        return {
+            "type": "Feature",
+            "properties": {"naam": naam},
+            "geometry": {"type": "Polygon", "coordinates": [[[0, 0], [1, 0], [1, 1], [0, 0]]]},
+        }
+
+    pad = _grenslaag(
+        tmp_path, {"type": "FeatureCollection", "features": [_vlak("a b"), _vlak("a/b")]}
+    )
+    with pytest.raises(DatasetError, match="leveren allebei de bestandsnaam") as gevangen:
+        clip_orox(MINI, pad, tmp_path / "uit", sleutel="naam")
+    melding = str(gevangen.value)
+    assert "'a b'" in melding and "'a/b'" in melding
 
 
 def test_vlak_dat_geen_vlak_is_is_een_dataseterror(tmp_path: Path) -> None:
@@ -1109,6 +1204,23 @@ def test_bron_met_een_knipnaam_is_een_dataseterror(tmp_path: Path) -> None:
         encoding="utf-8",
     )
     with pytest.raises(DatasetError, match="staart die de clip zelf"):
+        clip_orox(bron, MINI_GRENS, tmp_path / "uit", sleutel="gemeentenaam")
+
+
+def test_bron_met_een_knip_predicaat_is_een_dataseterror(tmp_path: Path) -> None:
+    """Een bron met een predicaat uit de `knip:`-naamruimte wordt geweigerd.
+
+    `merge_orox` gooit elke triple met een `knip:`-predicaat weg; stond zo'n predicaat al
+    in de bron, dan verdween hij stil bij de hereniging (`isomorf=False`). Dat is precies
+    het dataverlies dat deze module belooft niet te doen, dus volgt er een `KnipError`.
+    """
+    bron = tmp_path / "knip.ttl"
+    bron.write_text(
+        f"@prefix : <http://x#> .\n@prefix gwsw: <{GWSW}> .\n@prefix knip: <{KNIP}> .\n"
+        ":a a gwsw:Inspectieput ; knip:geknipt true .\n",
+        encoding="utf-8",
+    )
+    with pytest.raises(DatasetError, match="knip-naamruimte"):
         clip_orox(bron, MINI_GRENS, tmp_path / "uit", sleutel="gemeentenaam")
 
 
@@ -1729,4 +1841,408 @@ def test_bronbasis_leest_de_versie_uit_de_predicaat_iris(
     with caplog.at_level(logging.WARNING, logger="gwsw_orox_helpers.clip.termen"):
         basis = _bronbasis(iter([_quad("http://x/p")]), "bron")
     assert basis == GWSW
-    assert "geen herkenbaar GWSW-predicaat" in caplog.text
+    assert "geen herkenbare GWSW-versie" in caplog.text
+
+
+# --------------------------------------------------------------------------------------
+# Eén opening voor basisdetectie én plan (issue #61)
+# --------------------------------------------------------------------------------------
+
+
+def test_bronbasis_en_rest_geeft_de_verbruikte_kop_terug() -> None:
+    """`_bronbasis_en_rest` levert naast de basis de kop-quads die het verbruikte.
+
+    De aanroeper zet de stroom voort met `itertools.chain(verbruikt, rest)`, en daarvoor
+    moet elke quad tot en met het eerste GWSW-predicaat terugkomen, in volgorde. Wat er na
+    die treffer nog in de oorspronkelijke iterator zit, blijft daar ongelezen: dat is de
+    `rest` die de aanroeper aan `verbruikt` ketent.
+    """
+    from gwsw_orox_helpers.clip.termen import _bronbasis_en_rest
+
+    named = pyoxigraph.NamedNode
+
+    def _quad(predicaat: str) -> pyoxigraph.Quad:
+        return pyoxigraph.Quad(named("http://s"), named(predicaat), named("http://o"))
+
+    kop = "http://www.w3.org/1999/02/22-rdf-syntax-ns#type"
+    stroom = iter([_quad(kop), _quad(f"{GWSW17}hasAspect"), _quad(f"{GWSW17}hasValue")])
+
+    basis, verbruikt = _bronbasis_en_rest(stroom, "bron")
+
+    assert basis == GWSW17
+    # De kop tot en met de eerste GWSW-treffer is verbruikt en teruggegeven ...
+    assert [quad.predicate.value for quad in verbruikt] == [kop, f"{GWSW17}hasAspect"]
+    # ... en de niet-verbruikte staart zit nog ongelezen in de oorspronkelijke iterator.
+    assert [quad.predicate.value for quad in stroom] == [f"{GWSW17}hasValue"]
+
+
+def test_maak_plan_zet_een_al_geopende_stroom_voort(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`_maak_plan` leest de meegegeven stroom en opent de bron niet zelf opnieuw.
+
+    Vroeger opende `_maak_plan` de bron een tweede keer; sinds issue #61 krijgt hij de
+    stroom die de basisdetectie al opende, met de verbruikte kop ervoor geketend. Wie hier
+    alsnog `lees_orox` aanroept, valt op de gesaboteerde versie stuk. Dat de verdeling
+    dezelfde blijft, blijkt uit de maskers: Put_1 hoort in West, Put_2 in Oost.
+    """
+    import itertools
+
+    import gwsw_orox_helpers.clip.plan as plan_mod
+    from gwsw_orox_helpers.clip.grenzen import _lees_grenzen
+    from gwsw_orox_helpers.clip.termen import _bronbasis_en_rest, _kniptermen
+    from gwsw_orox_helpers.schrijven import lees_orox
+
+    def _weiger(*_args: object, **_kwargs: object) -> object:
+        raise AssertionError("_maak_plan hoort de bron niet zelf te openen")
+
+    monkeypatch.setattr(plan_mod, "lees_orox", _weiger, raising=False)
+
+    vlakken = _lees_grenzen(MINI_GRENS, "gemeentenaam")
+    geopend = lees_orox(MINI)
+    basis, verbruikt = _bronbasis_en_rest(geopend.quads, MINI)
+    termen = _kniptermen(basis)
+
+    plan = plan_mod._maak_plan(MINI, itertools.chain(verbruikt, geopend.quads), vlakken, termen)
+
+    assert plan.namen == ("Mini-West", "Mini-Oost")
+    west, oost = 0b01, 0b10
+    assert plan.maskers[f"{MINI_BASIS}Put_1"] & west
+    assert not plan.maskers[f"{MINI_BASIS}Put_1"] & oost
+    assert plan.maskers[f"{MINI_BASIS}Put_2"] & oost
+    assert not plan.maskers[f"{MINI_BASIS}Put_2"] & west
+
+
+def test_clip_orox_opent_de_bron_precies_n_plus_1_keer(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`clip_orox` opent de bron N+1 keer: één opening voor plan én basis, N om te schrijven.
+
+    Sinds issue #61 delen de basisdetectie en het plan één opening; daarvoor waren het er
+    N+2. De spion telt elke fysieke opening, in welke fase ze ook valt -- vandaar dat hij
+    zowel `orkest` als `plan` beslaat.
+    """
+    import gwsw_orox_helpers.clip.orkest as orkest_mod
+    import gwsw_orox_helpers.clip.plan as plan_mod
+    from gwsw_orox_helpers.schrijven import lees_orox as _echt
+
+    telling = 0
+
+    def _spion(*args: object, **kwargs: object) -> object:
+        nonlocal telling
+        telling += 1
+        return _echt(*args, **kwargs)
+
+    for mod in (orkest_mod, plan_mod):
+        monkeypatch.setattr(mod, "lees_orox", _spion, raising=False)
+
+    delen = clip_orox(MINI, MINI_GRENS, tmp_path / "delen", sleutel="gemeentenaam")
+
+    assert telling == len(delen) + 1
+
+
+# --------------------------------------------------------------------------------------
+# De naad plan->stroom als positietabel (issue #64)
+# --------------------------------------------------------------------------------------
+
+
+def test_quad_en_triple_serialiseren_byte_gelijk() -> None:
+    """Een default-graaf-Quad en de gelijke Triple leveren dezelfde Turtle-bytes.
+
+    Dit is de aanname waar de snelle tak van `_deelstroom` op rust (issue #64): hij geeft de
+    bron-Quad ongewijzigd door in plaats van er een Triple van te maken, en dat is alleen
+    byte-gelijk als de serializer een default-graaf-Quad als de gelijke Triple wegschrijft.
+    Klopt dat in de doelversie niet, dan valt de hele optimalisatie (§6 van het issue).
+    """
+    import io
+
+    s = pyoxigraph.NamedNode("http://example/s")
+    p = pyoxigraph.NamedNode("http://example/p")
+    o = pyoxigraph.NamedNode("http://example/o")
+
+    buffer_quad = io.BytesIO()
+    pyoxigraph.serialize([pyoxigraph.Quad(s, p, o)], buffer_quad, pyoxigraph.RdfFormat.TURTLE)
+    buffer_triple = io.BytesIO()
+    pyoxigraph.serialize([pyoxigraph.Triple(s, p, o)], buffer_triple, pyoxigraph.RdfFormat.TURTLE)
+
+    assert buffer_quad.getvalue() == buffer_triple.getvalue()
+
+
+def test_serialize_aanvaardt_een_gemengde_quad_en_triple_stroom() -> None:
+    """pyoxigraph 0.5.9 serialiseert een gemengde Quad/Triple-stroom (issue #64, §6).
+
+    De snelle tak van `_deelstroom` levert een `Quad`, het herschrijfpad een `Triple`; ze
+    komen door elkaar bij de serializer. Deze test pint dat die mix mag en beide triples
+    terugleesbaar wegschrijft -- zou de doelversie erop struikelen, dan moet de snelle tak
+    alsnog een `Triple` minten en de winst opnieuw gemeten worden.
+    """
+    import io
+
+    s = pyoxigraph.NamedNode("http://example/s")
+    p = pyoxigraph.NamedNode("http://example/p")
+    een = pyoxigraph.NamedNode("http://example/een")
+    twee = pyoxigraph.NamedNode("http://example/twee")
+
+    gemengd = [pyoxigraph.Quad(s, p, een), pyoxigraph.Triple(s, p, twee)]
+    buffer = io.BytesIO()
+    pyoxigraph.serialize(gemengd, buffer, pyoxigraph.RdfFormat.TURTLE)
+
+    terug = {
+        (q.subject.value, q.predicate.value, q.object.value)
+        for q in pyoxigraph.parse(buffer.getvalue(), format=pyoxigraph.RdfFormat.TURTLE)
+    }
+    assert (s.value, p.value, een.value) in terug
+    assert (s.value, p.value, twee.value) in terug
+
+
+def _plan_en_termen(bron: Path, grens: Path) -> tuple[object, object]:
+    """Het `_Plan` en de `_Kniptermen` voor een bron, langs dezelfde weg als `clip_orox`."""
+    import itertools as _it
+
+    from gwsw_orox_helpers.clip.grenzen import _lees_grenzen
+    from gwsw_orox_helpers.clip.plan import _maak_plan
+    from gwsw_orox_helpers.clip.termen import _bronbasis_en_rest, _kniptermen
+    from gwsw_orox_helpers.schrijven import lees_orox
+
+    vlakken = _lees_grenzen(grens, "gemeentenaam")
+    geopend = lees_orox(bron)
+    basis, verbruikt = _bronbasis_en_rest(geopend.quads, bron)
+    termen = _kniptermen(basis)
+    plan = _maak_plan(bron, _it.chain(verbruikt, geopend.quads), vlakken, termen)
+    return plan, termen
+
+
+def test_positietabel_merkt_blanke_knopen_als_herschrijven(tmp_path: Path) -> None:
+    """Elke quad met een blanke knoop krijgt de herschrijf-vlag; de tabel dekt elke positie.
+
+    Een bnode-fixture dwingt de herschrijf-tak af: pyoxigraph mint per lezing andere labels,
+    dus zo'n quad kan nooit ongewijzigd de deur uit en moet de vlag dragen (issue #64).
+    """
+    from gwsw_orox_helpers.schrijven import lees_orox
+
+    bron = _klein(
+        tmp_path,
+        ":L a gwsw:Gemengdriool ; gwsw:hasAspect [ a gwsw:Leidingorientatie ;\n"
+        f"  gwsw:hasAspect [ a gwsw:Lijn ; gwsw:hasValue "
+        f"{_lijn('233000.00 581000.00 8.50 233010.00 581000.00 8.45')} ] ] .\n",
+    )
+    plan, _ = _plan_en_termen(bron, MINI_GRENS)
+    quads = list(lees_orox(bron).quads)
+
+    assert len(plan.herschrijf) == len(quads)  # type: ignore[attr-defined]
+    assert len(plan.posmasker) == len(quads)  # type: ignore[attr-defined]
+
+    zag_blank = False
+    for index, quad in enumerate(quads):
+        blank = isinstance(quad.subject, pyoxigraph.BlankNode) or isinstance(
+            quad.object, pyoxigraph.BlankNode
+        )
+        if blank:
+            zag_blank = True
+            assert plan.herschrijf[index] == 1, quad  # type: ignore[attr-defined]
+    assert zag_blank, "de fixture moet blanke knopen bevatten om de tak te raken"
+
+
+def test_positietabel_merkt_geknipte_geometrie_en_laat_gewone_quads_met_rust(
+    tmp_path: Path,
+) -> None:
+    """De vlag staat aan voor een quad die een geknipte geometrieknoop raakt, en uit voor een
+    gewone benoemde quad -- dan mag de bron-quad ongewijzigd door (issue #64)."""
+    from gwsw_orox_helpers.schrijven import lees_orox
+
+    coordinaten = "233000.00 581000.00 8.50 233040.00 581000.00 8.40"
+    bron = _klein(
+        tmp_path,
+        ":L a gwsw:Gemengdriool ; gwsw:hasAspect :L_ori .\n"
+        ":L_ori a gwsw:Leidingorientatie ; gwsw:hasAspect :L_lij .\n"
+        f":L_lij a gwsw:Lijn ; gwsw:hasValue {_lijn(coordinaten)} .\n",
+    )
+    plan, _ = _plan_en_termen(bron, MINI_GRENS)
+    assert f"{MINI_BASIS}L_lij" in plan.stukken  # type: ignore[attr-defined]
+
+    quads = list(lees_orox(bron).quads)
+    zag_gewoon = zag_geknipt = False
+    for index, quad in enumerate(quads):
+        predicaat = quad.predicate.value
+        subject = quad.subject.value if isinstance(quad.subject, pyoxigraph.NamedNode) else None
+        object_ = quad.object.value if isinstance(quad.object, pyoxigraph.NamedNode) else None
+        if subject == f"{MINI_BASIS}L" and predicaat == RDF_TYPE:
+            zag_gewoon = True
+            assert plan.herschrijf[index] == 0  # type: ignore[attr-defined]
+        if subject == f"{MINI_BASIS}L_lij" and predicaat.endswith("hasValue"):
+            zag_geknipt = True
+            assert plan.herschrijf[index] == 1  # type: ignore[attr-defined]
+        if object_ == f"{MINI_BASIS}L_lij":  # de hasAspect-rand naar de geknipte geometrie
+            assert plan.herschrijf[index] == 1  # type: ignore[attr-defined]
+    assert zag_gewoon and zag_geknipt
+
+
+def test_deelstroom_geeft_gewone_quads_door_en_mengt_met_triples(tmp_path: Path) -> None:
+    """De snelle tak levert de bron-`Quad`, het herschrijfpad `Triple`-en: een gemengde stroom.
+
+    Zonder de mix zou elke gewone quad opnieuw als `Triple` gealloceerd worden -- precies wat
+    issue #64 vermijdt. De knipmerken (`Triple`) bewijzen dat het herschrijfpad ook draait.
+    """
+    from gwsw_orox_helpers.clip.stroom import _deelstroom
+    from gwsw_orox_helpers.schrijven import lees_orox
+
+    coordinaten = "233000.00 581000.00 8.50 233040.00 581000.00 8.40"
+    bron = _klein(
+        tmp_path,
+        ":L a gwsw:Gemengdriool ; gwsw:hasAspect :L_ori .\n"
+        ":L_ori a gwsw:Leidingorientatie ; gwsw:hasAspect :L_lij .\n"
+        f":L_lij a gwsw:Lijn ; gwsw:hasValue {_lijn(coordinaten)} .\n",
+    )
+    plan, termen = _plan_en_termen(bron, MINI_GRENS)
+    uit = list(_deelstroom(lees_orox(bron).quads, plan, 0, termen))  # type: ignore[arg-type]
+
+    soorten = {type(item).__name__ for item in uit}
+    assert "Quad" in soorten, "de gewone quads horen ongewijzigd door te gaan"
+    assert "Triple" in soorten, "het herschrijfpad hoort Triples te leveren"
+
+
+def _negen_vlakken(tmp_path: Path) -> Path:
+    """Een grenslaag van negen vlakken naast elkaar; meer dan in een masker-byte past (>8)."""
+    features = [
+        {
+            "type": "Feature",
+            "properties": {"gemeentenaam": f"V{nummer}"},
+            "geometry": {
+                "type": "Polygon",
+                "coordinates": [
+                    [
+                        [links, 580960.0],
+                        [links + 20.0, 580960.0],
+                        [links + 20.0, 581040.0],
+                        [links, 581040.0],
+                        [links, 580960.0],
+                    ]
+                ],
+            },
+        }
+        for nummer, links in enumerate(232900.0 + stap * 20.0 for stap in range(9))
+    ]
+    grens = tmp_path / "negen.geojson"
+    grens.write_text(
+        json.dumps({"type": "FeatureCollection", "features": features}), encoding="utf-8"
+    )
+    return grens
+
+
+def test_clip_langs_meer_dan_acht_vlakken_blijft_rond(tmp_path: Path) -> None:
+    """Meer dan acht vlakken laat de positietabel meegroeien (>8 past niet in een byte).
+
+    Gedragsbehoud: de clip legde nooit een bovengrens op het aantal vlakken, en de round-trip
+    hoort met een brede maskertabel net zo isomorf terug te komen als met een smalle.
+    """
+    grens = _negen_vlakken(tmp_path)
+    delen = clip_orox(MINI, grens, tmp_path / "delen", sleutel="gemeentenaam")
+    doel = tmp_path / "terug.ttl"
+    merge_orox(delen, doel)
+
+    assert len(delen) == 9
+    assert isomorphic(_graaf(doel), _graaf(MINI))
+
+
+# --------------------------------------------------------------------------------------
+# De scanronde van de hereniging als positietabel (issue #65)
+# --------------------------------------------------------------------------------------
+
+
+def _scan_voor(delen: list[Path]) -> object:
+    """Het `_Scan`-resultaat van de eerste merge-ronde, langs dezelfde weg als `merge_orox`."""
+    import itertools
+
+    from gwsw_orox_helpers.clip.merge import _scan_delen
+    from gwsw_orox_helpers.clip.termen import _bronbasis, _kniptermen
+    from gwsw_orox_helpers.schrijven import lees_orox
+
+    quads = itertools.chain.from_iterable(lees_orox(pad).quads for pad in delen)
+    termen = _kniptermen(_bronbasis(quads, delen[0]))
+    return _scan_delen(delen, termen)
+
+
+def test_scanronde_bouwt_een_positietabel_per_deel(tmp_path: Path) -> None:
+    """`_scan_delen` laat per deel een bytetabel achter: 0 doorgeven / 1 knipmerk / 2 herschrijven.
+
+    De mini-fixture wordt door `:Leiding_1` geknipt, dus de delen dragen knip:-merken (byte 1)
+    en stukknopen die herschreven moeten worden (byte 2), naast de vele gewone benoemde quads
+    die ongewijzigd door mogen (byte 0). De tabel dekt elke stroompositie van elk deel; dit is
+    de kennis waar `_samengevoegd` sinds issue #65 op leest in plaats van hem per quad opnieuw
+    te herleiden.
+    """
+    from gwsw_orox_helpers.clip.termen import KNIP
+    from gwsw_orox_helpers.schrijven import lees_orox
+
+    delen = _geknipt(tmp_path)
+    scan = _scan_voor(delen)
+
+    assert len(scan.posities) == len(delen)  # type: ignore[attr-defined]
+    zag_0 = zag_1 = zag_2 = False
+    for deel_index, pad in enumerate(delen):
+        deelquads = list(lees_orox(pad).quads)
+        tabel = scan.posities[deel_index]  # type: ignore[attr-defined]
+        assert len(tabel) == len(deelquads)
+        for positie, quad in enumerate(deelquads):
+            byte = tabel[positie]
+            assert byte in (0, 1, 2), byte
+            if quad.predicate.value.startswith(KNIP):
+                assert byte == 1, quad  # elke knip:-quad wordt overgeslagen
+                zag_1 = True
+            elif byte == 0:
+                zag_0 = True
+            else:
+                assert byte == 2, quad
+                zag_2 = True
+    assert zag_0, "gewone benoemde quads horen byte 0 te krijgen"
+    assert zag_1, "de knip:-merken horen byte 1 te krijgen"
+    assert zag_2, "de stukknopen/ontdubbelingen horen byte 2 te krijgen"
+
+
+def test_samengevoegd_geeft_gewone_quads_door_en_mengt_met_triples(tmp_path: Path) -> None:
+    """De snelle tak van `_samengevoegd` levert de bron-`Quad`, het herschrijfpad `Triple`-en.
+
+    Zonder de mix zou elke gewone quad opnieuw als `Triple` gealloceerd en zijn sleutels
+    opnieuw herleid worden -- precies wat issue #65 vermijdt. De herstelde geometrie en de
+    ontdubbelde herkomst-triples (`Triple`) bewijzen dat het herschrijfpad ook draait, en de
+    hereniging blijft graaf-gelijk aan de bron.
+    """
+    from gwsw_orox_helpers.clip.merge import _samengevoegd
+
+    delen = _geknipt(tmp_path)  # de mini-fixture, met een door `:Leiding_1` geknipte lijn
+    scan = _scan_voor(delen)
+    uit = list(_samengevoegd(delen, scan))  # type: ignore[arg-type]
+
+    soorten = {type(item).__name__ for item in uit}
+    assert "Quad" in soorten, "de gewone quads horen ongewijzigd door te gaan"
+    assert "Triple" in soorten, "het herschrijfpad hoort Triples te leveren"
+
+
+def test_positietabel_neutraliteit_merge_blijft_isomorf(tmp_path: Path) -> None:
+    """Byte-neutraliteit: `merge(clip(bron))` blijft graaf-gelijk aan de bron met de tabel.
+
+    Een fixture met twee geknipte leidingen dwingt herstel, ontdubbeling én de knip:-overslag
+    tegelijk af, zodat alle drie de bytes van de positietabel in één hereniging langskomen. De
+    sjabloon-snit (9c) mag de herkomst-entries niet raken; dat de round-trip isomorf blijft,
+    bewaakt dat.
+    """
+    coordinaten_a = "233000.00 581000.00 8.50 233040.00 581000.00 8.40"
+    coordinaten_b = "233005.00 581010.00 7.20 233045.00 581010.00 7.10"
+    bron = _klein(
+        tmp_path,
+        ":LA a gwsw:Gemengdriool ; gwsw:hasAspect :LA_ori .\n"
+        ":LA_ori a gwsw:Leidingorientatie ; gwsw:hasAspect :LA_lij .\n"
+        f":LA_lij a gwsw:Lijn ; gwsw:hasValue {_lijn(coordinaten_a)} .\n"
+        ":LB a gwsw:Gemengdriool ; gwsw:hasAspect :LB_ori .\n"
+        ":LB_ori a gwsw:Leidingorientatie ; gwsw:hasAspect :LB_lij .\n"
+        f":LB_lij a gwsw:Lijn ; gwsw:hasValue {_lijn(coordinaten_b)} .\n",
+    )
+    delen, terug = _heen_en_terug(tmp_path, bron)
+
+    herkomsten = {
+        str(waarde)
+        for pad in delen
+        for waarde in _graaf(pad).objects(None, rdflib.URIRef(f"{KNIP}herkomst"))
+    }
+    assert len(herkomsten) == 2  # beide leidingen echt geknipt
+    assert isomorphic(terug, _graaf(bron))

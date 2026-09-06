@@ -12,7 +12,10 @@ Wie wat importeert, binnen de package. `A -> B` betekent "A importeert B"; elke 
 wijst naar een regel *boven* zich en nooit andersom. Na te lopen met
 `grep -rn "^from gwsw_orox_helpers" src/gwsw_orox_helpers/` -- `-r` en geen `*.py`-glob,
 want `clip` is een submap en die mist een glob op de wortel. Dit zijn alle randen die er
-zijn.
+zijn. `test_de_wortelsnit_houdt_de_importrichting` in `tests/test_publieke_api.py` bewaakt
+dat tegen de echte import-AST -- gelijkheid per rij, zodat een import erbij of eraf de
+tekening laat afwijken, zoals `test_de_clipsubmodules_houden_de_importrichting` dat voor
+`clip/` doet.
 
 ```
 errors   voortgang   bronnen   namen   geometry   domein    <- bladeren: geen import
@@ -23,18 +26,35 @@ codering   -> errors
 rdfmotor   -> errors
 ontologie  -> graaf, namen
 klassen    -> graaf, namen, ontologie
-bestand    -> codering, errors, graaf, rdfmotor
+bestand    -> codering, errors, graaf, namen, rdfmotor
 inlezen    -> domein, geometry, graaf, klassen, namen
 netwerk    -> domein
-dataset    -> bestand, bronnen, codering, domein, errors, geometry, graaf, inlezen,
-              klassen, namen, netwerk, voortgang
-cache      -> bestand, codering, dataset, domein, geometry, graaf, inlezen, klassen,
-              namen, netwerk, ontologie, rdfmotor, voortgang
+model      -> codering, domein, errors, geometry, graaf, inlezen, klassen, namen,
+              netwerk
+laden      -> bestand, bronnen, errors, graaf, inlezen, klassen, model, namen, voortgang
+vulwaarden -> domein, model
+dataset    -> laden, model, vulwaarden
+cache      -> bestand, bronnen, codering, dataset, domein, errors, geometry, graaf,
+              inlezen, klassen, laden, model, namen, netwerk, ontologie, rdfmotor,
+              vulwaarden, voortgang
 
 schrijven  -> codering, errors, namen, rdfmotor
 clip/      -> errors, geometry, namen, schrijven   (een package; zie hieronder)
 __init__   -> clip, schrijven
 ```
+
+`model`, `laden` en `vulwaarden` zijn sinds issue #67 drie rijen waar er één stond:
+`dataset.py` droeg het domeinmodel, de lader-orkestratie én de vulwaarden-transformatie in
+één bestand van ~1081 regels dat tegelijk het bevroren contract naar nlriochecker was. De
+hersnit legt het domeinmodel (`GwswDataset`, `GwswVersie`) in `model`, de lader
+(`load_dataset`, `lees_ontologie`, `ontologiepaden` en de bundelkeuze) in `laden` en
+`markeer_vulwaarden` in `vulwaarden`; `dataset` werd een re-exportgezicht (imports +
+`__all__`). De importrichting blijft een lijn: `model` weet van de lader niets, `laden`
+importeert `model`, `vulwaarden` importeert `model`, en `dataset` importeert alle drie -- de
+cyclus `dataset -> laden -> dataset` die zou ontstaan als het model in `dataset` bleef
+(`laden` construeert `GwswDataset`, `dataset` re-exporteert `load_dataset`), is zo
+vermeden. Zie ["`dataset` is het gezicht, niet de bak"](#dataset-is-het-gezicht-niet-de-bak)
+hieronder. Additief: geen handtekening, retourvorm of gedrag wijzigt.
 
 `bestand` en `inlezen` zijn sinds issue #26 twee rijen en niet één. Ze deelden alleen de
 `GraafIndex`: `bestand` máákt er een (de bytes van schijf, de codering, de parser en de
@@ -94,6 +114,31 @@ uit de typen van de knopen en strengen -- geen `self.graph.gwsw_basis`, dus geen
 het cachepad -- met `gedetecteerd=False` wanneer geen enkele knoop of streng een GWSW-type draagt.
 `_basis` blijft de interne leesweg en levert `gwsw_versie.basis`; `namen.versie_uit_basis` haalt
 het versiecijfer uit de basis.
+
+**Sinds issue #51 is diezelfde versie-juiste termenset ook publiek leesbaar naast de
+1.6-constanten.** De `URIRef`-termenset per basis (`inlezen.Leestermen`, was `_Leestermen`) is nu
+publiek, en `GwswDataset.termen` levert hem voor de gedetecteerde basis -- gememoiseerd langs
+hetzelfde luie `init=False`-patroon als `gwsw_versie`, zodat het cachepad de graafpickle niet
+laadt. Daarop staan drie str-methoden (`uris_of_class`, `buren`, `kenmerken_met_waarde`) die de
+graaf versie-juist bevragen en tekst teruggeven, plus `namen.klasse_iri(naam, basis)` als
+publieke tegenhanger van `_uri`. Zo hoeft een afnemer die op 1.7 leest niet meer met de gepinde
+1.6-`HAS_*`/`KLASSE_*`-constanten te bevragen -- die spellen 1.6 en treffen op een 1.7-graaf stil
+nul. `load_dataset` waarschuwt daarom één keer (en niet nog eens op het cachepad, dat niet langs
+`load_dataset` loopt) wanneer `gwsw_versie.versie` niet 1.6 is. Dit is *additief*: de constanten,
+signaturen en retourvormen die nlriochecker importeert blijven byte-voor-byte gelijk.
+
+**Sinds issue #72 dekt die str-laag de graafvragen die een check-schrijver stelt.** Naast de drie
+#51-methoden staan er nu acht: `houders`/`dragers` (hasPart- resp. hasAspect-houders als tekst),
+`kenmerkinstanties` (per kenmerkknoop de waarde en de verwijzing), `knopen_van`/`strengen_van`
+(de `Node`/`Conduit`-objecten van een wortelklasse, ontdubbeld), `knopen_van_streng` (het begin/eind-
+paar via `resolve_network_node`), `valt_onder` (de korte naam van het meest-specifieke type — de
+`beheerobjecttype`-rangorde) en `typen_kort` (de korte namen van `graph_types_of`). Alle leunen op de
+bestaande privé-lezers en `self.termen` — geen tweede exemplaar van een IRI of een wandeling — en
+`namen.korte_naam` is de publieke tegenhanger van `_short` (naast `klasse_iri` voor `_uri`). Zo hoeft
+een afnemer die op 1.7 leest de gepinde 1.6-`HAS_*`/`KLASSE_*`-constanten en rdflib niet meer aan te
+raken; welke namen een check-schrijver hoort te leren staat als "aanbevolen kern" in
+`docs/afnemers.md`. Nog steeds additief: de constanten en de rdflib-typed namen blijven byte-voor-byte
+staan.
 
 `rdfmotor` ligt naast `codering`: allebei bladeren op `errors` na, en allebei door de
 leesweg én de schrijfweg gebruikt. De cliplaag komt er niet langs -- die parseert en
@@ -171,7 +216,10 @@ Elke module beantwoordt één vraag; in deze volgorde heeft niets ooit iets van 
 | `bestand` | Hoe wordt een TTL-bestand een gevulde `GraafIndex`? (bytes, codering, parse, GC) |
 | `inlezen` | Hoe vul je die objecten uit een gevulde graaf? (hasPart/hasAspect, lezers) |
 | `netwerk` | Welke knoop hangt boven dit object, en loopt de lijn de goede kant op? (vrije functies op `nodes` + `is_a`) |
-| `dataset` | Wat kun je een ingelezen dataset vragen? (`GwswDataset`, `load_dataset`, `lees_ontologie`) |
+| `model` | Wat kun je een ingelezen dataset vragen? (`GwswDataset`, `GwswVersie`) |
+| `laden` | Hoe wordt een TTL-bestand een `GwswDataset`? (`load_dataset`, `lees_ontologie`, `ontologiepaden` en de bundelkeuze) |
+| `vulwaarden` | Hoe lees je een hoogtekenmerk binnen de vulwaardeband als niet geregistreerd? (`markeer_vulwaarden`) |
+| `dataset` | Het gezicht: her-exporteert `model`, `laden` en `vulwaarden` als het bevroren oppervlak dat nlriochecker importeert |
 | `cache` | Hoe sla je die lezing over? (pickle, sleutel op inhoud én broncode) |
 | `schrijven` | Hoe komt een quadstroom er als OroX-Turtle weer uit? |
 | `clip` | Hoe verdeel je die stroom over vlakken, en hoe draai je dat terug? (package) |
@@ -259,8 +307,13 @@ hoefde die index niet op de dataset te krijgen, hij moest hem alleen kúnnen bou
 
 Er zijn twee wegen van een TTL-bestand naar triples, en ze zijn met opzet verschillend:
 
-- **De leesweg** (`bestand._parse`) decodeert het bestand, parseert het en giet de quads
-  in een `GraafIndex` met rdflib-termen. Wie leest, moet daarna kunnen opzoeken; die
+- **De leesweg** (`bestand._parse`) parseert het bestand en giet de quads in een
+  `GraafIndex` met rdflib-termen. Sinds issue #60 heeft die weg twee interne takken die op
+  dezelfde quads uitkomen: een bron die zuiver UTF-8 zonder BOM blijkt (vooraf blokgewijs
+  gevalideerd) leest de motor zelf streamend van schijf (`ontleed_turtle_bestand`); elke
+  andere bron gaat langs `read_bytes`, de decodering met terugvalcodering en
+  `ontleed_turtle` op de hergecodeerde bytes, waarbij de ruwe bytes en de tekst vroeg
+  losgelaten worden. Wie leest, moet daarna kunnen opzoeken; die
   index kost tijd en geheugen en is precies wat de checks nodig hebben. Over die hele
   lezing -- ook over de klassenafleiding en de objectopbouw ná het vullen van de index --
   ligt de cyclische GC van het proces stil (`bestand._gc_uit`, aangeroepen vanuit
@@ -269,7 +322,22 @@ Er zijn twee wegen van een TTL-bestand naar triples, en ze zijn met opzet versch
 - **De schrijfweg** (`schrijven.lees_orox` → `schrijf_orox_quads`) laat de quads van de
   parser rechtstreeks naar de serializer stromen. Wie terugschrijft heeft geen index
   nodig en zou hem op een export van honderden megabytes ook niet willen betalen; de
-  cliplaag hangt in diezelfde stroom en filtert hem per vlak.
+  cliplaag hangt in diezelfde stroom en filtert hem per vlak. Ook de terugvaltak streamt
+  sinds issue #66: een zuivere UTF-8-bron zonder BOM gaat als pad naar de motor
+  (`ontleed_turtle_bestand`), en een bron met terugvalcodering of een UTF-8-BOM gaat als
+  hercodeerstroom (`codering.hercodeerstroom` → `ontleed_turtle_stroom`) die blokgewijs van
+  de terugvalcodering naar UTF-8 hercodeert -- geen volledige `str` van de bron meer in het
+  geheugen, wat op de cp850-export per passage honderden MiB scheelt. Sinds issue #64 rekent de
+  clip die filter niet in elke pass opnieuw uit: de analyseronde slaat de per-quad-kennis
+  één keer plat tot een positietabel (een masker-byte plus een herschrijf-vlag per
+  stroompositie, geen quads), en een quad die niet herschreven hoeft te worden gaat
+  ongewijzigd naar de serializer. Dat maakt de per-vlak-stroom een gemengde Quad/Triple-
+  stroom, die pyoxigraph in Turtle byte-gelijk wegschrijft omdat een benoemde graaf daar
+  niet bestaat. Scherp geformuleerd is de lui-belofte van deze weg: **de bron zelf komt
+  nooit in het geheugen; het plan mag een positietabel van O(1) byte per quad dragen.** De
+  positietabellen van issue #64/#65 (rang 5 en 9 uit de archperf-swarm) zijn per constructie
+  conform die belofte; een variant die de hele bron één keer in het geheugen zou zetten (LD1,
+  rang 17) keert haar om en is daarom geen weg die de package neemt.
 
 Ze samenvoegen zou de ene helft opzadelen met wat de andere nodig heeft: de leesweg is
 gretig (de index is er pas als alles gelezen is), de schrijfweg is lui (een syntaxfout op
@@ -278,11 +346,11 @@ die anders uit elkaar loopt, en die staat één keer:
 
 | Gedeelde kennis | Woont in | Gelezen door |
 |---|---|---|
-| De aanroep van de motor zelf: `pyoxigraph.parse` en `pyoxigraph.serialize` op Turtle, plus de reeks pyoxigraph-versies waarop de package getoetst is | `rdfmotor` | `bestand._parse` (bytes), `schrijven.lees_orox` (een pad, of tekst bij een terugvalcodering) en `schrijven.schrijf_orox_quads` (de serializer) |
-| De IRI's: `GWSW` en de naamruimten, `hasAspect`/`hasPart`/`hasConnection`, `geo:gmlLiteral`; sinds issue #32 óók de termenset per gedetecteerde basis (`Termen`, `termen_voor`) en de detectie (`basis_uit_prefixen`, `basis_uit_iri`) | `namen` (tekst) | `inlezen` (als `URIRef`-termenset per basis), `clip.termen` (als `NamedNode`-termenset), `clip.plan`/`clip.stroom`/`clip.merge`/`clip.bereik` (via die termenset), `schrijven` (prefixkop, 1.6-cosmetisch), `graaf` (`xsd:string` + `gwsw_basis`), `bestand` (detectie), `ontologie`, `dataset` (`GWSW`, en het exporteert hem) |
+| De motor-naad: `pyoxigraph.parse` en `pyoxigraph.serialize` op Turtle, sinds issue #50 ook de foutvertaling (`MOTORFOUTEN`, `is_coderingsfout`) en de prefixlezing (`prefixen_van`), plus de reeks pyoxigraph-versies waarop de package getoetst is | `rdfmotor` | `bestand._parse` (bytes, of sinds issue #60 het pad bij zuivere UTF-8 zonder BOM; parse, `prefixen_van`, en de smalle vangst op `MOTORFOUTEN`+`TypeError`), `schrijven.lees_orox` (een pad, of sinds issue #66 een hercodeerstroom bij een terugvalcodering of een UTF-8-BOM; parse, `prefixen_van`), `schrijven._gecontroleerd` (`MOTORFOUTEN`+`is_coderingsfout`) en `schrijven.schrijf_orox_quads` (de serializer) |
+| De IRI's: `GWSW` en de naamruimten, `hasAspect`/`hasPart`/`hasConnection`, `geo:gmlLiteral`; sinds issue #32 óók de termenset per gedetecteerde basis (`Termen`, `termen_voor`) en de detectie (`basis_uit_prefixen`, `basis_uit_iri`/`basis_uit_iris`, met de gedeelde terugval-melding `terugvalmelding`) | `namen` (tekst) | `inlezen` (als `URIRef`-termenset per basis), `clip.termen` (als `NamedNode`-termenset), `clip.plan`/`clip.stroom`/`clip.merge`/`clip.bereik` (via die termenset), `schrijven` (prefixkop, 1.6-cosmetisch), `graaf` (`xsd:string` + `gwsw_basis`), `bestand` (detectie), `ontologie`, `dataset` (`GWSW`, en het exporteert hem) |
 | Het spellen van een korte klassenaam heen en terug (`_uri`, `_short`) | `namen` | `klassen` (`_afsluiting`, `_kenmerk_properties`, `_klassefuncties`), `inlezen` (de korte naam van een soort, een referentie of een klasse), `dataset` (`beheerobjecttype`, `is_connection_class`) |
 | De prefixkop van een OroX-export | `schrijven.STANDAARD_PREFIXEN`, opgebouwd uit `namen` | `schrijven`, `clip.orkest` (krijgt ze via `lees_orox` en vult `knip:` aan) |
-| UTF-8 met terugvalcodering, inclusief beide foutmeldingen | `codering.decodeer` | `bestand._decode`, `schrijven._gedecodeerd` |
+| UTF-8 (met of zonder een leidende BOM, via `utf-8-sig`) met terugvalcodering, inclusief beide foutmeldingen | `codering.decodeer` (de bron in het geheugen) en sinds issue #66 `codering.hercodeerstroom` (dezelfde regel, blokgewijs streamend, met `decodeer` als foutbron) | `bestand._decode` (decodeer), `schrijven.lees_orox` (hercodeerstroom) |
 | Het verslag van zo'n terugval (`DecodeFallback`) | `codering.terugvalverslag` | alleen `bestand` |
 | De GML-lezers | `geometry` | `inlezen` (`parse_gml_met_z`), `clip.knip`, `clip.plan`, `clip.merge`, `clip.bereik` (`parse_gml` / `parse_gml_z`), `dataset` (doorgeefluik) |
 | De tekstkant van diezelfde literaal: de coordinatenlijst als tokens, het terugleggen ervan in het omhulsel, en hoeveel getallen er op een punt gaan (`coordinaattokens`, `vervang_coordinaten`, `tokens_per_punt`) | `geometry` | `clip.knip` (de knip), `clip.stroom` (het stuk wegschrijven), `clip.merge` (de omkering) |
@@ -295,7 +363,15 @@ schrijfweg er ook niet voor.
 
 **De motor heeft één naad, de paden blijven twee.** De eerste rij van die tabel is de
 jongste: `pyoxigraph.parse` en `pyoxigraph.serialize` stonden op vier plekken
-uitgeschreven en staan nu één keer, in `rdfmotor`. Dat verandert aan de twee paden
+uitgeschreven en staan nu één keer, in `rdfmotor`. Sinds issue #50 draagt diezelfde naad
+niet alleen de aanroep maar ook de **foutvertaling en de prefixlezing**: `MOTORFOUTEN`
+(`SyntaxError`, `ValueError`) en `is_coderingsfout` zeggen wat de motor als fout gooit en
+wanneer dat een coderings- en geen syntaxfout is, en `prefixen_van` leest `parser.prefixes`.
+`bestand._parse` en `schrijven` lenen die drie in plaats van elk hun eigen kopie te dragen,
+en `bestand._parse` vangt daardoor smal -- `MOTORFOUTEN` plus de `TypeError` uit
+`naar_rdflib` -- zodat een `MemoryError` niet langer als lege "geen geldige Turtle ()" naar
+buiten komt (`test_de_foutvertaling_en_de_prefixen_wonen_alleen_in_rdfmotor` bewaakt de naad,
+naast `test_alleen_rdfmotor_roept_de_motor_aan`). Dat verandert aan de twee paden
 niets — de leesweg vult nog steeds een index, de schrijfweg stroomt nog steeds door —
 maar het maakt een minor-bump van de motor een een-naadswijziging in plaats van een
 zoektocht. pyoxigraph is pre-1.0 (0.3 → 0.4 brak de parse-signatuur al eens), en zo'n
@@ -307,9 +383,10 @@ poort vangt een omzeilde cap (`pip install --no-deps`, een conda-omgeving, een
 handmatige upgrade) met een leesbare `MotorError` — sinds issue #31 een eigen familie
 onder `DatasetError`, want dit is de enige fout van de package die niet over invoer gaat
 maar over de installatie eronder. De poort valt **bij het importeren
-van `rdfmotor`, één keer**: dat kost niets in de hete lus, en aan de aanroepkant zou de
-fout in de `except Exception` van `bestand._parse` belanden en er als "geen geldige
-Turtle" uitkomen. Beide plekken worden aan elkaar geknoopt door
+van `rdfmotor`, één keer**: dat kost niets in de hete lus, en aan de aanroepkant zou een
+`MotorError` niet in de smalle vangst van `bestand._parse` (`MOTORFOUTEN` plus `TypeError`)
+vallen en dus rauw naar buiten komen op de plek waar de eerste quad opgehaald wordt in
+plaats van waar de aanroep staat. Beide plekken worden aan elkaar geknoopt door
 `test_de_reeks_is_dezelfde_als_de_cap_in_pyproject`.
 
 Wat er **niet** doorheen gaat, is even bewust: de term-fabrieken (`NamedNode`,
@@ -321,11 +398,16 @@ de adapter en geen omissie.
 Dat de naad er één blijft, staat niet alleen hier: `test_alleen_rdfmotor_roept_de_motor_aan`
 loopt de AST van elke module in de package af en laat `pyoxigraph.parse` of
 `pyoxigraph.serialize` buiten `rdfmotor` niet toe. Zonder die sweep was "één naad" een
-belofte in een docstring en belette niets een vijfde aanroep. De adapter heeft daarom
-**twee** ontleedingangen en geen typeswitch: `ontleed_turtle_bestand(pad)` geeft altijd
-`path=` door (de motor opent het bestand zelf en leest het streamend),
-`ontleed_turtle(bytes | str)` geeft altijd de inhoud door. Op één parameter samengevoegd
-zou een `str`-pad in de inhoudstak vallen en zou de *padtekst* als Turtle ontleed worden.
+belofte in een docstring en belette niets een vijfde aanroep. De adapter heeft daarom sinds
+issue #66 **drie** ontleedingangen en geen typeswitch: `ontleed_turtle_bestand(pad)` geeft
+altijd `path=` door (de motor opent het bestand zelf en leest het streamend),
+`ontleed_turtle(bytes | str)` geeft altijd de inhoud door, en `ontleed_turtle_stroom(io)`
+geeft altijd een binaire file-like als `input=` door (de motor leest hem blokgewijs). De
+scheiding tussen `path=` en `input=` is niet cosmetisch: op één parameter samengevoegd zou
+een `str`-pad in de inhoudstak vallen en zou de *padtekst* als Turtle ontleed worden. De
+stroomingang draagt de streamende terugval-tak van de schrijfweg (issue #66): daar komt de
+inhoud niet van schijf maar uit `codering.hercodeerstroom`, die de bron blokgewijs van haar
+terugvalcodering naar UTF-8 hercodeert.
 
 **Drie GML-lezers, omdat de twee lagen niet dezelfde vraag stellen.** `parse_gml` (de
 meetkunde in het platte vlak) en `parse_gml_z` (de z-waarde per punt) zijn de losse
@@ -341,6 +423,51 @@ opvallen als de leeslaag en de knip dezelfde literaal verschillend gaan lezen. W
 uitkomst betreft is de eenpaslezer per contract `(parse_gml(l), parse_gml_z(l))`, tot en
 met de foutmelding, en `test_parse_gml_met_z_is_gelijkwaardig_aan_de_twee_losse_lezers`
 toetst dat op de geslaagde én de mislukte literalen.
+
+### Store is geen derde pad
+
+`pyoxigraph.Store` lijkt een derde weg -- een Rust-eigen index in plaats van de rdflib-`GraafIndex`,
+of een filter dat de knip Rust-zijdig doet -- maar de archperf-swarm (04-09-2026) heeft hem gemeten
+en op beide rollen gediskwalificeerd, en dat staat hier zodat een volgende swarm het niet opnieuw
+prototypeert:
+
+- **Als index** is `Store.bulk_load` 7,3–7,6 s, trager dan de kale parse, en een opzoeking kost
+  2,3 µs; op de ~3,4 miljoen opzoekingen van de leesweg is dat ≈ 8 s -- de winst van de eigen
+  index is er niet.
+- **Lexicaal ontrouw.** Een `Store` normaliseert `"24.20"^^xsd:decimal` naar `"24.2"` en mint
+  verse blanke-knoop-ids per `bulk_load`. Dat breekt de belofte "niets genormaliseerd" van de
+  schrijflaag; de gestreamde weg is de enige lexicaal getrouwe (`test_decimal_literaal_komt_
+  byte_gelijk_door_schrijf_orox` in `tests/test_schrijven.py` bewaakt de decimaal).
+- **Als knip-filter** is clip via een `Store` 46,9 s / 2055 MiB -- ver boven de gestreamde weg.
+- Het N-Triples-tussenformaat scheelt −1,3 % op tijd tegen +245 MiB, en de GIL wordt tijdens
+  `parse` niet vrijgegeven (parse 4,78 s + busy 4,78 s = samen 9,48 s), dus een tweede Python-thread
+  ernaast levert niets.
+
+Wat hier bewust een **open noot** blijft en geen gesloten route: een CONSTRUCT-serialize uit een
+`Store` voor de knip is niet uitgesloten, alleen ongemeten. Wie dat ooit oppakt, meet het en zet
+het hier bij de gemeten uitkomsten.
+
+## Wat gemeten is en bewust niet gedaan
+
+Naast de `Store` heeft de archperf-swarm parallellisme en twee Rust-routes gemeten en om
+gearticuleerde redenen laten liggen. Ze staan hier genoteerd, niet gedaan -- het zijn
+auteursbeslissingen, geen agent-werk.
+
+- **Parallellisme.** De N schrijfpassages van `clip_orox` opt-in parallel gaven −23,6 % (fork,
+  k=2, gemeten, sha256 gelijk); `schrijf_orox` in K stukken −27 % (spawn) tot −42,5 % (fork,
+  bnode-vrij). De **leesfase** forken kost daarentegen +2–3 % (copy-on-write op een 1,2 GB
+  refcounted heap raakt elke pagina aan) en is dus een regressie. Elke fork-optie hangt bovendien
+  aan de fork-bnode-voorwaarde in `rdfmotor`: forken ná een parse en de blanke-knoop-labels
+  doorgeven levert stille graafcorruptie op een bron met `[ ]`-knopen, dus zo'n optie hoort een
+  isomorfietest op zulke knopen te krijgen.
+- **De Rust-routes** zijn de enige gearticuleerde weg onder ~13 s koud (rang 18: een Rust-eigen
+  index onder `GwswDataset.graph`) respectievelijk ~20 s clip (rang 19: een Rust-zijdig
+  knip-filter). Rang 18 is contract-rakend (`GwswDataset.graph` staat gepind op `GraafIndex`) en
+  rang 19 is een nieuwe gecompileerde dependency; beide zijn ongeprototypeerd. Auteursbeslissingen.
+
+De cijfers in dit hoofdstuk en in de aangepaste docstrings komen uit de meting van de
+archperf-swarm (04-09-2026), niet uit een verse meting; dit issue legt vast wat gemeten is en
+bewust niet gedaan wordt.
 
 ## Wat "additief" hier betekent
 
@@ -366,11 +493,24 @@ valt pas op als de twee lagen dezelfde bron verschillend lezen, en dan is het te
 
 ## `dataset` is het gezicht, niet de bak
 
-De leeslaag is intern in zes modules verdeeld (`domein`, `bestand`, `inlezen`, `klassen`,
-`codering`, `netwerk`), maar **het oppervlak ligt in `dataset`**: elke naam die nlriochecker uit
+Sinds issue #67 is `dataset` letterlijk een gezicht: `dataset.py` bevat niets dan imports en
+`__all__`. De bak eronder is in drie stukken gesneden -- `model` (het domeinmodel:
+`GwswDataset` en `GwswVersie`), `laden` (de lader: `load_dataset`, `lees_ontologie`,
+`ontologiepaden` en de bundelkeuze) en `vulwaarden` (`markeer_vulwaarden`) -- die op hun
+beurt op de zes interne leeslaagmodules (`domein`, `bestand`, `inlezen`, `klassen`,
+`codering`, `netwerk`) leunen. Elke naam in `dataset.__all__` is het identieke object (`is`)
+als in zijn nieuwe module: `dataset.load_dataset is laden.load_dataset`,
+`dataset.GwswDataset is model.GwswDataset`, `dataset.markeer_vulwaarden is
+vulwaarden.markeer_vulwaarden`, en zo de hele lijst. Waarom die drie apart moesten (de
+importcyclus die anders sluit) staat onder "De lagen" hierboven.
+
+**Het oppervlak blijft in `dataset`**: elke naam die nlriochecker uit
 `gwsw_orox_helpers.dataset` importeert komt daar naar buiten, met dezelfde handtekening
 en hetzelfde gedrag. Dat is een Harde regel uit `CLAUDE.md` en `tests/test_publieke_api.py`
-is de scheidsrechter. Praktisch:
+is de scheidsrechter -- die pint langs handtekening, velden, constanten en `__all__` en niet
+langs `__module__`, dus een re-export uit een nieuwe module telt als hetzelfde contract. De
+publieke docstrings staan sinds issue #56 in domeintaal; welke nlriochecker-checkcode of
+-module achter elke naam zit, bewaart `docs/afnemers.md` en niet `help()`. Praktisch:
 
 - de waardeobjecten (`Node`, `Conduit`, `Aspect`, `Inwinning`, `Vulwaarde`,
   `Koppelingsherstel`, `DecodeFallback`) staan in `domein`/`codering` en worden door
@@ -453,6 +593,26 @@ intuïtie in:
 
 Wat er níét bij hoort: een veld op `GwswDataset` — zie de vorige sectie.
 
+**Een gebundelde bundel wordt niet elke lezing opnieuw geparst** (issue #70). De
+63.614-tripel-ontologie parsen kost circa 0,4 s per `load_dataset`, terwijl de uitkomst
+tussen twee lezingen niet verandert. Naast de vocabulaire-index reist daarom per versie een
+gepickelde `GraafIndex` mee (`bronnen.gebundelde_graafindex_pad_voor`), geschreven door
+`scripts/maak_gwsw_index.py` met de snelle term-reductie van de cache (`_SnellePickler`).
+`_stapel_ontologie` neemt dat snelpad alleen bij precies één pad dat een gebundelde bundel is
+én een *verse* pickle ernaast; anders parseert de lus zoals altijd. "Vers" is een hash-poort
+vóór elke `pickle.load` (`laden._gebundelde_graafindex`): het sidecar `.sha256` moet gelijk
+zijn aan `_graafindex_hash` over de bundel-TTL + `graaf.py` + de rdflib-versie — precies de
+drie dingen waarvan de picklevorm en het teruglezen (via `graaf._uriref_snel`/`_literal_*`)
+afhangen. Klopt de hash niet — een gewijzigde `graaf.py`, een andere rdflib, een ontbrekende
+of beschadigde pickle — dan valt de lezing terug op de parse en wordt
+`test_graafindex_pickle_volgt_ttl_en_graaf` rood (de auteur draait dan
+`scripts/maak_gwsw_index.py` opnieuw). De cachesleutel hoeft er niet op uitgebreid te worden:
+`cache.cachesleutel` hasht de bundel-TTL en, via `LADERMODULES`, de broncode van `graaf` en
+`laden` plus de rdflib-versie al — de pickle is een van die TTL afgeleide versnelling, geen
+extra sleutel-ingang. En omdat hij met de package meereist, is hij even vertrouwd als de
+package-code zelf: de hash-poort is een versheids-, geen veiligheidsgrens (die laatste ligt
+bij de cache, `_cachepad_vertrouwd`).
+
 ## De cache leest mee met de lader
 
 `cache.cachesleutel` hasht niet alleen de invoerbestanden en de bibliotheekversies maar
@@ -460,6 +620,14 @@ ook **de broncode van de hele leeslaag**: `cache.LADERMODULES` -- `dataset`, `be
 `inlezen`, `domein`, `klassen`, `codering`, `namen`, `graaf`, `geometry`, `netwerk`,
 `ontologie` en `rdfmotor`.
 Dat is de garantie dat een cache nooit achterloopt op een wijziging in de lezing.
+Zonder opgegeven ontologie hasht de sleutel sinds issue #52 alleen de gebundelde bundel van
+de versie die een goedkope prefix-scan van de datasetkop detecteert -- dezelfde die de lader
+dan kiest -- in plaats van álle bundels, met terugval op alle bundels als die scan geen
+`gwsw:`-prefix vindt. Beide detecties nemen dezelfde declaratie: de lader (`bestand._parse`)
+leidt de basis af uit `parser.prefixes`, die per prefixnaam de laatst gelezen waarde houdt,
+en de sleutelscan (`cache._dataset_basis_uit_kop`) neemt sinds issue #69 óók de láátste
+`gwsw:`-declaratie in het venster. Herdeclareert een bron `gwsw:` (eerst 1.6, dan 1.7), dan
+kiezen sleutel en lezing zo dezelfde basis in plaats van uiteen te lopen.
 `rdfmotor` staat erbij ook al deelt de schrijfweg hem: `bestand._parse` haalt zijn quads
 daarlangs, dus een andere aanroep van de motor is een andere lezing. Wie de leeslaag
 opnieuw indeelt, moet de nieuwe modules aan die lijst toevoegen: een vergeten module
@@ -484,8 +652,14 @@ wijziging aan deze module laat bestaande caches met rust; `LADER_VERSIE` is de k
 dat alsnog af te dwingen.
 
 Bij een cachetreffer krijgt `GwswDataset.graph` geen `GraafIndex` maar `cache.LuieGraaf`:
-de graafpickle is op een gemeentebrede export tientallen seconden en honderden megabytes,
-en de meeste runs raken hem niet aan. Hij komt pas van schijf bij de eerste leesbewerking
+de graafpickle is op een gemeentebrede export tientallen seconden en honderden megabytes. De
+graaf komt in de praktijk **elke standaardrun** aan de beurt, maar pas bij de eerste check die
+hem raakt: `subjects_of_class`, `graph_is_a`, `onderdelen`, ATTR-014 en de NET-checks bevragen
+de graafpickle. Het luie laden spaart hem daarom alleen op de runs die uitsluitend
+geometrie of structuur lezen; voor de rest verschuift het de graaflaadtijd naar het eerste
+gebruik en bespaart het die niet. Het warme doel is de graafpickle zelf sneller maken (rang 1,
+issue #59: het warme pad ging 9,9 -> ~2,7 s), en die winst maakt `CacheUitslag.graaf_seconden`
+sinds issue #71 meetbaar. Hij komt pas van schijf bij de eerste leesbewerking
 (`_geladen`), en is hij dan beschadigd, dan leest `_herstel` hem alsnog uit de brondata en
 schrijft de cache opnieuw weg in plaats van de run te laten crashen — `cache.py` stelt die
 functie samen, `LuieGraaf` kent zelf geen paden en geen `load_dataset`.

@@ -47,13 +47,16 @@ MINI = TTL_DIR / "mini_orox.ttl"
 # een raise-plek erbij verandert de code en laat de docstring staan. Uitgeschreven en niet
 # uit de code afgeleid, want een lijst die zichzelf afleidt bewaakt niets.
 RAISE_PLEKKEN = {
-    "BestandError": {"bestand": 1, "clip.grenzen": 1, "schrijven": 2},
+    "BestandError": {"bestand": 2, "cache": 1, "clip.grenzen": 1, "schrijven": 3},
     "CoderingError": {"codering": 2, "schrijven": 1},
-    "GrenslaagError": {"clip.grenzen": 6},
-    "InhoudError": {"dataset": 2},
-    "KnipError": {"clip.knip": 2, "clip.merge": 5, "clip.orkest": 1, "clip.plan": 1},
+    "GrenslaagError": {"clip.grenzen": 7},
+    # Sinds issue #67 verdeeld over de hersnit van `dataset.py`: `load_dataset` (geen
+    # knooppunten of strengen) gooit in `laden`, `GwswDataset.of_class` (een
+    # verbindingsklasse als rol) in `model`.
+    "InhoudError": {"laden": 1, "model": 1},
+    "KnipError": {"clip.knip": 2, "clip.merge": 5, "clip.orkest": 1, "clip.plan": 2},
     "MotorError": {"rdfmotor": 2},
-    "TurtleError": {"bestand": 1, "schrijven": 2},
+    "TurtleError": {"bestand": 2, "schrijven": 2},
     # Leeg, en dat is de helft van de belofte die het makkelijkst wegslijt: sinds #31 wordt
     # de basisklasse binnen de package nergens meer rechtstreeks gegooid. Wie een nieuwe
     # raise-plek erbij zet zonder familie, komt hierlangs.
@@ -127,7 +130,7 @@ def test_de_raise_plekken_staan_waar_de_docstrings_ze_beloven() -> None:
     """De indeling zelf, mechanisch: elke `raise` in de package, geteld per familie.
 
     De acht tests hierboven pinnen per familie één plek; die blijven groen terwijl de
-    andere 22 plekken ongemerkt van familie wisselen. Deze test loopt de AST van elke
+    andere 23 plekken ongemerkt van familie wisselen. Deze test loopt de AST van elke
     module af en legt de volledige verdeling naast `RAISE_PLEKKEN`. Valt hij om, dan hoort
     in dezelfde stap de docstring van de betrokken klasse in `gwsw_orox_helpers.errors`
     mee -- die noemt de aantallen en de modules met naam.
@@ -147,5 +150,11 @@ def test_de_raise_plekken_staan_waar_de_docstrings_ze_beloven() -> None:
                 geteld[soort.id][module] = geteld[soort.id].get(module, 0) + 1
 
     assert geteld == RAISE_PLEKKEN
-    # Het getal uit de moduledocstring van `errors` en uit de CHANGELOG-regel van #31.
-    assert sum(sum(per_module.values()) for per_module in geteld.values()) == 29
+    # 29 sinds #31, plus de `cache._bestandshash`-plek van #48 (30), de
+    # `schrijven._gecontroleerd`-plek van #49 (31), de twee luide invarianten van #47 (33:
+    # `GrenslaagError` in `clip.grenzen` en `KnipError` in `clip.plan`) en de twee plekken van
+    # de streamende leestak van #60 (35: een tweede `BestandError` en een tweede `TurtleError`,
+    # allebei in `bestand._parse`). De moduledocstrings houden de 29 aan als de historische
+    # telling van #31 (de oorzaak van de opsplitsing), niet als het lopende totaal -- dat staat
+    # hier.
+    assert sum(sum(per_module.values()) for per_module in geteld.values()) == 35

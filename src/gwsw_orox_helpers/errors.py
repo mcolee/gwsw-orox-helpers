@@ -2,7 +2,7 @@
 
 Twee lagen boven elkaar, en de bovenste twee zijn het contract: `OroxError` is wat een
 afnemer van deze package vangt, `DatasetError` is de fout die zegt dat de bron er niet
-doorheen komt. Nlriochecker vangt die breed en dat blijft zo -- geen van beide is sinds
+doorheen komt. Een afnemer vangt die breed en dat blijft zo -- geen van beide is sinds
 hun eerste versie veranderd en dat is een Harde regel in `CLAUDE.md`.
 
 Daaronder staan sinds issue #31 zeven **faalfamilies**. Ze zijn er omdat één klasse 29
@@ -34,6 +34,30 @@ De basisklasse zelf wordt binnen de package nergens meer rechtstreeks gegooid. Z
 staan als het vangnet van de afnemer en als de plek voor een toekomstige oorzaak die in
 geen van de zeven families past; wie er een achtste bij zet, zet hem hieronder en niet
 naast `DatasetError`.
+
+**Buiten de hiërarchie.** Twee fouten van deze package vallen bewust *niet* onder
+`OroxError`/`DatasetError`, en een afnemer die alleen `DatasetError` vangt, vangt ze dus
+niet. Dat is met opzet en hier benoemd zodat het geen verrassing is.
+
+- `geometry.GeometryError` is een **`ValueError`** en geen `DatasetError`. Reden: een
+  onleesbare GML-literaal is geen dataset-brede faling maar een fout *per literaal*, en de
+  leeslaag vangt hem zelf op -- `inlezen._geometry` doet `except GeometryError` en legt de
+  melding in `GwswDataset.geometry_errors` neer in plaats van de lezing te laten stoppen
+  (de clip doet hetzelfde in `clip.knip`/`clip.merge`/`clip.bereik`). De fout bereikt de
+  afnemer dus niet als uitzondering; wie hem tóch zelf uit `parse_gml`/`parse_gml_z` haalt,
+  krijgt een `ValueError`, wat voor een parser van een losse literaal de gewone soort is.
+  De optie `class GeometryError(ValueError, OroxError)` -- hem én een `ValueError` én een
+  `OroxError` maken -- is bewust **niet** genomen: dat wijzigt de MRO van een publiek
+  geëxporteerde klasse (`dataset.GeometryError`, gepind in `tests/test_publieke_api.py` als
+  `issubclass(GeometryError, ValueError)`) en is daarmee een contractwijziging, geen
+  documentatie (`CLAUDE.md`, Harde regels).
+- De kale **`ValueError`** uit `bronnen.gebundelde_ontologie_voor` /
+  `vocabulaire_index_pad_voor` (via `_bekende_versie`) op een niet-gebundelde versie. Dat is
+  een programmeerfout van de aanroeper -- een versie opgeven die niet meereist -- en geen
+  falende OroX-bron, dus hij hoort niet in de `DatasetError`-familie. De versie die
+  `load_dataset` zelf uit de bron detecteert komt hier nooit langs: die valt op een
+  onbekende of niet-gebundelde versie terug op de 1.6-bundel met een `logging.warning` (zie
+  `bronnen` en `bestand._parse`), niet op deze `ValueError`.
 """
 
 
@@ -51,10 +75,20 @@ class BestandError(DatasetError):
     De fout komt van het besturingssysteem (`OSError`) en gaat dus niet over de inhoud:
     het pad bestaat niet, de rechten ontbreken, de schijf is vol, het doel ligt onder een
     bestand in plaats van onder een map. Geldt voor elk bestand dat deze package aanraakt
-    -- de TTL-bron, het schrijfdoel en de GeoJSON-grenslaag.
+    -- de TTL-bron, het schrijfdoel, de GeoJSON-grenslaag en de bestanden die de
+    cachesleutel hasht.
 
-    Vier plekken: `bestand._parse`, `schrijven.lees_orox`, `schrijven.schrijf_orox_quads`
-    en `clip.grenzen._lees_grenzen`.
+    Zeven plekken: `bestand._parse` (twee), `schrijven.lees_orox`,
+    `schrijven._gecontroleerd`, `schrijven.schrijf_orox_quads`, `clip.grenzen._lees_grenzen`
+    en `cache._bestandshash`. `cache._bestandshash` kwam er bij issue #48 bij: `laad_met_cache`
+    hasht de invoerbestanden voor de sleutel vóór de eigenlijke lezing, en een onleesbaar
+    bestand hoort daar dezelfde `BestandError` te geven als op de directe leesweg
+    (auteursbeslissing 04-09-2026, met een eigen CHANGELOG-regel). `schrijven._gecontroleerd`
+    kwam er bij issue #49 bij: de streamende parser leest schijf pas al aflopend, dus een map
+    als bron of een leesfout midden in de stroom valt daar en niet bij de constructie van de
+    parser. De tweede plek in `bestand._parse` kwam er bij issue #60 bij: de streamende leestak
+    (een zuivere UTF-8-bron zonder BOM) leest schijf net zo al aflopend, dus een leesfout
+    onderweg valt daar en niet bij `read_bytes`.
     """
 
 
@@ -80,7 +114,8 @@ class TurtleError(DatasetError):
     onleesbaar zou maken. Onderscheiden van `CoderingError` omdat de remedie verschilt:
     daar is de codering van de bron het antwoord, hier de inhoud ervan.
 
-    Drie plekken: `bestand._parse`, `schrijven._gecontroleerd` en de prefixcontrole in
+    Vier plekken: `bestand._parse` (twee -- de gedecodeerde en sinds issue #60 ook de
+    streamende leestak), `schrijven._gecontroleerd` en de prefixcontrole in
     `schrijven.schrijf_orox_quads`.
     """
 
@@ -109,8 +144,9 @@ class GrenslaagError(DatasetError):
 
     Het bestand ging open (anders was het een `BestandError`), maar wat erin staat kan de
     clip niet gebruiken: geen leesbare GeoJSON, geen features, een feature zonder de
-    naamproperty of met een naam die al gebruikt is, een geometrie die niet te lezen is,
-    of een geometrie die geen (multi)vlak is.
+    naamproperty of met een naam die al gebruikt is, twee namen die na sanering hetzelfde
+    bestand zouden opleveren (`'a b'` en `'a/b'` -> `a_b`), een geometrie die niet te lezen
+    is, of een geometrie die geen (multi)vlak is.
 
     **De ene naad in de indelingsregel hierboven.** "Geen leesbare GeoJSON" valt ook als
     de bytes van de grenslaag geen UTF-8 zijn, en naar de oorzaak gerekend was dat een
@@ -120,7 +156,7 @@ class GrenslaagError(DatasetError):
     boodschap niet draagt. Het scheelt hem bovendien niets: de terugvalcodering waar
     `CoderingError` om vraagt, kent de grenslaag niet -- GeoJSON *is* UTF-8.
 
-    Zes plekken, alle in `clip.grenzen._lees_grenzen`.
+    Zeven plekken, alle in `clip.grenzen._lees_grenzen`.
     """
 
 
@@ -129,11 +165,12 @@ class KnipError(DatasetError):
 
     De heen- en terugweg van de clip zijn één belofte -- wat `clip_orox` snijdt, moet
     `merge_orox` weer tot de bron maken -- en daarom deelt hun onvermogen één familie. Wat
-    er dan misging: de bron draagt zelf al de knipstaart van de clip, een knippunt krijgt
-    geen hoogte, er zijn geen delen opgegeven, een knipmerk is onvolledig, de stukken van
-    een lijn komen uit verschillende knipbeurten of ze zijn niet compleet.
+    er dan misging: de bron draagt zelf al de knipstaart van de clip of een predicaat uit
+    de `knip:`-naamruimte, een knippunt krijgt geen hoogte, er zijn geen delen opgegeven,
+    een knipmerk is onvolledig, de stukken van een lijn komen uit verschillende knipbeurten
+    of ze zijn niet compleet.
 
-    Negen plekken, in `clip.plan`, `clip.knip` (twee), `clip.orkest` en `clip.merge`
+    Tien plekken, in `clip.plan` (twee), `clip.knip` (twee), `clip.orkest` en `clip.merge`
     (vijf).
     """
 

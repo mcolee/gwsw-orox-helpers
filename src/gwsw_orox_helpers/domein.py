@@ -7,7 +7,7 @@ het is de reden dat de cache ze kan picklen.
 
 Wie deze objecten *uit een graaf* vult, staat in `inlezen`; wat de dataset eromheen
 ermee kan, in `dataset`. De namen komen alle drie uit `dataset` naar buiten: dat is het
-oppervlak dat nlriochecker kent en dat blijft zo (Harde regel in `CLAUDE.md`).
+oppervlak dat een afnemer kent en dat blijft zo (Harde regel in `CLAUDE.md`).
 """
 
 from __future__ import annotations
@@ -131,9 +131,9 @@ class Node(_MetAspecten):
     def bovenkant(self) -> float | None:
         """Het bovenkantniveau: het dekselniveau, of anders het maaiveld.
 
-        Het register spreekt bij HGT-004, HGT-012 en HGT-018 over de dekselhoogte.
-        Ontbreekt die, dan is de maaiveldhoogte de dichtstbijzijnde benadering; welke
-        van de twee gebruikt is, hoort in de bevinding te staan.
+        Voor een hoogtecheck die de dekselhoogte nodig heeft: ontbreekt de dekselhoogte,
+        dan is de maaiveldhoogte de dichtstbijzijnde benadering; welke van de twee
+        gebruikt is, hoort in de bevinding te staan.
         """
         return self.dekselniveau if self.dekselniveau is not None else self.maaiveld
 

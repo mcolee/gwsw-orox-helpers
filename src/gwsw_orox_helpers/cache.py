@@ -3,8 +3,13 @@
 Gemeten op De Wolden en Hoogeveen: de structuren teruglezen kost circa 2 s en de graafindex
 uit de pickle teruglezen circa 6 s (91 MB; de rdflib-graaf was circa 30 s). Picklen wint het
 van warm herbouwen uit de pyoxigraph-stream, dat circa 20 s kost -- de parse zelf is snel,
-maar de indexopbouw met rdflib-termen niet. De graaf wordt bovendien pas ingelezen als een
-check hem aanraakt; wie alleen geometrie- en netwerkchecks draait, betaalt hem niet.
+maar de indexopbouw met rdflib-termen niet. De graaf wordt bovendien pas ingelezen als de
+eerste check hem aanraakt -- maar dat is in de praktijk élke standaardrun: `subjects_of_class`,
+`graph_is_a`, `onderdelen`, ATTR-014 en de NET-checks bevragen de graafpickle. Het luie laden
+verschuift die kosten dus naar het eerste gebruik en spaart ze alleen op een run die
+uitsluitend geometrie of structuur leest; het warme pad meet sinds issue #59 9,9 -> ~2,7 s. De
+tweedeling van de cache verschuift de graaflaadtijd, ze bespaart hem niet -- rang 1 (issue #59)
+maakt de graafpickle zelf sneller.
 
 Het gevaar van een cache is dat hij achterloopt. De sleutel bevat daarom niet alleen
 de inhoud van de invoerbestanden maar ook de broncode van de lader en de versies van
@@ -14,9 +19,11 @@ wordt er opnieuw ingelezen.
 
 from __future__ import annotations
 
+import copyreg
 import logging
 import os
 import pickle
+import re
 import tempfile
 import time
 from collections.abc import Callable, Iterator
@@ -29,6 +36,7 @@ from typing import Any, cast
 import pyoxigraph
 import rdflib
 import shapely
+from rdflib import BNode, Literal, URIRef
 from rdflib.term import Node as RdfNode
 
 from gwsw_orox_helpers import bestand as bestand_module
@@ -39,22 +47,50 @@ from gwsw_orox_helpers import geometry as geometry_module
 from gwsw_orox_helpers import graaf as graaf_module
 from gwsw_orox_helpers import inlezen as inlezen_module
 from gwsw_orox_helpers import klassen as klassen_module
+from gwsw_orox_helpers import laden as laden_module
+from gwsw_orox_helpers import model as model_module
 from gwsw_orox_helpers import namen as namen_module
 from gwsw_orox_helpers import netwerk as netwerk_module
 from gwsw_orox_helpers import ontologie as ontologie_module
 from gwsw_orox_helpers import rdfmotor as rdfmotor_module
+from gwsw_orox_helpers import vulwaarden as vulwaarden_module
 from gwsw_orox_helpers.bronnen import GEBUNDELDE_VERSIES, gebundelde_ontologie_voor
 from gwsw_orox_helpers.dataset import GwswDataset, load_dataset, ontologiepaden
-from gwsw_orox_helpers.graaf import GraafIndex
+from gwsw_orox_helpers.errors import BestandError
+from gwsw_orox_helpers.graaf import (
+    GraafIndex,
+    _literal_snel,
+    _literal_string_snel,
+    _uriref_snel,
+)
 from gwsw_orox_helpers.voortgang import NUL_VOORTGANG, Voortgang
 
 logger = logging.getLogger(__name__)
 
-# Losstaand van de bestandshashes, zodat een test hem kan verzetten.
-LADER_VERSIE = "1"
+# Losstaand van de bestandshashes, zodat een test hem kan verzetten. Bij "2" sinds
+# issue #45: de cache is een vertrouwensgrens geworden (rechtencheck vóór elke
+# `pickle.load`), dus bestaande caches uit vóór die verharding vervallen één keer.
+# Bij "3" sinds issue #63: de schrijfweg pickelt de rdflib-termen via een `dispatch_table`
+# (`_SnellePickler`) naar de snelpaden van `graaf`, wat de picklevorm verandert. `cache.py`
+# staat niet in `LADERMODULES` (het staat in `BUITEN_DE_SLEUTEL`), dus die vormwijziging
+# invalideert de sleutel niet vanzelf; deze bump doet dat wel. Bestaande caches worden zo
+# één keer herbouwd -- bedoelde mechaniek.
+LADER_VERSIE = "3"
 
 BESTAND_STRUCTUREN = "structuren.pickle"
 BESTAND_GRAAF = "graaf.pickle"
+
+# Eén foutbeleid rond beide `pickle.load`-plekken (issue #48). `pickle.load` is in feite een
+# bytecode-interpreter: een onbruikbare pickle kan bij het laden vrijwel elke uitzondering
+# gooien. De fuzz uit #48 vond naast `UnpicklingError` ook `ValueError` (een vreemd
+# protocolbyte), `UnicodeDecodeError` en `OSError`; een opgesomde tuple is daarmee per
+# definitie incompleet en zou vals vertrouwen geven. "Onbruikbaar" betekent gewoon: het
+# laden gaf geen bruikbaar object, hoe dan ook -- en dan is herinlezen het juiste antwoord.
+# Daarom vangen we breed op `Exception` (nooit `BaseException`: `KeyboardInterrupt` en
+# `SystemExit` horen door te lopen). De rechtencheck vóór het laden (`_cachepad_vertrouwd`,
+# issue #45) blijft de bewaker tegen kwaadaardige `__reduce__`-payloads; dit beleid gaat
+# alleen over welk fouttype "onbruikbaar" dekt.
+_PICKLE_FOUTEN: type[Exception] = Exception
 
 # "De lader" is niet één bestand maar de hele leeslaag: `dataset` biedt hem aan,
 # `bestand` maakt van een TTL-bestand een gevulde index, `inlezen` leest die index uit,
@@ -89,6 +125,14 @@ BESTAND_GRAAF = "graaf.pickle"
 # code ín `dataset.py` en telde zij dus al mee. Hem er nu buiten laten zou de garantie
 # stilzwijgend versmallen op het moment dat de code alleen van bestand wisselt. Te vaak
 # herbouwen kost één lezing; te weinig herbouwen geeft stil een verouderd antwoord.
+#
+# `model`, `laden` en `vulwaarden` kwamen er bij issue #67 bij, toen `dataset.py` in het
+# domeinmodel (`model`), de lader-orkestratie (`laden`) en de vulwaarden-transformatie
+# (`vulwaarden`) werd gesneden en `dataset` een re-exportgezicht werd. Dat is verplaatste en
+# niet gewijzigde code, maar de sleutel hasht *bestanden*: de hersnit verandert hem één keer
+# en bestaande caches worden één keer opnieuw opgebouwd -- bedoelde mechaniek. Ze vergeten
+# geeft geen fout maar stille cache-staleness op een wijziging aan het model, de lader of de
+# vulwaarden.
 LADERMODULES = (
     bestand_module,
     codering_module,
@@ -98,30 +142,51 @@ LADERMODULES = (
     graaf_module,
     inlezen_module,
     klassen_module,
+    laden_module,
+    model_module,
     namen_module,
     netwerk_module,
     ontologie_module,
     rdfmotor_module,
+    vulwaarden_module,
 )
 
 
 @dataclass(frozen=True)
 class CacheUitslag:
-    """Waar de dataset vandaan kwam en wat dat kostte."""
+    """Waar de dataset vandaan kwam en wat dat kostte.
+
+    `graaf_seconden` (issue #71) draagt de wandkloktijd van de **eerste graafaanraking** op een
+    cachetreffer -- de tijd die de luie graafpickle van schijf komt (`LuieGraaf._geladen`, sinds
+    rang 1 gemeten 7,7 -> ~3,5 s op het warme pad). Zolang die aanraking niet gebeurd is, of de
+    graaf geen luie graaf was (op een misser is hij gretig geladen binnen `seconden`), staat het
+    veld op `None`. Zo wordt de graaflaadtijd -- die niet in `seconden` zit; `seconden` meet op een
+    treffer alleen de structurenlading -- meetbaar via de publieke API in plaats van alleen via de
+    meetstraat.
+
+    **Het veld is additief en wordt lui ingevuld.** De dataclass is `frozen`, dus `laad_met_cache`
+    reikt de `LuieGraaf` een callback aan die het veld met `object.__setattr__` zet zodra
+    `_geladen` gelopen heeft; de constructie hierboven laat het op de default `None` staan. Elke
+    bestaande (positionele) constructie van `CacheUitslag` blijft daarom werken.
+    """
 
     bron: str  # 'cache' of 'bestand'
     sleutel: str
     seconden: float
     melding: str = ""
+    graaf_seconden: float | None = None
 
 
 class LuieGraaf:
     """Een graafindex die pas van schijf komt als er iets uit gevraagd wordt.
 
     De checks gebruiken de graaf voor onderdelen die niet in de structuren zitten
-    (hasPart, hasConnection, labels van drempels). Dat is een minderheid van de
-    checks, en de graaf teruglezen kost tot een minuut; hem pas laden bij het eerste
-    gebruik scheelt die tijd in alle andere runs.
+    (hasPart, hasConnection, labels van drempels). In de praktijk raakt élke standaardrun
+    hem aan -- `subjects_of_class`, `graph_is_a`, `onderdelen`, ATTR-014 en de NET-checks --
+    maar pas bij de eerste check die dat doet. Het luie laden spaart de graaf dus niet in
+    elke andere run, alleen in een run die uitsluitend geometrie of structuur leest; verder
+    verschuift het de kosten naar het eerste gebruik. De graafpickle zelf sneller maken is
+    rang 1 (issue #59; het warme pad ging 9,9 -> ~2,7 s).
 
     Blijkt de graafcache zelf beschadigd (de structurencache was dat niet, anders
     was er nooit een `LuieGraaf` gemaakt), dan is dat geen fout: `_herstel` leest
@@ -160,33 +225,112 @@ class LuieGraaf:
     Strikt luier dus, nooit gretiger -- en dat is precies waar deze klasse voor bestaat.
     """
 
-    def __init__(self, pad: Path, herstel: Callable[[], GraafIndex]) -> None:
+    def __init__(
+        self,
+        pad: Path,
+        herstel: Callable[[], GraafIndex],
+        bij_laden: Callable[[float], None] | None = None,
+    ) -> None:
         self._pad = pad
         self._herstel = herstel
+        # Optioneel: `laad_met_cache` geeft hier een callback mee die de wandkloktijd van de
+        # eerste graafaanraking op de `CacheUitslag` zet (issue #71). Additief -- de tests en
+        # het herstelpad die `LuieGraaf(pad, herstel)` met twee argumenten bouwen blijven werken.
+        self._bij_laden = bij_laden
         self._graaf: GraafIndex | None = None
 
     def _geladen(self) -> GraafIndex:
-        """Leest de graaf de eerste keer dat er iets uit gevraagd wordt."""
+        """Leest de graaf de eerste keer dat er iets uit gevraagd wordt.
+
+        De graafpickle wordt vóór het depicklen getoetst (issue #45): pickle voert bij
+        het laden code uit, dus een pickle van een vreemde eigenaar of schrijfbaar voor
+        groep of anderen wordt niet geladen maar als "onbruikbaar" behandeld en uit de
+        brondata hersteld -- hetzelfde pad als bij een beschadigde pickle.
+
+        **Terugschrijven alleen naar een vertrouwde map.** Na herstel wordt de graaf
+        teruggeschreven, maar alleen als de map eromheen te vertrouwen is
+        (`_schrijf_indien_vertrouwd`). Was de pickle onvertrouwd, dan is de map eromheen
+        verdacht en zou terugschrijven een verse pickle leggen in een map waar een ander
+        bij kan; dan schrijven we niet en leest de volgende run opnieuw in. Bij een louter
+        beschadigde pickle in een eigen, private map (mode 0o700) is terugschrijven wél
+        veilig en herstelt het de snelle weg -- daar heelt het meteen ook de rechten van
+        het bestand, want `_schrijf_atomair` maakt via `mkstemp` een vers bestand (0o600).
+
+        **Procesbreed neveneffect: de cyclische GC ligt stil tijdens het depicklen**
+        (issue #59). Om `pickle.load` heen legt deze methode de GC neer met
+        `bestand._gc_uit` -- de graafpickle bouwt bovenop de al aanwezige structurenheap
+        miljoenen rdflib-termen en dicts, en de cyclische GC loopt daar telkens opnieuw
+        doorheen zonder dat er een kringetje kan ontstaan (de heropgebouwde objecten
+        wijzen alleen naar beneden). Anders dan bij `load_dataset` gaat dit neveneffect
+        lui vanuit de eerste leesbewerking van een check af, niet vanuit een expliciete
+        productie-ingang; een afnemer hoort dat expliciet te weten. De oude GC-stand komt
+        in `_gc_uit`'s eigen `finally` terug, ook als het laden halverwege afbreekt, en een
+        aanroeper die de GC zelf al uit had houdt hem uit. Het antwoord van de graaf blijft
+        identiek; alleen de laadtijd zakt (gemeten op het warme pad circa 7,8 s -> 3,5 s;
+        de 2,75 s uit het issue was de meting in een leeg proces).
+        """
         if self._graaf is None:
             begin = time.perf_counter()
-            try:
-                with self._pad.open("rb") as bestand:
-                    self._graaf = pickle.load(bestand)
-            except (pickle.UnpicklingError, EOFError, TypeError, AttributeError, OSError) as fout:
+            # Eén herstelpad, twee ingangen naar dezelfde `reden`: de rechtencheck vóór het
+            # depicklen (issue #45) geeft de reden meteen en slaat de `pickle.load` over; een
+            # vertrouwd pad probeert te laden en zet de reden alsnog als het depicklen faalt
+            # (het brede foutbeleid van issue #48). Is er een reden -- hoe dan ook -- dan is de
+            # graafcache onbruikbaar: één warning, één herstel uit de brondata, één
+            # terugschrijven naar een vertrouwde map.
+            reden = _cachepad_vertrouwd(self._pad)
+            if reden is None:
+                try:
+                    with self._pad.open("rb") as bestand, bestand_module._gc_uit():
+                        self._graaf = pickle.load(bestand)
+                except _PICKLE_FOUTEN as fout:
+                    reden = str(fout)
+            if reden is not None:
                 logger.warning(
                     "De graafcache in %s is onbruikbaar (%s); graaf opnieuw "
                     "ingelezen uit de brondata.",
                     self._pad,
-                    fout,
+                    reden,
                 )
                 self._graaf = self._herstel()
-                _schrijf_atomair(self._pad, self._graaf)
+                self._schrijf_indien_vertrouwd()
+            # Beide takken hebben `self._graaf` gezet (de load, of het herstel); dit maakt dat
+            # expliciet voor mypy op het samenkomstpunt.
+            assert self._graaf is not None
+            laadtijd = time.perf_counter() - begin
             logger.info(
                 "Graaf van schijf gelezen in %.1f s (%d triples).",
-                time.perf_counter() - begin,
+                laadtijd,
                 len(self._graaf),
             )
+            # De wandkloktijd van deze eerste (en enige) aanraking terug naar de `CacheUitslag`
+            # (issue #71). Buiten de `if self._graaf is None` zou een tweede aanroep hem opnieuw
+            # melden; hierbinnen loopt hij precies één keer.
+            if self._bij_laden is not None:
+                self._bij_laden(laadtijd)
         return self._graaf
+
+    def _schrijf_indien_vertrouwd(self) -> None:
+        """Schrijft de herstelde graaf terug, maar alleen naar een vertrouwde map.
+
+        De afweging staat in de docstring van `_geladen`: naar een onvertrouwde map
+        (vreemde eigenaar of groep-/wereldschrijfbaar) schrijven we niet terug.
+        """
+        assert self._graaf is not None
+        if _cachepad_vertrouwd(self._pad.parent) is None:
+            # De graaf is al hersteld en in het geheugen; lukt het terugschrijven niet (een
+            # read-only mount, een volle schijf), dan is dat een gemiste versnelling en geen
+            # fout (issue #48, deel b). Zonder dit vangnet zou die `OSError` kaal uit
+            # `_geladen` ontsnappen op het moment dat een check de graaf voor het eerst
+            # aanraakt -- precies het pad dat `LuieGraaf` juist zonder crash moet afhandelen.
+            try:
+                _schrijf_atomair(self._pad, self._graaf)
+            except OSError as fout:
+                logger.warning(
+                    "De herstelde graafcache kon niet naar %s weggeschreven worden (%s); "
+                    "de volgende run leest hem opnieuw in.",
+                    self._pad,
+                    fout,
+                )
 
     def objects(self, subject: RdfNode, predicate: RdfNode) -> Iterator[RdfNode]:
         """De objecten van (subject, predicate), in eerste-toevoegvolgorde."""
@@ -241,13 +385,16 @@ def cachesleutel(
     ontologieopgave een sleutel krijgen waar de gebundelde ontologie niet in zit, en
     dan geeft de cache na het vervangen van die ontologie de oude lezing terug.
 
-    **Bij `None` worden alle gebundelde versies gehasht** (issue #32, reviewronde), niet
-    alleen de 1.6-default: sinds `load_dataset` bij `None` de gebundelde ontologie op de
-    gedetecteerde dataset-versie kiest, kan de lezing de 1.7-bundel gebruiken. Zou de sleutel
-    alleen de 1.6-bundel hashen, dan invalideert een data-only upgrade van uitsluitend de
-    1.7-bundel (de flow uit `CLAUDE.md`) de 1.7-cache niet. Alle bundels meehashen kost geen
-    dataset-parse en is de veilige kant om op te vergissen -- te vaak herbouwen kost één
-    lezing, te weinig herbouwen geeft stil een verouderd antwoord.
+    **Bij `None` hasht de sleutel de bundel van de gedetecteerde versie** (issue #52), niet
+    langer álle bundels: `cachesleutel` leest de `gwsw:`-prefix uit de kop van de dataset (een
+    goedkope scan van de eerste paar KB, geen volledige parse) en hasht de bundel die
+    `load_dataset._gebundelde_paden_voor_basis` dan kiest. Zo invalideert een toekomstige
+    1.8-bundel een 1.6-cache niet meer. Levert de prefix-scan geen gebundelde versie op (geen
+    `gwsw:`-prefix, of een niet-gebundelde versie), dan valt de sleutel terug op álle bundels
+    -- de veilige kant: te vaak herbouwen kost één lezing, te weinig herbouwen geeft stil een
+    verouderd antwoord. Herdeclareert een bron `gwsw:` in het venster, dan neemt de scan de
+    láátste declaratie (issue #69), net als de lader (`bestand._parse` via `parser.prefixes`),
+    zodat sleutel en lezing dezelfde basis kiezen.
 
     De terugvalcodering telt mee: ze bepaalt hoe niet-UTF-8-bytes gelezen worden
     (zie `codering.py`), en een dataset die met een andere codering ingelezen is,
@@ -267,30 +414,91 @@ def cachesleutel(
     for module in LADERMODULES:
         # `__file__` is alleen None bij een namespace-pakket; dit zijn gewone modules.
         haas.update(Path(cast(str, module.__file__)).read_bytes())
-    for pad in [Path(dataset_path), *sorted(_te_hashen_ontologiepaden(ontology_paths))]:
+    ontologiehash = _te_hashen_ontologiepaden(ontology_paths, Path(dataset_path))
+    for pad in [Path(dataset_path), *sorted(ontologiehash)]:
         haas.update(pad.name.encode("utf-8"))
         haas.update(_bestandshash(pad).encode("utf-8"))
     return haas.hexdigest()[:32]
 
 
-def _te_hashen_ontologiepaden(ontology_paths: list[Path] | None) -> list[Path]:
+# De @prefix-regels staan bovenaan een OroX-export; deze grootte dekt ze ruim zonder het
+# hele bestand te lezen. Op bytes en niet op tekst, zodat een niet-UTF-8-bron (cp850) geen
+# decode van het hele bestand vergt -- de prefixregel zelf is ASCII. Zowel de Turtle-vorm
+# (`@prefix gwsw: <...>`) als de SPARQL-vorm (`PREFIX gwsw: <...>`).
+_KOP_BYTES = 1 << 13
+_GWSW_PREFIX_PATROON = re.compile(rb"(?im)^[ \t]*(?:@prefix|prefix)[ \t]+gwsw:[ \t]*<([^>]*)>")
+
+
+def _dataset_basis_uit_kop(dataset_path: Path) -> str | None:
+    """De GWSW-basis uit de `gwsw:`-prefix in de kop van het datasetbestand, of None (#52).
+
+    Een goedkope prefix-scan van de eerste paar KB -- de `@prefix`-regels staan bovenaan --
+    zonder het bestand volledig te parsen of te decoderen. Levert de basis alleen op als de
+    `gwsw:`-prefix binnen het totaal-patroon valt (via `namen.basis_uit_prefixen`); een bron
+    zonder herkenbare `gwsw:`-prefix geeft None, en dan valt `cachesleutel` terug op alle
+    gebundelde bundels. Een leesfout hier is geen fout maar dezelfde terugval -- de eigenlijke
+    `BestandError` volgt straks uit `_bestandshash` op hetzelfde ontbrekende bestand.
+
+    **De láátste `gwsw:`-declaratie in het venster wint** (issue #69), net als bij de lader:
+    `bestand._parse` leidt de basis af uit `parser.prefixes`, en die houdt per prefixnaam de
+    laatst gelezen waarde. Herdeclareert een bron `gwsw:` (eerst 1.6, dan 1.7), dan koos een
+    scan op de éérste treffer 1.6 terwijl de lader 1.7 leest -- en dan hashte de sleutel de
+    verkeerde bundel. Door hier óók de laatste treffer te nemen, kiezen sleutel en lader
+    dezelfde basis. (Een tweede declaratie voorbij het venster valt buiten de scan; dat is
+    dan de veilige kant -- te vaak herbouwen kost één lezing.)
+    """
+    try:
+        with Path(dataset_path).open("rb") as bestand:
+            kop = bestand.read(_KOP_BYTES)
+    except OSError:
+        return None
+    treffers = _GWSW_PREFIX_PATROON.findall(kop)
+    if not treffers:
+        return None
+    return namen_module.basis_uit_prefixen({"gwsw": treffers[-1].decode("ascii", "replace")})
+
+
+def _te_hashen_ontologiepaden(ontology_paths: list[Path] | None, dataset_path: Path) -> list[Path]:
     """De ontologiebestanden die in de sleutel gehasht worden.
 
-    Bij een opgegeven lijst: precies die (via `ontologiepaden`). Bij `None`: alle gebundelde
-    versies, want `load_dataset` kiest er bij `None` één op de gedetecteerde dataset-versie
-    en de sleutel moet op elk van die bundels reageren (issue #32).
+    Bij een opgegeven lijst: precies die (via `ontologiepaden`). Bij `None`: de gebundelde
+    ontologie op de versie die een goedkope prefix-scan van de dataset detecteert -- dezelfde
+    bundel die `load_dataset._gebundelde_paden_voor_basis` dan kiest (issue #52), zodat een
+    toekomstige 1.8-bundel een 1.6-cache niet meer invalideert. De scan neemt de láátste
+    `gwsw:`-declaratie in het venster (issue #69), net als de lader, zodat beide op een
+    herdeclarerende bron dezelfde basis kiezen. Levert de prefix-scan geen gebundelde versie op
+    (geen `gwsw:`-prefix, of een niet-gebundelde versie), dan valt de sleutel terug op álle
+    gebundelde bundels -- de veilige kant.
     """
-    if ontology_paths is None:
-        return [gebundelde_ontologie_voor(versie) for versie in GEBUNDELDE_VERSIES]
-    return ontologiepaden(ontology_paths)
+    if ontology_paths is not None:
+        return ontologiepaden(ontology_paths)
+    basis = _dataset_basis_uit_kop(dataset_path)
+    if basis is not None:
+        versie = namen_module.versie_van_basis(basis)
+        if versie in GEBUNDELDE_VERSIES:
+            return [gebundelde_ontologie_voor(versie)]
+    return [gebundelde_ontologie_voor(versie) for versie in GEBUNDELDE_VERSIES]
 
 
 def _bestandshash(pad: Path) -> str:
-    """De sha256 van een bestand, in blokken gelezen."""
+    """De sha256 van een bestand, in blokken gelezen.
+
+    Komt het bestand niet door het besturingssysteem (het bestaat niet, de rechten
+    ontbreken, een leesfout), dan gooit dit een `BestandError` met precies dezelfde tekst
+    als `bestand._parse` (issue #48, deel c). `cachesleutel` -- en dus `laad_met_cache` --
+    berekent de hash vóór de eigenlijke lezing; zonder deze vertaling gooide een ontbrekend
+    bestand mét `gebruik_cache=True` een rauwe `OSError` (`FileNotFoundError`), terwijl
+    dezelfde aanroep zónder cache al langs `load_dataset` een `BestandError` gaf. Nu is het
+    contract gelijk, ongeacht `gebruik_cache`. `BestandError` is een `DatasetError` en geen
+    `OSError`-subtype -- de door de auteur goedgekeurde fouttype-verschuiving (CHANGELOG).
+    """
     haas = sha256()
-    with pad.open("rb") as bestand:
-        for blok in iter(lambda: bestand.read(1 << 20), b""):
-            haas.update(blok)
+    try:
+        with pad.open("rb") as bestand:
+            for blok in iter(lambda: bestand.read(1 << 20), b""):
+                haas.update(blok)
+    except OSError as error:
+        raise BestandError(f"{pad}: bestand kan niet gelezen worden ({error}).") from error
     return haas.hexdigest()
 
 
@@ -298,6 +506,48 @@ def standaard_cachemap() -> Path:
     """De cachemap volgens de XDG-conventie."""
     basis = os.environ.get("XDG_CACHE_HOME")
     return Path(basis or Path.home() / ".cache") / "gwsw-orox-helpers"
+
+
+def _cachepad_vertrouwd(pad: Path) -> str | None:
+    """Geeft `None` als `pad` te vertrouwen is, anders een korte reden waarom niet.
+
+    De cache leest zijn artefacten met `pickle.load`, en pickle voert bij het laden
+    willekeurige code uit (`__reduce__`). De cachemap en haar bestanden zijn daarmee een
+    vertrouwensgrens: een pad is onvertrouwd als het niet van de huidige gebruiker is
+    (`st_uid != os.getuid()`) of als groep of anderen erin mogen schrijven
+    (`st_mode & 0o022`) -- dan kan een ander de bytes hebben neergelegd of vervangen.
+
+    **Alleen POSIX.** Op niet-POSIX (`os.name != "posix"`, bv. Windows) bestaan `st_uid`
+    en de POSIX-rechtenbits niet in deze vorm; daar is alles vertrouwd en hoort de cache
+    in het gebruikersprofiel te staan (zie de docstring van `laad_met_cache`). Een pad dat
+    nog niet bestaat is vertrouwd: het wordt straks vers met 0o700 aangemaakt.
+    """
+    if os.name != "posix":
+        return None
+    try:
+        status = os.stat(pad)
+    except FileNotFoundError:
+        return None
+    if status.st_uid != os.getuid():
+        return f"{pad} is eigendom van uid {status.st_uid}, niet van de huidige gebruiker"
+    if status.st_mode & 0o022:
+        return f"{pad} is schrijfbaar voor groep of anderen (mode {status.st_mode & 0o777:o})"
+    return None
+
+
+def _maak_cachemap(map_: Path) -> None:
+    """Maakt de cachemap privé (0o700) aan en zet die mode deterministisch.
+
+    `mkdir(mode=...)` past de mode alleen toe op de laatste component en alleen bij
+    aanmaken; een `os.chmod` erachteraan maakt de mode deterministisch, ook als de map al
+    bestond. Die chmod draait alleen op POSIX en alleen als de map van ons is -- op een
+    vreemde map zou hij op een `PermissionError` stuklopen, en dat is dan precies de
+    situatie die `_cachepad_vertrouwd` eerder al had moeten afvangen (géén schrijven in
+    een onvertrouwde map).
+    """
+    map_.mkdir(mode=0o700, parents=True, exist_ok=True)
+    if os.name == "posix" and map_.stat().st_uid == os.getuid():
+        os.chmod(map_, 0o700)
 
 
 def laad_met_cache(
@@ -315,15 +565,35 @@ def laad_met_cache(
     Sinds issue #32 wordt het hier **niet** meer vooraf naar de gebundelde 1.6-ontologie
     ingevuld: bij `None` moet `load_dataset` de gebundelde ontologie op de gedetecteerde
     dataset-versie kunnen kiezen, en dat kan alleen als het `None` ook echt ziet. `None`
-    reist daarom ongewijzigd door naar de lezing (`load_dataset`) en het herstel
-    (`_herlees_graaf`) -- die twee zien zo dezelfde bestanden. De `cachesleutel` vult `None`
-    zelf in tot de gebundelde 1.6-bundel voor de hash: de sleutel is per dataset uniek langs
-    de bytes van het dataset-bestand (die per versie verschillen), dus dat de hash de
-    1.6-bundel noemt waar de lezing de 1.7-bundel kiest, maakt hem niet dubbelzinnig.
+    reist daarom ongewijzigd door naar de lezing (`load_dataset`). Het graafherstel
+    (`_herlees_graaf`) leest sinds issue #69 alleen de datasetgraaf en heeft de ontologie niet
+    meer nodig, dus het krijgt `ontology_paths` niet mee. De `cachesleutel` hasht bij `None`
+    de gebundelde bundel van de gedetecteerde dataset-versie (issue #52; de láátste
+    `gwsw:`-declaratie, net als de lader, issue #69), niet meer stil de 1.6-bundel: zo kiezen
+    sleutel en lezing dezelfde bundel en invalideert een toekomstige 1.8-bundel geen 1.6-cache.
 
     Bij een cachetreffer wordt er niets geparseerd en start er dus geen laadfase:
     een balk die in nul seconden vol schiet zou suggereren dat het inlezen snel was
     in plaats van overgeslagen. De laadfase komt uit `load_dataset` zelf.
+
+    **De cachemap is een vertrouwensgrens** (issue #45). Omdat `pickle.load` bij het laden
+    willekeurige code kan uitvoeren, moet de cachemap een privé, niet-gedeelde map zijn.
+    Vóór het eerste cachecontact toetst deze functie de map met `_cachepad_vertrouwd`: is
+    die van een ander of schrijfbaar voor groep of anderen, dan wordt er niets gelezen en
+    niets geschreven en komt de dataset uit het bestand terug (met een `logging.warning`).
+    Elk pickle-bestand wordt daarnaast apart getoetst vóór het depicklen. Op niet-POSIX
+    (Windows) draait die check niet -- daar hoort de cachemap in het gebruikersprofiel
+    (`%LOCALAPPDATA%`), waar alleen de gebruiker bij kan.
+
+    **Procesbreed neveneffect: de cyclische GC ligt stil tijdens de structurenlading**
+    (issue #59). Om de `pickle.load` van de structurencache heen legt deze functie de GC
+    neer met `bestand._gc_uit` -- net als op de koude leesweg (`load_dataset`) en om
+    dezelfde reden: de pickle bouwt veel containers die alleen naar beneden wijzen, dus de
+    cyclische GC is er zuivere verspilling. De graafpickle die pas lui van schijf komt,
+    doet dat neveneffect op haar beurt (zie `LuieGraaf._geladen`). De oude GC-stand komt in
+    `_gc_uit`'s eigen `finally` terug, ook bij een afgebroken lading; een aanroeper die de
+    GC zelf al uit had houdt hem uit. Het cacheformaat en het antwoord blijven ongewijzigd,
+    alleen de laadtijd zakt.
     """
     begin = time.perf_counter()
     if not gebruik_cache:
@@ -333,46 +603,110 @@ def laad_met_cache(
     sleutel = cachesleutel(dataset_path, ontology_paths, fallback_encoding)
     map_ = (cache_dir or standaard_cachemap()) / sleutel
     melding = ""
+    onvertrouwde_map = _cachepad_vertrouwd(map_)
+    if onvertrouwde_map is not None:
+        logger.warning(
+            "Cachemap overgeslagen: %s. Niet gelezen en niet geschreven; uit het "
+            "bestand ingelezen.",
+            onvertrouwde_map,
+        )
+        dataset = load_dataset(dataset_path, ontology_paths, fallback_encoding, voortgang=voortgang)
+        return dataset, CacheUitslag(
+            "bestand", sleutel, time.perf_counter() - begin, onvertrouwde_map
+        )
     pad_structuren = map_ / BESTAND_STRUCTUREN
     pad_graaf = map_ / BESTAND_GRAAF
     if pad_structuren.exists() and pad_graaf.exists():
-        try:
-            with pad_structuren.open("rb") as bestand:
-                velden = pickle.load(bestand)
-        except (pickle.UnpicklingError, EOFError, TypeError, AttributeError) as fout:
-            melding = f"De cache in {map_} is onbruikbaar ({fout}); opnieuw ingelezen."
+        onvertrouwd = _cachepad_vertrouwd(pad_structuren)
+        if onvertrouwd is not None:
+            # De structurenpickle is van een ander of schrijfbaar voor derden: niet
+            # depicklen (pickle voert bij het laden code uit), maar opnieuw inlezen.
+            melding = f"De cache in {map_} is onbruikbaar ({onvertrouwd}); opnieuw ingelezen."
         else:
-            # De structurencache is geldig; de graafcache wordt niet hier al
-            # gelezen (dat kost tot een minuut) maar pas als een check hem
-            # aanraakt. Is die dan beschadigd, dan herstelt LuieGraaf zichzelf
-            # via deze functie in plaats van de hele run te laten crashen.
-            herstel = partial(_herlees_graaf, dataset_path, ontology_paths, fallback_encoding)
-            # `LuieGraaf` is geen GraafIndex-subklasse maar een plaatsvervanger die
-            # alles doorgeeft; het veld verwacht een GraafIndex en krijgt hier zijn gedrag.
-            # Sinds issue #34 draagt hij het leescontract expliciet en vervult hij
-            # `graaf.GraafLezer` structureel, maar dat protocol is niet wat hier gevraagd
-            # wordt: `GwswDataset.graph` staat gepind op de concrete `GraafIndex`
-            # (`tests/test_publieke_api.py`), en dat veld verbreden naar een protocol is
-            # een auteursbeslissing (`CLAUDE.md`, Harde regels; apart geparkeerd). Deze
-            # cast blijft dus staan tot die stap gezet is.
-            luie = cast(GraafIndex, LuieGraaf(pad_graaf, herstel))
-            dataset = replace(GwswDataset(graph=GraafIndex(), **velden), graph=luie)
-            return dataset, CacheUitslag("cache", sleutel, time.perf_counter() - begin)
+            try:
+                with pad_structuren.open("rb") as bestand, bestand_module._gc_uit():
+                    velden = pickle.load(bestand)
+                # Onder hetzelfde foutbeleid (issue #48): een pickle die wél laadt maar geen
+                # bruikbare velden geeft -- een niet-mapping, of verkeerde/ontbrekende sleutels
+                # na een bitflip die de pickle structureel heel liet -- is even onbruikbaar
+                # als een die `pickle.load` al liet struikelen. De `**velden`-heropbouw van de
+                # dataset staat daarom binnen deze `try`; anders zou zo'n pickle een `TypeError`
+                # buiten het vangnet gooien (de fuzz vond dat: 7/300 op de structurenpickle).
+                gecachet = GwswDataset(graph=GraafIndex(), **velden)
+            except _PICKLE_FOUTEN as fout:
+                melding = f"De cache in {map_} is onbruikbaar ({fout}); opnieuw ingelezen."
+            else:
+                # De structurencache is geldig; de graafcache wordt niet hier al
+                # gelezen (dat kost tot een minuut) maar pas als een check hem
+                # aanraakt. Is die dan beschadigd, dan herstelt LuieGraaf zichzelf
+                # via deze functie in plaats van de hele run te laten crashen.
+                herstel = partial(_herlees_graaf, dataset_path, fallback_encoding)
+                # `LuieGraaf` is geen GraafIndex-subklasse maar een plaatsvervanger die
+                # alles doorgeeft; het veld verwacht een GraafIndex en krijgt hier zijn gedrag.
+                # Sinds issue #34 draagt hij het leescontract expliciet en vervult hij
+                # `graaf.GraafLezer` structureel, maar dat protocol is niet wat hier gevraagd
+                # wordt: `GwswDataset.graph` staat gepind op de concrete `GraafIndex`
+                # (`tests/test_publieke_api.py`), en dat veld verbreden naar een protocol is
+                # een auteursbeslissing (`CLAUDE.md`, Harde regels; apart geparkeerd). Deze
+                # cast blijft dus staan tot die stap gezet is.
+                uitslag = CacheUitslag("cache", sleutel, time.perf_counter() - begin)
+
+                # De graaflaadtijd is op een treffer onzichtbaar in `seconden` (die meet de
+                # structurenlading); een callback op de luie graaf zet hem op `graaf_seconden`
+                # zodra de eerste check de graaf van schijf haalt (issue #71). `CacheUitslag` is
+                # frozen, dus via `object.__setattr__` -- hetzelfde `uitslag`-object dat we
+                # teruggeven, dus de afnemer ziet de tijd na zijn eerste graafaanraking staan.
+                def _meld_graaftijd(seconden: float) -> None:
+                    object.__setattr__(uitslag, "graaf_seconden", seconden)
+
+                luie = cast(GraafIndex, LuieGraaf(pad_graaf, herstel, bij_laden=_meld_graaftijd))
+                # `source` (en bij een expliciete ontologieopgave ook `ontologies`) komt uit
+                # de pickle van de éérste lezing. De sleutel hasht alleen `pad.name`, dus een
+                # gelijknamig, inhoudsgelijk bestand uit een andere map treft dezelfde cache;
+                # zonder deze correctie zou `ds.source` naar het pad van die eerste lezing
+                # wijzen (issue #48, deel d). We zetten het terug op het gevraagde pad, zoals
+                # `load_dataset` op een misser doet.
+                dataset = replace(gecachet, graph=luie, source=Path(dataset_path))
+                if ontology_paths is not None:
+                    dataset = replace(dataset, ontologies=tuple(ontologiepaden(ontology_paths)))
+                return dataset, uitslag
 
     dataset = load_dataset(dataset_path, ontology_paths, fallback_encoding, voortgang=voortgang)
-    _schrijf(map_, dataset)
+    # De lezing is al geslaagd; kan de cache niet weggeschreven worden (een read-only
+    # cachemap, een volle schijf), dan is dat geen fout maar een gemiste versnelling voor de
+    # volgende run (issue #48, deel b). Melden en doorgaan i.p.v. de hele run laten crashen
+    # ná een geslaagde lezing.
+    try:
+        _schrijf(map_, dataset)
+    except OSError as fout:
+        logger.warning(
+            "De cache in %s kon niet weggeschreven worden (%s); de volgende run leest opnieuw in.",
+            map_,
+            fout,
+        )
+        schrijffout = f"De cache in {map_} kon niet weggeschreven worden ({fout})."
+        melding = f"{melding} {schrijffout}".strip() if melding else schrijffout
     return dataset, CacheUitslag("bestand", sleutel, time.perf_counter() - begin, melding)
 
 
-def _herlees_graaf(
-    dataset_path: Path, ontology_paths: list[Path] | None, fallback_encoding: str | None
-) -> GraafIndex:
-    """Leest de graafindex opnieuw uit de brondata; herstelweg voor `LuieGraaf`.
+def _herlees_graaf(dataset_path: Path, fallback_encoding: str | None) -> GraafIndex:
+    """Leest alleen de datasetgraaf opnieuw uit de brondata; herstelweg voor `LuieGraaf`.
 
-    Alleen `cache.py` kent paden en `load_dataset`; `LuieGraaf` krijgt enkel deze
-    kant-en-klare functie mee en hoeft van beide dus niets te weten.
+    `LuieGraaf` vervangt enkel `GwswDataset.graph`, en die graaf is object-identiek aan wat
+    `bestand._parse` oplevert: `load_dataset` zet hem ongemuteerd in het `graph`-veld, de
+    ontologie raakt alleen de `restrictiebron` en de lezers (`_read_nodes`/`_read_conduits`)
+    bevragen de graaf zonder hem te muteren (issue #69). Daarom hoeft het herstel niet de hele
+    `load_dataset` te draaien -- de ontologieparse, de klassenafleiding, de knoop- en
+    strengopbouw en de structurendiff, samen het leeuwendeel van de leestijd -- maar alleen de
+    parse. Op dit zeldzame pad (een beschadigde graafpickle bij een geldige structurencache)
+    was de rest dood werk; `ontology_paths` is daarom ook niet meer nodig.
+
+    De cyclische GC ligt stil rond de parse, net als op de gewone leesweg (`bestand._gc_uit`):
+    de heropgebouwde termen en containers wijzen alleen naar beneden. Alleen `cache.py` kent
+    paden; `LuieGraaf` krijgt enkel deze kant-en-klare functie mee.
     """
-    return load_dataset(dataset_path, ontology_paths, fallback_encoding).graph
+    with bestand_module._gc_uit():
+        return bestand_module._parse(Path(dataset_path), fallback_encoding)[0]
 
 
 def _schrijf(map_: Path, dataset: GwswDataset) -> None:
@@ -390,6 +724,68 @@ def _schrijf(map_: Path, dataset: GwswDataset) -> None:
     _schrijf_atomair(map_ / BESTAND_GRAAF, dataset.graph)
 
 
+def _reduce_uriref(term: URIRef) -> tuple[Callable[[str], URIRef], tuple[str]]:
+    """Pickelt een `URIRef` als `_uriref_snel(str)` in plaats van `URIRef(str)` (issue #63).
+
+    `URIRef.__reduce__` levert `(URIRef, (str,))`, wat bij het teruglezen `URIRef.__new__` met
+    zijn IRI-validatieregex draait -- dubbel werk, want pyoxigraph heeft de IRI bij het inlezen
+    al gecontroleerd. `_uriref_snel` neemt het `str.__new__`-pad rechtstreeks; pickle noemt de
+    functie bij naam, dus het laden kiest haar vanzelf.
+    """
+    return (_uriref_snel, (str(term),))
+
+
+def _reduce_bnode(term: BNode) -> tuple[type[BNode], tuple[str]]:
+    """Pickelt een `BNode` via zijn gewone constructor -- er is geen snelpad nodig.
+
+    `BNode(str)` doet geen validatie die de moeite van omzeilen waard is; dit reduce houdt de
+    `BNode` alleen expliciet in de `dispatch_table` zodat de vier termvormen op één plek staan.
+    """
+    return (BNode, (str(term),))
+
+
+def _reduce_literal(
+    term: Literal,
+) -> tuple[Callable[..., Literal], tuple[Any, ...]]:
+    """Pickelt een `Literal` via het passende snelpad in plaats van `Literal(str, lang, dt)`.
+
+    `Literal.__reduce__` levert `(Literal, (str, language, datatype))` en laat de vier interne
+    velden bij het teruglezen door `Literal.__new__` herberekenen (`_castLexicalToPython` en de
+    well-formed-check). Een kale `xsd:string`-literaal gaat via `_literal_string_snel` (die vier
+    velden zijn dan voorspelbaar); elke taal- of getypeerde literaal via `_literal_snel`, dat de
+    al berekende Python-`value` en de `ill_typed`-vlag meekrijgt. Beide worden uit de publieke
+    eigenschappen van de literaal gehaald, zodat de schrijfweg zelf niet naar rdflib-interne
+    velden reikt -- alleen `_literal_snel` doet dat, met zijn eigen bewaker in `tests/test_graaf`.
+    """
+    if term.language is None and term.datatype is None:
+        return (_literal_string_snel, (str(term),))
+    return (
+        _literal_snel,
+        (str(term), term.language, term.datatype, term.value, term.ill_typed),
+    )
+
+
+class _SnellePickler(pickle.Pickler):
+    """Een `Pickler` die de rdflib-termen via de snelpaden van `graaf` reduceert (issue #63).
+
+    De `dispatch_table` bepaalt hoe een object van een bepaald type gepickeld wordt; voor de
+    drie rdflib-termtypen wijst hij naar de reduce-functies hierboven. De `copyreg`-tabel gaat
+    eronder mee, want een eigen `dispatch_table` vervangt (niet: vult aan) de `copyreg`-tabel
+    die de standaardpickler zou raadplegen; die tabel is standaard leeg, maar een afnemer of
+    bibliotheek die er iets in registreert hoort hier hetzelfde antwoord te krijgen als bij
+    de kale pickler. Types die er niet in staan (ook de `datetime`- en `Decimal`-waarden van
+    getypeerde literalen) vallen op de gewone `__reduce_ex__`-weg terug, dus de containers
+    (`GraafIndex`, de dicts, de tuples) picklen ongewijzigd.
+    """
+
+    dispatch_table = {
+        **copyreg.dispatch_table,
+        URIRef: _reduce_uriref,
+        BNode: _reduce_bnode,
+        Literal: _reduce_literal,
+    }
+
+
 def _schrijf_atomair(pad: Path, inhoud: object) -> None:
     """Schrijft eerst naar een tijdelijk bestand en hernoemt dan atomisch.
 
@@ -402,15 +798,20 @@ def _schrijf_atomair(pad: Path, inhoud: object) -> None:
     runs op dezelfde sleutel (dezelfde invoer, dezelfde lader) schreven anders
     door elkaar heen naar dezelfde tijdelijke naam en het laatste `replace()` kon
     het half geschreven bestand van de ander overnemen.
+
+    De pickle loopt via `_SnellePickler` (issue #63): de rdflib-termen worden naar de snelle
+    constructors van `graaf` gereduceerd, zodat het teruglezen `URIRef.__new__`/`Literal.__new__`
+    en hun validatie overslaat. De handtekening en de atomaire garantie blijven ongewijzigd; het
+    is enkel de pickler die wisselt.
     """
-    pad.parent.mkdir(parents=True, exist_ok=True)
+    _maak_cachemap(pad.parent)
     beschrijving, tijdelijk_pad = tempfile.mkstemp(
         prefix=f"{pad.name}.{os.getpid()}.", suffix=".tijdelijk", dir=pad.parent
     )
     tijdelijk = Path(tijdelijk_pad)
     try:
         with os.fdopen(beschrijving, "wb") as bestand:
-            pickle.dump(inhoud, bestand, protocol=5)
+            _SnellePickler(bestand, protocol=5).dump(inhoud)
         tijdelijk.replace(pad)
     except BaseException:
         tijdelijk.unlink(missing_ok=True)

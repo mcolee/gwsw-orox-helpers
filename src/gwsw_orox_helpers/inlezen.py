@@ -15,7 +15,7 @@ niet, `dataset` haalt `_parse` en `_gc_uit` er rechtstreeks op.
 `test_de_bestandssnit_ligt_vast` houdt dat zo.
 
 De IRI's staan hier als `URIRef`, gemaakt uit de tekst in `namen`. Ze komen via `dataset`
-naar buiten -- dat is het oppervlak dat nlriochecker kent -- en horen daarom bij de laag
+naar buiten -- dat is het oppervlak dat een afnemer kent -- en horen daarom bij de laag
 die ze leest, niet bij de tekstmodule die ze spelt.
 """
 
@@ -38,7 +38,12 @@ from gwsw_orox_helpers.geometry import (
     parse_gml_met_z,
 )
 from gwsw_orox_helpers.graaf import GraafIndex, _uriref_snel
-from gwsw_orox_helpers.klassen import _afsluiting
+from gwsw_orox_helpers.klassen import (
+    KLASSE_PUTDEKSEL,
+    WORTEL_KNOOPPUNT,
+    WORTEL_VERBINDING,
+    _afsluiting,
+)
 
 # Als naam en niet als `namen._short`, ook al staat `namen` hierboven al als module: zo
 # blijven de aanroepen hieronder letterlijk wat ze waren toen `_short` nog uit `klassen`
@@ -56,61 +61,39 @@ from gwsw_orox_helpers.namen import _short
 _RDF_TYPE = RDF.type
 _RDFS_LABEL = RDFS.label
 
-HAS_ASPECT = URIRef(namen.HAS_ASPECT)
-HAS_PART = URIRef(namen.HAS_PART)
-# Het GWSW declareert `isPartOf owl:inverseOf hasPart` en `isAspectOf owl:inverseOf
-# hasAspect`. Een conforme export mag dus de inverse schrijven; wie alleen de
-# voorwaartse richting leest, krijgt van zo'n export een leeg domeinmodel zonder een
-# enkele melding. Lees daarom beide, net als bij hasConnection.
-IS_PART_OF = URIRef(namen.IS_PART_OF)
-IS_ASPECT_OF = URIRef(namen.IS_ASPECT_OF)
-HAS_CONNECTION = URIRef(namen.HAS_CONNECTION)
-HAS_VALUE = URIRef(namen.HAS_VALUE)
-HAS_REFERENCE = URIRef(namen.HAS_REFERENCE)
-
-KLASSE_INWINNING = URIRef(f"{namen.GWSW}Inwinning")
-KLASSE_WIJZE_VAN_INWINNING = URIRef(f"{namen.GWSW}WijzeVanInwinning")
-KLASSE_DATUM_INWINNING = URIRef(f"{namen.GWSW}DatumInwinning")
-KLASSE_MAAIVELDORIENTATIE = URIRef(f"{namen.GWSW}Maaiveldorientatie")
-KLASSE_MAAIVELDHOOGTE = URIRef(f"{namen.GWSW}Maaiveldhoogte")
-KLASSE_PUTDEKSELNIVEAU = URIRef(f"{namen.GWSW}Putdekselniveau")
-
-KLASSE_PUNT = URIRef(f"{namen.GWSW}Punt")
-KLASSE_LIJN = URIRef(f"{namen.GWSW}Lijn")
-# Het GWSW kent drie soorten verbindingen, elk met een eigen begin- en eindvertex.
-# Alle zes zijn subklassen van gwsw:Vertex.
-KLASSEN_BEGINPUNT = tuple(
-    URIRef(f"{namen.GWSW}{naam}")
-    for naam in ("BeginpuntLeiding", "BeginpuntOnderdeel", "BeginpuntAfvoerrelatie")
-)
-KLASSEN_EINDPUNT = tuple(
-    URIRef(f"{namen.GWSW}{naam}")
-    for naam in ("EindpuntLeiding", "EindpuntOnderdeel", "EindpuntAfvoerrelatie")
-)
-KLASSE_BEGINPUNT = KLASSEN_BEGINPUNT[0]
-KLASSE_EINDPUNT = KLASSEN_EINDPUNT[0]
-KLASSE_BOB_BEGIN = URIRef(f"{namen.GWSW}BobBeginpuntLeiding")
-KLASSE_BOB_EIND = URIRef(f"{namen.GWSW}BobEindpuntLeiding")
-
 # De staart die de BrutIS-export achter de naam van een hulpstuk plakt in het
 # hasConnection-doel van een leidingeinde, waar de orientatie zelf anders heet.
 FANTOOM_STAART = "_put"
+
+# Het GWSW kent drie soorten verbindingen, elk met een eigen begin- en eindvertex; alle zes
+# subklassen van gwsw:Vertex. De drietallen staan sinds issue #52 één keer hier, zodat
+# `_leestermen` ze niet nog een tweede keer uitschrijft.
+_BEGINPUNT_NAMEN = ("BeginpuntLeiding", "BeginpuntOnderdeel", "BeginpuntAfvoerrelatie")
+_EINDPUNT_NAMEN = ("EindpuntLeiding", "EindpuntOnderdeel", "EindpuntAfvoerrelatie")
 
 
 # --------------------------------------------------------------------------------------
 # De versie-afgeleide termen (issue #32)
 # --------------------------------------------------------------------------------------
 #
-# De module-constanten hierboven blijven letterlijk 1.6: `dataset` her-exporteert ze en
-# `tests/test_publieke_api.py` pint hun waarde. Wat hier bij komt is dezelfde verzameling
-# `URIRef`-en *per gedetecteerde basis*, zodat de lezers hun predicaten en klasse-IRI's uit
-# `graph.gwsw_basis` afleiden in plaats van uit de vaste 1.6-string. De 1.6-termenset is per
-# constructie gelijk aan de constanten hierboven.
+# De `URIRef`-termenset *per gedetecteerde basis*, zodat de lezers hun predicaten en
+# klasse-IRI's uit `graph.gwsw_basis` afleiden in plaats van uit de vaste 1.6-string. De
+# module-constanten hieronder (`HAS_*`, `KLASSE_*`) blijven letterlijk 1.6 -- `dataset`
+# her-exporteert ze en `tests/test_publieke_api.py` pint hun waarde -- maar zij worden sinds
+# issue #52 uit `_leestermen(GWSW)` (`_T16`) afgeleid in plaats van elk apart uit een
+# basis-string opgebouwd, zodat de 1.6-spelling maar op één plek staat.
 
 
 @dataclass(frozen=True)
-class _Leestermen:
-    """De predicaat- en klasse-`URIRef`-en van één GWSW-basis, voor de lezers hieronder."""
+class Leestermen:
+    """De predicaat- en klasse-`URIRef`-en van één GWSW-basis, voor de lezers hieronder.
+
+    Sinds issue #51 publiek (heette `_Leestermen`): `GwswDataset.termen` levert hem als de
+    versie-juiste tegenhanger van de gepinde 1.6-`URIRef`-constanten, zodat een afnemer die de
+    graaf versie-juist wil bevragen niet zelf een `URIRef` uit een basis-string hoeft te bouwen.
+    `_Leestermen` blijft als alias hieronder bestaan, zodat de bestaande interne aanroepen
+    ongewijzigd werken.
+    """
 
     has_aspect: URIRef
     has_part: URIRef
@@ -133,8 +116,13 @@ class _Leestermen:
     klasse_bob_eind: URIRef
 
 
+# De privé naam van vóór issue #51 blijft als alias werken: de interne aanroepen (`_leestermen`
+# hieronder, `dataset`) én een afnemer die hem ooit privé importeerde, breken zo niet.
+_Leestermen = Leestermen
+
+
 @functools.cache
-def _leestermen(basis: str) -> _Leestermen:
+def _leestermen(basis: str) -> Leestermen:
     """De termen van een basis, gebouwd en gedeeld: er zijn er in de praktijk maar twee.
 
     `@functools.cache` op de basis-string: de lezers vragen deze verzameling per aanroep op
@@ -142,14 +130,18 @@ def _leestermen(basis: str) -> _Leestermen:
     `URIRef`-en opnieuw bouwen. De sleutel is een van twee gebundelde bases; de cache blijft
     dus klein. De 1.6-uitkomst is per veld gelijk aan de module-constanten hierboven.
     """
+    # De zeven properties komen sinds issue #52 via `namen.termen_voor`, zodat de leeslaag ze
+    # niet naast de tekstlaag nog een keer spelt; de klasse-IRI's blijven hier uit de basis
+    # opgebouwd (`namen` draagt geen klassennamen).
+    t = namen.termen_voor(basis)
     return _Leestermen(
-        has_aspect=URIRef(f"{basis}hasAspect"),
-        has_part=URIRef(f"{basis}hasPart"),
-        is_aspect_of=URIRef(f"{basis}isAspectOf"),
-        is_part_of=URIRef(f"{basis}isPartOf"),
-        has_connection=URIRef(f"{basis}hasConnection"),
-        has_value=URIRef(f"{basis}hasValue"),
-        has_reference=URIRef(f"{basis}hasReference"),
+        has_aspect=URIRef(t.has_aspect),
+        has_part=URIRef(t.has_part),
+        is_aspect_of=URIRef(t.is_aspect_of),
+        is_part_of=URIRef(t.is_part_of),
+        has_connection=URIRef(t.has_connection),
+        has_value=URIRef(t.has_value),
+        has_reference=URIRef(t.has_reference),
         klasse_inwinning=URIRef(f"{basis}Inwinning"),
         klasse_wijze_van_inwinning=URIRef(f"{basis}WijzeVanInwinning"),
         klasse_datum_inwinning=URIRef(f"{basis}DatumInwinning"),
@@ -158,17 +150,48 @@ def _leestermen(basis: str) -> _Leestermen:
         klasse_putdekselniveau=URIRef(f"{basis}Putdekselniveau"),
         klasse_punt=URIRef(f"{basis}Punt"),
         klasse_lijn=URIRef(f"{basis}Lijn"),
-        klassen_beginpunt=tuple(
-            URIRef(f"{basis}{naam}")
-            for naam in ("BeginpuntLeiding", "BeginpuntOnderdeel", "BeginpuntAfvoerrelatie")
-        ),
-        klassen_eindpunt=tuple(
-            URIRef(f"{basis}{naam}")
-            for naam in ("EindpuntLeiding", "EindpuntOnderdeel", "EindpuntAfvoerrelatie")
-        ),
+        klassen_beginpunt=tuple(URIRef(f"{basis}{naam}") for naam in _BEGINPUNT_NAMEN),
+        klassen_eindpunt=tuple(URIRef(f"{basis}{naam}") for naam in _EINDPUNT_NAMEN),
         klasse_bob_begin=URIRef(f"{basis}BobBeginpuntLeiding"),
         klasse_bob_eind=URIRef(f"{basis}BobEindpuntLeiding"),
     )
+
+
+# De gepinde 1.6-termenset, één keer opgebouwd (issue #52). De module-constanten eronder
+# lezen hun waarde eruit in plaats van de IRI's nog een tweede keer uit te schrijven; per
+# constructie identiek aan `URIRef(namen.HAS_ASPECT)` e.d. Zelfde gecachete object dat de
+# lezers voor basis 1.6 krijgen. `dataset` her-exporteert de constanten,
+# `tests/test_publieke_api.py` pint hun waarde en `tests/test_versiedetectie.py` bindt elk
+# veld aan zijn constante.
+_T16 = _leestermen(namen.GWSW)
+
+HAS_ASPECT = _T16.has_aspect
+HAS_PART = _T16.has_part
+# Het GWSW declareert `isPartOf owl:inverseOf hasPart` en `isAspectOf owl:inverseOf
+# hasAspect`. Een conforme export mag dus de inverse schrijven; wie alleen de voorwaartse
+# richting leest, krijgt van zo'n export een leeg domeinmodel zonder een enkele melding. De
+# lezers hierboven lezen daarom beide, net als bij hasConnection.
+IS_PART_OF = _T16.is_part_of
+IS_ASPECT_OF = _T16.is_aspect_of
+HAS_CONNECTION = _T16.has_connection
+HAS_VALUE = _T16.has_value
+HAS_REFERENCE = _T16.has_reference
+
+KLASSE_INWINNING = _T16.klasse_inwinning
+KLASSE_WIJZE_VAN_INWINNING = _T16.klasse_wijze_van_inwinning
+KLASSE_DATUM_INWINNING = _T16.klasse_datum_inwinning
+KLASSE_MAAIVELDORIENTATIE = _T16.klasse_maaiveldorientatie
+KLASSE_MAAIVELDHOOGTE = _T16.klasse_maaiveldhoogte
+KLASSE_PUTDEKSELNIVEAU = _T16.klasse_putdekselniveau
+
+KLASSE_PUNT = _T16.klasse_punt
+KLASSE_LIJN = _T16.klasse_lijn
+KLASSEN_BEGINPUNT = _T16.klassen_beginpunt
+KLASSEN_EINDPUNT = _T16.klassen_eindpunt
+KLASSE_BEGINPUNT = _T16.klassen_beginpunt[0]
+KLASSE_EINDPUNT = _T16.klassen_eindpunt[0]
+KLASSE_BOB_BEGIN = _T16.klasse_bob_begin
+KLASSE_BOB_EIND = _T16.klasse_bob_eind
 
 
 # --------------------------------------------------------------------------------------
@@ -481,17 +504,24 @@ def _read_nodes(
     errors: dict[str, str],
     knooppunt_klassen: frozenset[str] | None = None,
     deksel_klassen: frozenset[str] | None = None,
-) -> dict[str, Node]:
-    """Leest de knooppunten van het netwerk.
+) -> tuple[dict[str, Node], set[str]]:
+    """Leest de knooppunten van het netwerk, met de bezochte houder-URI's ernaast (issue #70).
 
     Het GWSW definieert een knoop als een object met een orientatie van het type
     Knooppunt. Is de ontologie beschikbaar, dan wordt die definitie gevolgd; anders
     valt de lader terug op de structurele herkenning (een orientatie met een
     puntgeometrie), zodat een dataset ook zonder ontologie leesbaar blijft.
+
+    Naast de knopen levert deze lezer de verzameling houder-URI's die hij tijdens de
+    walk bezocht -- precies `_houders(graph, bron)` voor de gekozen bron, en dus per
+    constructie gelijk aan `set(nodes)`. `_structural_diff_uit` hergebruikt die in plaats
+    van dezelfde orientaties een tweede keer te lopen: bij aanwezige klassenkennis zijn
+    het de ontologische knoop-houders, zonder klassenkennis de structurele.
     """
     t = _leestermen(graph.gwsw_basis)
     nodes: dict[str, Node] = {}
-    deksel_klassen = deksel_klassen or _afsluiting({}, "Putdeksel", graph.gwsw_basis)
+    houders: set[str] = set()
+    deksel_klassen = deksel_klassen or _afsluiting({}, KLASSE_PUTDEKSEL, graph.gwsw_basis)
     # Een keer, buiten de lus: `_deksel_kenmerk` toetst deze handvol klassen per put en
     # per onderdeel daarvan, en bouwde ze tot issue #23 elke keer opnieuw uit tekst op.
     deksel_termen = frozenset(_uriref_snel(klasse) for klasse in deksel_klassen)
@@ -512,6 +542,7 @@ def _read_nodes(
             # orientaties langskomt houdt zo de melding van zijn kapotte orientatie, ook
             # al is de `Node` al uit een eerdere, leesbare orientatie gebouwd.
             houder_gezien = True
+            houders.add(uri)
             if geometriefout is not None:
                 errors[uri] = geometriefout
             if uri in nodes:
@@ -539,7 +570,7 @@ def _read_nodes(
         if geometriefout is not None and not houder_gezien:
             errors[str(orientation)] = geometriefout
 
-    return nodes
+    return nodes, houders
 
 
 def _parents(graph: GraafIndex, subject: RdfNode) -> tuple[str, ...]:
@@ -597,14 +628,17 @@ def _read_conduits(
     errors: dict[str, str],
     verbinding_klassen: frozenset[str] | None = None,
     hulpstuk_klassen: frozenset[str] = frozenset(),
-) -> tuple[dict[str, Conduit], Koppelingsherstel]:
+) -> tuple[dict[str, Conduit], Koppelingsherstel, set[str]]:
     """Leest de verbindingen: leidingen en andere kanten van het netwerk.
 
     Net als bij de knopen geldt de ontologische definitie (een orientatie van het
     type Verbinding) zodra de ontologie beschikbaar is, met terugval op de
     structurele herkenning via begin- en eindvertices.
 
-    Geeft naast de verbindingen het herstel van de fantoomkoppeling terug (issue #60).
+    Geeft naast de verbindingen het herstel van de fantoomkoppeling terug (issue #60) en,
+    sinds issue #70, de bezochte houder-URI's -- `set(conduits)` en tegelijk
+    `_houders(graph, bron)` voor de gekozen bron, die `_structural_diff_uit` als de
+    ontologische dan wel de structurele strengen-houders hergebruikt.
     """
     t = _leestermen(graph.gwsw_basis)
     orientation_to_node = {
@@ -615,6 +649,7 @@ def _read_conduits(
     )
     hersteld: list[str] = []
     conduits: dict[str, Conduit] = {}
+    houders: set[str] = set()
 
     bron = (
         _orientations_of_class(graph, verbinding_klassen)
@@ -633,6 +668,7 @@ def _read_conduits(
             # Vóór de ontdubbelingsbewaker (issue #36), net als bij `_read_nodes`: de
             # melding hangt aan elk object dat deze kapotte orientatie draagt.
             houder_gezien = True
+            houders.add(uri)
             if geometriefout is not None:
                 errors[uri] = geometriefout
             if uri in conduits:
@@ -660,7 +696,7 @@ def _read_conduits(
         if geometriefout is not None and not houder_gezien:
             errors[str(orientation)] = geometriefout
 
-    return conduits, Koppelingsherstel(len(hersteld), len(set(hersteld)))
+    return conduits, Koppelingsherstel(len(hersteld), len(set(hersteld))), houders
 
 
 def _is_multipart(graph: GraafIndex, orientation: RdfNode, klasse: URIRef) -> bool:
@@ -772,14 +808,71 @@ def _structural_diff(graph: GraafIndex, subclasses: dict[str, frozenset[str]]) -
     """
     basis = graph.gwsw_basis
     ontologisch_knopen = _houders(
-        graph, _orientations_of_class(graph, _afsluiting(subclasses, "Knooppunt", basis))
+        graph, _orientations_of_class(graph, _afsluiting(subclasses, WORTEL_KNOOPPUNT, basis))
     )
     ontologisch_strengen = _houders(
-        graph, _orientations_of_class(graph, _afsluiting(subclasses, "Verbinding", basis))
+        graph, _orientations_of_class(graph, _afsluiting(subclasses, WORTEL_VERBINDING, basis))
     )
     structureel_knopen = _houders(graph, _orientations_with(graph, _leestermen(basis).klasse_punt))
     structureel_strengen = _houders(graph, _leiding_orientations(graph))
+    return _verschillen(
+        ontologisch_knopen, structureel_knopen, ontologisch_strengen, structureel_strengen
+    )
 
+
+def _structural_diff_uit(
+    graph: GraafIndex,
+    subclasses: dict[str, frozenset[str]],
+    *,
+    knoop_houders: set[str],
+    knoop_ontologisch: bool,
+    streng_houders: set[str],
+    streng_ontologisch: bool,
+) -> dict[str, int]:
+    """Dezelfde vergelijking als `_structural_diff`, maar met hergebruikte houders (issue #70).
+
+    `load_dataset` heeft één van de twee kanten al gelopen: `_read_nodes` en `_read_conduits`
+    bezochten net de ontologische houders (als de klassenkennis er was) of de structurele
+    (bij terugval op geometrie). Die geeft de lader hier door, zodat alleen de andere kant
+    nog uit de graaf gehaald wordt in plaats van beide -- de walk over de al bezochte
+    orientaties wint dat werk terug (~0,2 s koud). De uitkomst is per constructie byte-gelijk
+    aan `_structural_diff(graph, subclasses)`: `knoop_houders` is exact
+    `_houders(graph, _orientations_of_class(graph, _afsluiting(..., WORTEL_KNOOPPUNT, basis)))`
+    wanneer `knoop_ontologisch` (want `load_dataset` roept `_read_nodes` dan met precies die
+    afsluiting aan), en anders `_houders(graph, _orientations_with(graph, Punt))`; idem voor
+    de strengen. `test_structural_diff_uit_*` in `tests/test_dataset.py` bindt de twee wegen.
+    """
+    basis = graph.gwsw_basis
+    if knoop_ontologisch:
+        ontologisch_knopen = knoop_houders
+        structureel_knopen = _houders(
+            graph, _orientations_with(graph, _leestermen(basis).klasse_punt)
+        )
+    else:
+        structureel_knopen = knoop_houders
+        ontologisch_knopen = _houders(
+            graph, _orientations_of_class(graph, _afsluiting(subclasses, WORTEL_KNOOPPUNT, basis))
+        )
+    if streng_ontologisch:
+        ontologisch_strengen = streng_houders
+        structureel_strengen = _houders(graph, _leiding_orientations(graph))
+    else:
+        structureel_strengen = streng_houders
+        ontologisch_strengen = _houders(
+            graph, _orientations_of_class(graph, _afsluiting(subclasses, WORTEL_VERBINDING, basis))
+        )
+    return _verschillen(
+        ontologisch_knopen, structureel_knopen, ontologisch_strengen, structureel_strengen
+    )
+
+
+def _verschillen(
+    ontologisch_knopen: set[str],
+    structureel_knopen: set[str],
+    ontologisch_strengen: set[str],
+    structureel_strengen: set[str],
+) -> dict[str, int]:
+    """Het verslag uit de vier houder-sets; gedeeld door beide structurele-diff-wegen."""
     verschillen: dict[str, int] = {}
     for rol, ontologisch, structureel in (
         ("knooppunten", ontologisch_knopen, structureel_knopen),

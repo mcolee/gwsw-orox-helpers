@@ -1,8 +1,10 @@
 """De schrijver geeft een OroX-TTL terug die naar dezelfde RDF-graaf parseert."""
 
+import errno
+import hashlib
 import os
 from collections import Counter
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from pathlib import Path
 
 import pyoxigraph
@@ -16,8 +18,11 @@ import rdflib
 # knoop-toewijzing (canonicaliseren en dan vergelijken).
 from rdflib.compare import isomorphic
 from rdflib.namespace import OWL, RDF
+from rdflib.plugins.parsers.notation3 import BadSyntax
 
+from conftest import dewoldenhoogeveen_export
 from gwsw_orox_helpers import schrijven
+from gwsw_orox_helpers.clip import clip_orox, merge_orox
 from gwsw_orox_helpers.errors import DatasetError
 from gwsw_orox_helpers.schrijven import (
     STANDAARD_PREFIXEN,
@@ -29,12 +34,16 @@ from gwsw_orox_helpers.schrijven import (
 TTL_DIR = Path(__file__).parent / "fixtures" / "ttl"
 MINI = TTL_DIR / "mini_orox.ttl"
 CP850 = TTL_DIR / "codering_cp850.ttl"
+# Een geldige grenslaag: `clip_orox` leest die vóór de bron, dus een map-als-bron-test
+# moet er langs voordat `lees_orox` aan de beurt is.
+MINI_GRENS = Path(__file__).parent / "fixtures" / "gis" / "mini_grens.geojson"
 
 # De echte voorbeeldexport van Stichting RIONED (Juinen), sinds issue #10 byte-exact als
 # fixture gebundeld; de test hangt daarmee niet meer aan een pad buiten de repo.
 JUINEN = TTL_DIR / "juinen_voorbeeld_v1_6.ttl"
-# De export van De Wolden en Hoogeveen: 112 MB, ook niet getrackt (marker `zwaar`).
-DEWOLDEN = Path("/home/martin/nlriochecker/data/gwsw_orox_ttl/dewoldenhoogeveen_orox.ttl")
+# De export van De Wolden en Hoogeveen: 112 MB, ook niet getrackt (marker `zwaar`). Het pad
+# komt uit `conftest` (thuismap of `GWSW_OROX_FIXTUREPAD`), niet meer hard uit deze regel.
+DEWOLDEN = dewoldenhoogeveen_export()
 
 RDF_TYPE = "http://www.w3.org/1999/02/22-rdf-syntax-ns#type"
 GWSW_BASIS = "http://data.gwsw.nl/"
@@ -179,6 +188,24 @@ def test_zonder_prefixen_blijft_de_graaf_gelijk(tmp_path: Path) -> None:
     assert isomorphic(_graaf(doel), _graaf(MINI))
 
 
+def test_utf8_bom_leest_gelijk_via_lees_orox(tmp_path: Path) -> None:
+    """Een UTF-8-BOM vooraan mag de streamende leesweg niet breken (issue #53).
+
+    `lees_orox` laat pyoxigraph het bestand zonder terugvalcodering zelf openen, dus helpt
+    `codering.decodeer` daar niet; een BOM-peek stuurt een bron met BOM alsnog via de
+    gedecodeerde inhoud, zodat de tekst zonder BOM aan de motor gaat. Zonder BOM blijft de
+    bron byte-gelijk het bestandspad naar de motor houden -- zie de map- en leesfouttests
+    hieronder, die op die streamende weg leunen.
+    """
+    bom = tmp_path / "mini_bom.ttl"
+    bom.write_bytes(b"\xef\xbb\xbf" + MINI.read_bytes())
+
+    zonder = list(lees_orox(MINI).quads)
+    met = list(lees_orox(bom).quads)
+
+    assert len(met) == len(zonder) == 55
+
+
 def test_cp850_bron_komt_er_als_utf8_uit(tmp_path: Path) -> None:
     """Een export met MS-DOS-bytes gaat met dezelfde terugvalcodering als de leeslaag."""
     doel = tmp_path / "cp850_terug.ttl"
@@ -188,6 +215,82 @@ def test_cp850_bron_komt_er_als_utf8_uit(tmp_path: Path) -> None:
     utf8_bron.write_text(CP850.read_bytes().decode("cp850"), encoding="utf-8")
     assert "cavaljéweg" in doel.read_text(encoding="utf-8")
     assert isomorphic(_graaf(doel), _graaf(utf8_bron))
+
+
+def test_terugval_leest_via_de_hercodeerstroom_en_niet_de_hele_str(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Met terugvalcodering gaat de bron via `ontleed_turtle_stroom`, niet `ontleed_turtle`.
+
+    Dat is de kern van issue #66: de terugval-tak bouwt geen volledige `str` meer maar
+    streamt de hercodeerde bytes de motor in. De streamende ingang moet dus aangeroepen
+    worden, en de geheugen-tak (`ontleed_turtle` op een `str`) niet.
+    """
+    stroom_aanroepen: list[object] = []
+    verboden: list[object] = []
+    echt_stroom = schrijven.rdfmotor.ontleed_turtle_stroom
+
+    def spion_stroom(io: object) -> object:
+        stroom_aanroepen.append(io)
+        return echt_stroom(io)
+
+    monkeypatch.setattr(schrijven.rdfmotor, "ontleed_turtle_stroom", spion_stroom)
+    monkeypatch.setattr(schrijven.rdfmotor, "ontleed_turtle", lambda bron: verboden.append(bron))
+
+    quads = list(lees_orox(CP850, fallback_encoding="cp850").quads)
+
+    assert len(quads) > 0
+    assert len(stroom_aanroepen) == 1
+    assert verboden == []
+
+
+def test_cp850_via_hercodeerstroom_is_byte_gelijk_aan_de_utf8_weg(tmp_path: Path) -> None:
+    """De streamende terugval-tak levert byte-identieke uitvoer als de zuivere UTF-8-weg.
+
+    De kern van issue #66: de hercodeerstroom (cp850 -> UTF-8, blokgewijs) mag geen andere
+    byte opleveren dan de bron die al als UTF-8 op schijf staat en langs het streamende
+    bestandspad gaat. Met `deterministisch=True` zijn de blanke-knooplabels stabiel, dus is
+    byte-gelijkheid (sha256) een zinnig criterium.
+    """
+    utf8_bron = tmp_path / "cp850_als_utf8.ttl"
+    utf8_bron.write_text(CP850.read_bytes().decode("cp850"), encoding="utf-8")
+
+    via_terugval = tmp_path / "via_terugval.ttl"
+    via_utf8 = tmp_path / "via_utf8.ttl"
+    schrijf_orox(CP850, via_terugval, fallback_encoding="cp850", deterministisch=True)
+    schrijf_orox(utf8_bron, via_utf8, deterministisch=True)
+
+    assert _sha256(via_terugval) == _sha256(via_utf8)
+    assert "cavaljéweg" in via_terugval.read_text(encoding="utf-8")
+
+
+def test_bom_via_hercodeerstroom_is_byte_gelijk_aan_zonder_bom(tmp_path: Path) -> None:
+    """Een UTF-8-BOM-bron langs de hercodeerstroom is byte-gelijk aan dezelfde bron zonder BOM.
+
+    De BOM-tak deelt de streamende hercodeerweg (issue #66); `utf-8-sig` haalt de BOM eruit,
+    dus komt er precies uit wat de BOM-loze bron langs het bestandspad oplevert.
+    """
+    bom = tmp_path / "mini_bom.ttl"
+    bom.write_bytes(b"\xef\xbb\xbf" + MINI.read_bytes())
+
+    via_bom = tmp_path / "via_bom.ttl"
+    via_plat = tmp_path / "via_plat.ttl"
+    schrijf_orox(bom, via_bom, deterministisch=True)
+    schrijf_orox(MINI, via_plat, deterministisch=True)
+
+    assert _sha256(via_bom) == _sha256(via_plat)
+
+
+def test_decodeerfout_onderweg_is_een_coderingerror(tmp_path: Path) -> None:
+    """Een terugval die de bron toch niet leest: CoderingError, geen TurtleError (issue #66).
+
+    De hercodeerstroom decodeert lui; een terugval die geldig als codec bestaat maar de
+    bytes niet leest (hier `ascii` op een cp850-byte) struikelt pas onderweg. Die
+    `UnicodeDecodeError` is een `ValueError` en zou door de motor-vangst als "geen geldige
+    Turtle" gelabeld worden; hij hoort de `CoderingError` van `codering.decodeer` te geven.
+    """
+    with pytest.raises(DatasetError, match="ook niet te lezen als ascii"):
+        schrijf_orox(CP850, tmp_path / "nooit.ttl", fallback_encoding="ascii")
 
 
 def test_cp850_bron_zonder_terugval_noemt_de_codering_als_oorzaak(tmp_path: Path) -> None:
@@ -212,6 +315,84 @@ def test_ontbrekende_bron_is_een_dataseterror(tmp_path: Path) -> None:
     """Een bron die er niet is, meldt zich als DatasetError en niet als OSError."""
     with pytest.raises(DatasetError, match="kan niet gelezen worden"):
         schrijf_orox(tmp_path / "bestaat_niet.ttl", tmp_path / "nooit.ttl")
+
+
+def test_map_als_bron_voor_lees_orox_is_een_dataseterror(tmp_path: Path) -> None:
+    """Een map i.p.v. een bestand: de OSError onderweg komt als DatasetError boven.
+
+    `lees_orox` haalt de eerste quad op om de prefixkop te vullen; op een map struikelt de
+    parser daar met een `IsADirectoryError`. Die staat buiten de constructie van de parser
+    (die vangst dekte alleen een ontbrekend bestand), dus zonder de vangst in
+    `_gecontroleerd` glipte de rauwe OSError langs elke `except DatasetError` van de afnemer
+    (issue #49). Net als bij een ontbrekende bron hoort het een `BestandError` te zijn.
+    """
+    map_bron = tmp_path / "een_map"
+    map_bron.mkdir()
+
+    with pytest.raises(DatasetError, match="kan niet gelezen worden"):
+        lees_orox(map_bron)
+
+
+def test_map_als_bron_voor_schrijf_orox_is_een_dataseterror(tmp_path: Path) -> None:
+    """Dezelfde map-als-bron langs `schrijf_orox`: DatasetError, en geen doelmap gemaakt."""
+    map_bron = tmp_path / "een_map"
+    map_bron.mkdir()
+    doel = tmp_path / "uit" / "nooit.ttl"
+
+    with pytest.raises(DatasetError, match="kan niet gelezen worden"):
+        schrijf_orox(map_bron, doel)
+
+    # De lezing faalt op de eerste quad, dus vóór `schrijf_orox_quads` de doelmap maakt.
+    assert not doel.parent.exists()
+
+
+def test_map_als_bron_voor_clip_orox_is_een_dataseterror(tmp_path: Path) -> None:
+    """En langs `clip_orox`: de grenslaag is geldig, de bron is een map -> DatasetError.
+
+    `clip_orox` leest eerst de grenslaag en pas daarna de bron; met een geldige grenslaag
+    valt de fout dus op `lees_orox(bron)` en hoort hij als `BestandError` naar buiten te
+    komen, niet als rauwe `IsADirectoryError`.
+    """
+    map_bron = tmp_path / "een_map"
+    map_bron.mkdir()
+    uit = tmp_path / "uit"
+
+    with pytest.raises(DatasetError, match="kan niet gelezen worden"):
+        clip_orox(map_bron, MINI_GRENS, uit, sleutel="gemeentenaam")
+
+    # De fout valt vóór de schrijfronde, dus de uitmap wordt nooit gevuld.
+    assert not uit.exists()
+
+
+def test_leesfout_halverwege_de_stroom_is_een_dataseterror(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Een OSError midden in de quadstroom komt als DatasetError met de leesmelding boven.
+
+    De parser is lui; een I/O-fout op regel 900.000 (een losgekoppelde schijf, een
+    weggevallen netwerkshare) komt pas boven terwijl de serializer al schrijft. Zonder de
+    OSError-vangst in `_gecontroleerd` zag de afnemer daar ofwel een rauwe OSError, ofwel --
+    via de schrijf-vangst van `schrijf_orox_quads` -- een "kan niet geschreven worden" voor
+    wat in werkelijkheid een leesfout is. Het hoort een `BestandError` te zijn met de
+    leesmelding, en er hoort geen tijdelijk bestand achter te blijven (issue #49).
+    """
+    quads = list(lees_orox(MINI).quads)
+
+    class _EIOLezer:
+        prefixes = {"": "http://sparql.gwsw.nl/repositories/Mini#"}
+
+        def __iter__(self) -> Iterator[pyoxigraph.Quad]:
+            yield quads[0]
+            raise OSError(errno.EIO, "I/O-fout tijdens het streamen")
+
+    monkeypatch.setattr(schrijven.rdfmotor, "ontleed_turtle_bestand", lambda _pad: _EIOLezer())
+    doel = tmp_path / "uit" / "half.ttl"
+
+    with pytest.raises(DatasetError, match="kan niet gelezen worden"):
+        schrijf_orox(MINI, doel)
+
+    assert not doel.exists()
+    assert list(doel.parent.iterdir()) == []
 
 
 def test_kapotte_turtle_is_een_dataseterror(tmp_path: Path) -> None:
@@ -377,6 +558,31 @@ def test_lege_prefixsleutel_is_de_dataset_basis(tmp_path: Path) -> None:
     assert "@prefix : <http://sparql.gwsw.nl/x#> ." in doel.read_text(encoding="utf-8")
 
 
+def test_decimal_literaal_komt_byte_gelijk_door_schrijf_orox(tmp_path: Path) -> None:
+    """`"24.20"^^xsd:decimal` blijft byte-voor-byte staan; de schrijfweg normaliseert niets (#71).
+
+    De gestreamde schrijfweg is de enige lexicaal getrouwe: een route via `pyoxigraph.Store`
+    (gemeten en gediskwalificeerd, zie `docs/architectuur.md`, "Store is geen derde pad") zou
+    `"24.20"^^xsd:decimal` tot `"24.2"` normaliseren en zo de belofte "niets genormaliseerd"
+    breken. Deze drifttest bewaakt dat de trailing nul op de geschreven bytes overleeft. De
+    serializer schrijft de decimaal in Turtle-korting (`24.20`, zonder quotes of `^^xsd:decimal`),
+    wat lexicaal identiek is aan `"24.20"^^xsd:decimal`; de nul telt, `24.2` zou normalisatie zijn.
+    """
+    bron = tmp_path / "decimaal.ttl"
+    bron.write_text(
+        "@prefix : <http://x#> .\n"
+        "@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .\n"
+        ':a :diepte "24.20"^^xsd:decimal .\n',
+        encoding="utf-8",
+    )
+    doel = tmp_path / "decimaal_terug.ttl"
+    schrijf_orox(bron, doel)
+
+    tekst = doel.read_bytes()
+    assert b"24.20" in tekst, "de trailing nul mag niet genormaliseerd worden"
+    assert b":diepte 24.2 " not in tekst, "24.20 mag niet tot 24.2 genormaliseerd zijn"
+
+
 def test_juinen_blijft_isomorf(tmp_path: Path) -> None:
     """De echte voorbeeldexport (119 kB) overleeft de heen-en-weerweg ongeschonden."""
     doel = tmp_path / "juinen_terug.ttl"
@@ -453,3 +659,199 @@ def test_17_bron_blijft_17_bij_round_trip(tmp_path: Path) -> None:
 def test_standaardprefixen_blijven_16() -> None:
     """De cosmetische kopprefix blijft 1.6; de bronprefix wint erover (issue #32)."""
     assert STANDAARD_PREFIXEN["gwsw"] == "http://data.gwsw.nl/1.6/totaal/"
+
+
+def _ingang_grafen(
+    naam: str, maak_pad: Callable[[Path], object], werkmap: Path
+) -> list[rdflib.Graph]:
+    """Roept één publieke ingang aan met paden die `maak_pad` vormgeeft, en levert het
+    resultaat als een lijst rdflib-grafen. `maak_pad` is `str` of de identiteit, zodat
+    dezelfde aanroep met een `str`- en een `Path`-pad naast elkaar te leggen is. Grafen en
+    niet bytes, want pyoxigraph hernummert blanke knopen per parse: byte-gelijkheid is dan
+    geen goed criterium, graafgelijkheid (isomorfie) wel."""
+    if naam == "lees_orox":
+        # De terugval-tak (cp850) is de enige die `bron.read_bytes()` doet; het streamende
+        # pad slikte een str al. De gelezen quads gaan naar een bestand zodat isomorfie ze
+        # blanke-knoop-ongevoelig kan vergelijken.
+        geopend = lees_orox(maak_pad(CP850), fallback_encoding="cp850")
+        uit = werkmap / "lees.ttl"
+        schrijf_orox_quads(geopend.quads, uit)
+        return [_graaf(uit)]
+    if naam == "schrijf_orox":
+        uit = werkmap / "uit.ttl"
+        schrijf_orox(MINI, maak_pad(uit))
+        return [_graaf(uit)]
+    if naam == "schrijf_orox_quads":
+        uit = werkmap / "uit.ttl"
+        schrijf_orox_quads(lees_orox(MINI).quads, maak_pad(uit))
+        return [_graaf(uit)]
+    if naam == "clip_orox":
+        delen = clip_orox(
+            maak_pad(MINI), maak_pad(MINI_GRENS), maak_pad(werkmap / "uit"), sleutel="gemeentenaam"
+        )
+        return [_graaf(pad) for pad in delen]
+    if naam == "merge_orox":
+        delen = clip_orox(MINI, MINI_GRENS, werkmap / "delen", sleutel="gemeentenaam")
+        doel = werkmap / "merge.ttl"
+        merge_orox(delen, maak_pad(doel))
+        return [_graaf(doel)]
+    raise AssertionError(f"onbekende ingang {naam!r}")
+
+
+@pytest.mark.parametrize(
+    "naam", ["clip_orox", "lees_orox", "merge_orox", "schrijf_orox", "schrijf_orox_quads"]
+)
+def test_de_publieke_ingangen_accepteren_een_str_pad(naam: str, tmp_path: Path) -> None:
+    """Een bibliotheek hoort een str-pad te accepteren, niet erop te crashen (issue #55a).
+
+    `load_dataset` coerceert zijn pad al (`Path(dataset_path)`); de schrijf- en clip-ingangen
+    deden dat niet en riepen `.stem`/`.parent`/`.read_bytes` rechtstreeks op hun argument aan,
+    dus een str-pad gaf een `AttributeError`. Deze test roept elke ingang met een `str`-pad
+    aan -- dat er geen `AttributeError` meer valt, blijkt doordat de aanroep slaagt -- en legt
+    de uitkomst naast die van de `Path`-aanroep: dezelfde graaf (isomorf, dus ook met dezelfde
+    blanke-knoopstructuur). Voor `clip_orox` geldt dat per geschreven deel. De annotaties van
+    `clip_orox`/`merge_orox` blijven `Path` (gepind in `test_cliplaag_is_additief`); dit is
+    een runtime-verbreding van de geaccepteerde typen, geen contractwijziging.
+    """
+    met_path = _ingang_grafen(naam, lambda pad: pad, tmp_path / "path")
+    met_str = _ingang_grafen(naam, str, tmp_path / "str")
+    assert len(met_str) == len(met_path)
+    for graaf_str, graaf_path in zip(met_str, met_path, strict=True):
+        assert isomorphic(graaf_str, graaf_path)
+
+
+def _sha256(pad: Path) -> str:
+    """De SHA-256 van de bytes van een bestand; het criterium voor byte-gelijkheid."""
+    return hashlib.sha256(pad.read_bytes()).hexdigest()
+
+
+def test_deterministisch_geeft_byte_gelijke_uitvoer(tmp_path: Path) -> None:
+    """Twee schrijfbeurten met `deterministisch=True` zijn byte-gelijk én graaf-gelijk.
+
+    pyoxigraph mint per parse eigen `_:`-labels, dus de default-uitvoer verschilt per beurt
+    (zie de negatieve test hieronder). Met `deterministisch=True` hernummert de schrijver
+    elke blanke knoop op eerste ontmoeting (subject vóór object) naar `_:b<n>`, zodat
+    dezelfde bron dezelfde bytes oplevert -- zonder de graaf te veranderen.
+    """
+    een = tmp_path / "een.ttl"
+    twee = tmp_path / "twee.ttl"
+    schrijf_orox(MINI, een, deterministisch=True)
+    schrijf_orox(MINI, twee, deterministisch=True)
+
+    assert _sha256(een) == _sha256(twee)
+    assert isomorphic(_graaf(MINI), _graaf(een))
+
+
+def test_zonder_deterministisch_is_de_uitvoer_niet_byte_stabiel(tmp_path: Path) -> None:
+    """Zonder de vlag verschillen twee beurten in bytes -- de reden dat de vlag bestaat.
+
+    pyoxigraph mint per parse eigen `_:`-labels; op `mini_orox` (elf blanke knopen) is een
+    botsing astronomisch onwaarschijnlijk. Dit toont dat de byte-stabiliteit echt van de vlag
+    komt en niet toevallig al bestond -- en dat de graaf in beide gevallen dezelfde blijft.
+    """
+    een = tmp_path / "een.ttl"
+    twee = tmp_path / "twee.ttl"
+    schrijf_orox(MINI, een)
+    schrijf_orox(MINI, twee)
+
+    assert _sha256(een) != _sha256(twee)
+    assert isomorphic(_graaf(MINI), _graaf(een))
+    assert isomorphic(_graaf(MINI), _graaf(twee))
+
+
+def test_deterministisch_default_laat_de_stroom_ongemoeid(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Default (`False`) en het weglaten van het keyword raken de hernummering nooit aan.
+
+    `_hernummerd` mag alleen op `deterministisch=True` draaien; met `False` of zonder het
+    keyword gaat de stroom onveranderd naar de serializer, dus verandert geen byte aan de
+    bestaande uitvoer. Bewijs: een `_hernummerd` die bij aanroep opblaast laat beide
+    default-wegen (`schrijf_orox` en `schrijf_orox_quads`) ongemoeid en slaat alleen aan op
+    `True`.
+    """
+
+    def _val_op(_quads: object) -> object:
+        raise AssertionError("_hernummerd mag niet op de default-weg draaien")
+
+    monkeypatch.setattr(schrijven, "_hernummerd", _val_op)
+
+    schrijf_orox(MINI, tmp_path / "weggelaten.ttl")
+    schrijf_orox(MINI, tmp_path / "expliciet.ttl", deterministisch=False)
+    schrijf_orox_quads(lees_orox(MINI).quads, tmp_path / "quads.ttl", deterministisch=False)
+
+    with pytest.raises(AssertionError, match="default-weg"):
+        schrijf_orox(MINI, tmp_path / "nooit.ttl", deterministisch=True)
+
+
+def test_schrijf_orox_quads_deterministisch_hernummert_de_blanke_knopen(tmp_path: Path) -> None:
+    """Ook de stroom-ingang hernummert: de uitvoer draagt `_:b0`, `_:b1`, ... in stroomorde.
+
+    `schrijf_orox_quads` is de ingang die de clip gebruikt; de vlag werkt daar net zo. De
+    labels die pyoxigraph teruggeeft zijn na een tweede parse weer willekeurig, dus toetsen
+    we de *tekst* van de uitvoer: die draagt de vaste `_:b<n>`-namen.
+    """
+    doel = tmp_path / "quads.ttl"
+    schrijf_orox_quads(lees_orox(MINI).quads, doel, deterministisch=True)
+
+    tekst = doel.read_text(encoding="utf-8")
+    assert "_:b0" in tekst
+    assert "_:b1" in tekst
+
+
+def test_deterministisch_hernummert_ook_een_triplestroom(tmp_path: Path) -> None:
+    """`schrijf_orox_quads` krijgt van de clip triples, geen quads; de vlag werkt daar net zo.
+
+    Een handgebouwde triplestroom met een blanke knoop (subject én object) komt er met de
+    vaste naam `_:b0` uit, en twee beurten zijn byte-gelijk.
+    """
+    knoop = pyoxigraph.BlankNode("aspect")
+    put = pyoxigraph.NamedNode("http://x#Put")
+    has_aspect = pyoxigraph.NamedNode("http://x#hasAspect")
+    rdf_type = pyoxigraph.NamedNode(RDF_TYPE)
+    punt = pyoxigraph.NamedNode("http://x#Punt")
+    triples = [
+        pyoxigraph.Triple(put, has_aspect, knoop),
+        pyoxigraph.Triple(knoop, rdf_type, punt),
+    ]
+
+    een = tmp_path / "een.ttl"
+    twee = tmp_path / "twee.ttl"
+    schrijf_orox_quads(triples, een, deterministisch=True)
+    schrijf_orox_quads(list(triples), twee, deterministisch=True)
+
+    assert "_:b0" in een.read_text(encoding="utf-8")
+    assert _sha256(een) == _sha256(twee)
+
+
+def test_iri_eindigend_op_punt_leest_pyoxigraph_terug_maar_rdflib_niet(tmp_path: Path) -> None:
+    """Een IRI die onder de basisprefix op `.` eindigt: geldig Turtle 1.1, rdflib struikelt.
+
+    pyoxigraph kort `<http://example.org/x#eind.>` onder de `:`-prefix af tot `:eind\\.`
+    (PN_LOCAL_ESC, geldig Turtle 1.1) en leest hem lexicaal identiek terug. rdflib 7.6.0
+    accepteert die escape aan het eind van een PN_LOCAL niet en geeft `BadSyntax`. Deze test
+    pint die stand: de dag dat rdflib het wél leest, valt hij om en meldt de fix zich. Zie de
+    docstring van `schrijf_orox_quads`.
+    """
+    bron = tmp_path / "eind.ttl"
+    bron.write_text(
+        "@prefix : <http://example.org/x#> .\n"
+        "<http://example.org/x#eind.> <http://example.org/x#p> <http://example.org/x#o> .\n",
+        encoding="utf-8",
+    )
+    doel = tmp_path / "eind_terug.ttl"
+    schrijf_orox(bron, doel)
+
+    tekst = doel.read_text(encoding="utf-8")
+    assert ":eind\\." in tekst
+
+    # pyoxigraph leest de escape lexicaal identiek terug ...
+    terug = list(pyoxigraph.parse(doel.read_bytes(), format=pyoxigraph.RdfFormat.TURTLE))
+    assert any(
+        isinstance(quad.subject, pyoxigraph.NamedNode)
+        and quad.subject.value == "http://example.org/x#eind."
+        for quad in terug
+    )
+    # ... rdflib (7.x) niet: dat is de gedocumenteerde beperking.
+    with pytest.raises(BadSyntax):
+        _graaf(doel)

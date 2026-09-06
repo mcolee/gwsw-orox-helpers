@@ -156,9 +156,12 @@ dan een deel in draagt (een `gml:MultiCurve`, of twee `gml:posList`-en naast elk
 zo'n literaal leest de shapely-lezer alleen het eerste deel, dus knippen zou een
 tekstplakje uit dat eerste deel snijden en de rest ongemoeid in beide delen laten staan.
 Niet geknipt wordt verder een lijn met een andere verhouding dan 2 of 3 getallen per punt
-(`geometry.tokens_per_punt`, dat telt en de `srsDimension` met opzet niet leest), en een
-lijn waarvan de coordinatentekst niet al genormaliseerd is -- dubbele spaties, newlines of
-randspaties in de posList. De stukken zijn tekstplakjes en de hereniging zet ze met een
+(`geometry.tokens_per_punt`, dat telt en de `srsDimension` met opzet niet leest), een
+**3D-lijn zonder srsDimension** (een stuk ervan kan een even tokental dragen en zou bij de
+hereniging als 2D gesnoeid worden waar de bron 3D is -- issue #46; conforme exports dragen
+de srsDimension en raken dit niet), en een lijn waarvan de coordinatentekst niet al
+genormaliseerd is -- dubbele spaties, newlines of randspaties in de posList. De stukken zijn
+tekstplakjes en de hereniging zet ze met een
 enkele spatie aaneen; van een bron met andere scheiders zouden de getallen wel exact
 terugkomen maar de tekst eromheen niet, en dan is `merge(clip(bron))` niet meer
 byte-gelijk aan `bron`. Zo'n knoop gaat ongeknipt naar elk vlak dat hij raakt (van een

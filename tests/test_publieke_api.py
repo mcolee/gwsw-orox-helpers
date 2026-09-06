@@ -11,8 +11,9 @@ namen op vervolgregels en die mist een regelgerichte grep (zo ontbraken de vier
     python3 - <<'PY'
     import ast, pathlib, collections
     namen = collections.defaultdict(set)
-    for wortel in ("/home/martin/nlriochecker/src", "/home/martin/nlriochecker/tests"):
-        for pad in pathlib.Path(wortel).rglob("*.py"):
+    basis = pathlib.Path.home() / "nlriochecker"  # of $NLRIOCHECKER
+    for wortel in (basis / "src", basis / "tests"):
+        for pad in wortel.rglob("*.py"):
             for knoop in ast.walk(ast.parse(pad.read_text(encoding="utf-8"))):
                 if not isinstance(knoop, ast.ImportFrom):
                     continue
@@ -123,6 +124,91 @@ BESTAND_MAG_IMPORTEREN = frozenset({"codering", "errors", "graaf", "namen", "rdf
 # rechtstreeks bij pyoxigraph haalt, gaan sowieso niet door die adapter.
 CLIP_MAG_IMPORTEREN = frozenset({"clip", "errors", "geometry", "namen", "schrijven"})
 
+# De importrichting van de wortel, één regel per module, zoals de lagentekening onder
+# "De lagen" in `docs/architectuur.md` haar tekent (`A -> B` = "A importeert B"). Deze dict
+# spiegelt die tekening letterlijk: elke rij is de vólledige verzameling randen van die
+# module naar een andere wortelmodule (gelijkheid, geen deelverzameling -- de tekening zegt
+# "Dit zijn alle randen die er zijn", en `test_de_wortelsnit_houdt_de_importrichting`
+# bewijst dat tegen de echte import-AST). Tekening en dict horen dus handmatig gelijk te
+# blijven; schuift er een import, dan valt die test om en moeten beide bij. `clip` staat
+# erin als package-rand (de union van wat de fasen uit de wortel halen), net zoals de
+# tekening `clip/` als één rij noemt; de randen bínnen `clip/` bewaakt
+# `test_de_clipsubmodules_houden_de_importrichting`. De bladeren krijgen een lege set.
+WORTELRANDEN: dict[str, frozenset[str]] = {
+    "errors": frozenset(),
+    "voortgang": frozenset(),
+    "bronnen": frozenset(),
+    "namen": frozenset(),
+    "geometry": frozenset(),
+    "domein": frozenset(),
+    "graaf": frozenset({"namen"}),
+    "codering": frozenset({"errors"}),
+    "rdfmotor": frozenset({"errors"}),
+    "ontologie": frozenset({"graaf", "namen"}),
+    "klassen": frozenset({"graaf", "namen", "ontologie"}),
+    "bestand": frozenset({"codering", "errors", "graaf", "namen", "rdfmotor"}),
+    "inlezen": frozenset({"domein", "geometry", "graaf", "klassen", "namen"}),
+    "netwerk": frozenset({"domein"}),
+    # De hersnit van issue #67: `dataset.py` werd een re-exportgezicht en zijn inhoud
+    # verhuisde naar `model` (het domeinmodel), `laden` (de lader) en `vulwaarden` (de
+    # transformatie). `model` weet van de lader niets; `laden` importeert `model`;
+    # `vulwaarden` importeert `model`; en `dataset` importeert alle drie -- een lijn, geen
+    # cyclus.
+    "model": frozenset(
+        {
+            "codering",
+            "domein",
+            "errors",
+            "geometry",
+            "graaf",
+            "inlezen",
+            "klassen",
+            "namen",
+            "netwerk",
+        }
+    ),
+    "laden": frozenset(
+        {
+            "bestand",
+            "bronnen",
+            "errors",
+            "graaf",
+            "inlezen",
+            "klassen",
+            "model",
+            "namen",
+            "voortgang",
+        }
+    ),
+    "vulwaarden": frozenset({"domein", "model"}),
+    "dataset": frozenset({"laden", "model", "vulwaarden"}),
+    "cache": frozenset(
+        {
+            "bestand",
+            "bronnen",
+            "codering",
+            "dataset",
+            "domein",
+            "errors",
+            "geometry",
+            "graaf",
+            "inlezen",
+            "klassen",
+            "laden",
+            "model",
+            "namen",
+            "netwerk",
+            "ontologie",
+            "rdfmotor",
+            "vulwaarden",
+            "voortgang",
+        }
+    ),
+    "schrijven": frozenset({"codering", "errors", "namen", "rdfmotor"}),
+    "clip": frozenset({"errors", "geometry", "namen", "schrijven"}),
+    "__init__": frozenset({"clip", "schrijven"}),
+}
+
 # De twee spellingshelpers die sinds issue #29 in `namen` wonen: `_uri` schrijft een korte
 # klassenaam uit tot een GWSW-IRI, `_short` leest hem er weer uit terug. Ze stonden in
 # `klassen`, en daardoor liep het spellen van twee andere modules (`inlezen` en `dataset`)
@@ -200,6 +286,15 @@ def _pakketimporten(bron: str) -> set[str]:
                 if alias.name.startswith("gwsw_orox_helpers.")
             )
     return gevonden
+
+
+def _wortelranden(bron: str) -> frozenset[str]:
+    """De wortelmodules die deze bron importeert, teruggebracht tot hun toprij.
+
+    `_pakketimporten` levert de gepunte naam onder de package (`clip.knip`); voor de
+    lagentekening telt alleen de toprij (`clip`), want die tekent `clip/` als één regel.
+    """
+    return frozenset(pad.split(".")[0] for pad in _pakketimporten(bron))
 
 
 def _is_docstring(regel: ast.stmt) -> bool:
@@ -326,6 +421,32 @@ HANDTEKENINGEN: dict[str, str] = {
     "dataset.GwswDataset.subjects_of_class": "(self, root: 'str') -> 'list[RdfNode]'",
     "dataset.GwswDataset.subset": "(self, uris: 'Iterable[str]') -> 'GwswDataset'",
     "dataset.GwswDataset.types_of": "(self, uri: 'str') -> 'frozenset[str]'",
+    # Additief sinds issue #51: de drie versie-juiste str-methoden ernaast. Ze lezen via
+    # `self.termen` (de gedetecteerde basis) en niet via de gepinde 1.6-constanten, zodat een
+    # 1.7-dataset niet stil nul treft. `termen` (property) en `Leestermen`/`klasse_iri` staan
+    # in `test_de_versie_juiste_termen_en_str_methoden_zijn_publiek` hieronder.
+    "dataset.GwswDataset.buren": "(self, uri: 'str') -> 'list[str]'",
+    "dataset.GwswDataset.kenmerken_met_waarde": "(self, kenmerk: 'str') -> 'list[str]'",
+    "dataset.GwswDataset.uris_of_class": "(self, root: 'str') -> 'list[str]'",
+    # Additief sinds issue #72: de acht versie-juiste graafvraag-methoden ernaast. Alle lezen
+    # via `self.termen`/de bestaande privé-lezers (de gedetecteerde basis) en niet via de gepinde
+    # 1.6-constanten, zodat een 1.7-dataset niet stil nul treft. `namen.korte_naam` (de publieke
+    # tegenhanger van `_short`) staat in `test_de_versie_juiste_termen_en_str_methoden_zijn_publiek`
+    # hieronder, om dezelfde reden als `namen.klasse_iri`: `namen` staat niet in `MODULES`.
+    "dataset.GwswDataset.houders": "(self, uri: 'str') -> 'list[str]'",
+    "dataset.GwswDataset.dragers": "(self, uri: 'str') -> 'list[str]'",
+    "dataset.GwswDataset.kenmerkinstanties": (
+        "(self, kenmerk: 'str') -> 'Iterator[tuple[str, str | None, str | None]]'"
+    ),
+    "dataset.GwswDataset.knopen_van": "(self, *wortels: 'str') -> 'list[Node]'",
+    "dataset.GwswDataset.strengen_van": "(self, *wortels: 'str') -> 'list[Conduit]'",
+    "dataset.GwswDataset.knopen_van_streng": (
+        "(self, conduit: 'Conduit', roots: 'list[str]') -> 'tuple[str | None, str | None]'"
+    ),
+    "dataset.GwswDataset.valt_onder": (
+        "(self, types: 'frozenset[str]', wortels: 'list[str]') -> 'str | None'"
+    ),
+    "dataset.GwswDataset.typen_kort": "(self, uri: 'str') -> 'frozenset[str]'",
     # De grafindex.
     "graaf.GraafIndex": "() -> 'None'",
     "graaf.GraafIndex.heeft_subject": "(self, term: 'RdfNode') -> 'bool'",
@@ -374,8 +495,14 @@ HANDTEKENINGEN: dict[str, str] = {
         "fallback_encoding: 'str | None' = None) -> 'str'"
     ),
     "cache.standaard_cachemap": "() -> 'Path'",
+    # `graaf_seconden` kwam er additief bij in issue #71: een nieuw veld met default, ná de
+    # bestaande vier, dat op een cachetreffer de wandkloktijd van de eerste graafaanraking draagt
+    # (en `None` blijft zolang de luie graaf niet geladen is of het geen luie graaf was). Elke
+    # bestaande constructie en elke positionele lezing blijft werken -- precedent `bereikcontrole`
+    # (#28). CHANGELOG-regel; geen contractbreuk, dus geen bump in nlriochecker nodig.
     "cache.CacheUitslag": (
-        "(bron: 'str', sleutel: 'str', seconden: 'float', melding: 'str' = '') -> None"
+        "(bron: 'str', sleutel: 'str', seconden: 'float', melding: 'str' = '', "
+        "graaf_seconden: 'float | None' = None) -> None"
     ),
     # Voortgang als protocol.
     "voortgang.NulVoortgang": "()",
@@ -439,7 +566,7 @@ VELDEN: dict[str, tuple[str, ...]] = {
     "dataset.Aspect": ("kind", "value", "reference", "inwinning"),
     "dataset.Inwinning": ("wijze", "datum"),
     "dataset.Vulwaarde": ("kind", "value"),
-    "cache.CacheUitslag": ("bron", "sleutel", "seconden", "melding"),
+    "cache.CacheUitslag": ("bron", "sleutel", "seconden", "melding", "graaf_seconden"),
 }
 
 # De IRI-constanten die nlriochecker rechtstreeks importeert; hun waarde is het contract.
@@ -486,6 +613,53 @@ def test_de_publieke_leesweg_naar_de_gwsw_versie_ligt_vast() -> None:
     assert isinstance(prop, property)
     assert prop.fget is not None
     assert _handtekening(prop.fget) == "(self) -> 'GwswVersie'"
+
+
+def test_de_versie_juiste_termen_en_str_methoden_zijn_publiek() -> None:
+    """De `termen`-property, `Leestermen` en `namen.klasse_iri` zijn publiek (issue #51).
+
+    `termen` gaat als property niet door `inspect.signature` (dat faalt erop) en staat dus
+    niet in `HANDTEKENINGEN`, net als `gwsw_versie`; de drie str-methoden staan er wél in.
+    `Leestermen` is de publieke naam van wat `inlezen._Leestermen` heette -- de oude,
+    privé namen (`_Leestermen`, `_leestermen`) blijven als alias werken zodat niets intern
+    breekt. `namen.klasse_iri` is de publieke, versie-juiste tegenhanger van het privé `_uri`;
+    zijn parameters worden zonder quotes gerepr'd omdat `namen` geen `from __future__ import
+    annotations` draagt, net als `bronnen.gebundelde_ontologie_voor` hierboven.
+    """
+    from gwsw_orox_helpers import inlezen, namen
+
+    assert "Leestermen" in dataset.__all__
+    assert dataset.Leestermen is inlezen.Leestermen
+    assert inlezen._Leestermen is inlezen.Leestermen
+
+    prop = inspect.getattr_static(dataset.GwswDataset, "termen")
+    assert isinstance(prop, property)
+    assert prop.fget is not None
+    assert _handtekening(prop.fget) == "(self) -> 'Leestermen'"
+
+    assert _handtekening(namen.klasse_iri) == "(naam: str, basis: str) -> str"
+    assert (
+        namen.klasse_iri("Punt", "http://data.gwsw.nl/1.7/totaal/")
+        == "http://data.gwsw.nl/1.7/totaal/Punt"
+    )
+
+
+def test_korte_naam_is_de_publieke_terugweg_van_short() -> None:
+    """`namen.korte_naam` is publiek; `_short` blijft als privé-alias hetzelfde object (issue #72).
+
+    De versie-onafhankelijke terugweg naast `klasse_iri` (de heenweg): een volledige GWSW-IRI
+    weer tot zijn korte klassenaam. Net als `klasse_iri` staat hij hier en niet in
+    `HANDTEKENINGEN`, want `namen` zit niet in `MODULES`; zijn parameters worden zonder quotes
+    gerepr'd omdat `namen` geen `from __future__ import annotations` draagt. `_short` blijft
+    werken zodat de interne aanroepen (`inlezen`, `klassen`, `model`) niet breken -- het is
+    hetzelfde object, zoals `_Leestermen`/`Leestermen` bij #51.
+    """
+    from gwsw_orox_helpers import namen
+
+    assert _handtekening(namen.korte_naam) == "(uri: str) -> str"
+    assert namen.korte_naam("http://data.gwsw.nl/1.7/totaal/Punt") == "Punt"
+    assert namen.korte_naam("http://sparql.gwsw.nl/repositories/Mini#Put_1") == "Put_1"
+    assert namen._short is namen.korte_naam
 
 
 def test_uitzonderingen_houden_hun_plaats_in_de_hierarchie() -> None:
@@ -790,6 +964,23 @@ def test_de_namensnit_ligt_vast() -> None:
             if gevonden_helper is not None:  # `inlezen` gebruikt alleen `_short`
                 assert gevonden_helper is bron, f"{gebruiker.__name__}.{helper} is een ander object"
 
+    # Grep-bewaker (issue #68): geen module buiten `namen` spelt een GWSW-property zelf.
+    # `namen.termen_voor` is de ene bron voor `hasValue`/`hasReference` (en sinds #68 ook
+    # `functie`/`Dt_`); een teruggekopieerde `basis + "has…"` of `f"{basis}has…"` levert per
+    # constructie dezelfde string en zou dus door geen enkele gedragstest omvallen -- precies
+    # de stille tweede spelling die deze snit uitsluit, net als de `rsplit`-helpers hierboven.
+    # De klasse-IRI's (`f"{basis}Inwinning"` in `inlezen`) blijven er buiten: `namen` draagt
+    # geen klassennamen, dus die spelt de leeslaag met recht zelf.
+    zelf_gespeld = re.compile(r'basis \+ "(?:has|functie|Dt_)|f"\{basis\}(?:has|functie|Dt_)')
+    spelt_zelf = {
+        pad.relative_to(pakket).as_posix(): zelf_gespeld.findall(pad.read_text(encoding="utf-8"))
+        for pad in sorted(pakket.rglob("*.py"))
+        if pad.name != "namen.py" and zelf_gespeld.search(pad.read_text(encoding="utf-8"))
+    }
+    assert spelt_zelf == {}, (
+        f"{spelt_zelf} spelt een GWSW-property zelf; dat hoort via `namen.termen_voor` te gaan"
+    )
+
 
 def test_de_clipsubmodules_houden_de_importrichting() -> None:
     """Elke fase importeert alleen de bladeren onder de cliplaag en zusters boven zich.
@@ -814,3 +1005,45 @@ def test_de_clipsubmodules_houden_de_importrichting() -> None:
             assert CLIPLAGEN.index(zuster) < CLIPLAGEN.index(eigen), (
                 f"{naam} importeert {zuster}, dat onder hem ligt; de importrichting draait om"
             )
+
+
+def test_de_wortelsnit_houdt_de_importrichting() -> None:
+    """De lagentekening in `docs/architectuur.md` noemt alle randen van de wortel; hier staat
+    dat vast tegen de echte imports -- zoals `test_de_clipsubmodules_houden_de_importrichting`
+    dat voor `clip/` doet, maar dan een regel hoger, op de wortel zelf.
+
+    `WORTELRANDEN` hierboven is een letterlijke spiegel van de tekening onder "De lagen":
+    elke `A -> B` daar is een rand in de rij van `A`, en de bladeren krijgen een lege set.
+    De twee bewijzen elkaar -- schuift er een import in de code, dan wijkt de gemeten rij af
+    van de dict en valt deze test om; wijkt de dict van de tekening af, dan is dat handwerk
+    dat een lezer opmerkt. Deze test parseert het Markdown-document niet: de tekening en de
+    dict blijven handmatig gelijk, precies zoals bij de clip-test.
+
+    Twee dingen tegelijk, allebei aan de import-AST en niet aan een `^from`-regel (een
+    ingesprongen import in een functie, `from gwsw_orox_helpers import x`,
+    `from gwsw_orox_helpers.x import y` en `import gwsw_orox_helpers.x` tellen alle mee, via
+    `_wortelranden`/`_pakketimporten`). De randen per rij zijn een **gelijkheid** en geen
+    deelverzameling: de tekening claimt "Dit zijn alle randen die er zijn", dus een import
+    erbij of eraf hoort de rij te laten afwijken. En de dict dekt **precies** de modules van
+    de wortel -- een nieuwe module in `src/gwsw_orox_helpers/` (of een nieuw `clip`-achtig
+    package) moet zich hier melden, net als `LADERMODULES` dat in `tests/test_cache.py` eist.
+    """
+    pakket = Path(dataset.__file__ or "").parent
+    modules = {pad.stem for pad in pakket.glob("*.py")} | {"clip"}
+    assert set(WORTELRANDEN) == modules, (
+        "de wortelsnit-dict hoort precies de modules van de wortel te dekken; "
+        "een nieuwe module (of package) moet zich hier melden"
+    )
+
+    gemeten: dict[str, frozenset[str]] = {}
+    for module in modules:
+        if module == "clip":
+            clippakket = pakket / "clip"
+            randen: frozenset[str] = frozenset()
+            for pad in clippakket.glob("*.py"):
+                randen |= _wortelranden(pad.read_text(encoding="utf-8"))
+            gemeten[module] = randen - {"clip"}
+        else:
+            bron = (pakket / f"{module}.py").read_text(encoding="utf-8")
+            gemeten[module] = _wortelranden(bron)
+    assert gemeten == WORTELRANDEN

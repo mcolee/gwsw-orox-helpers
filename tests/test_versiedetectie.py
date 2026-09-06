@@ -48,6 +48,15 @@ def test_termen_voor_17_spelt_de_17_basis() -> None:
     assert termen.has_aspect == f"{BASIS_17}hasAspect"
     assert termen.has_value == f"{BASIS_17}hasValue"
     assert termen.has_reference == f"{BASIS_17}hasReference"
+    # De twee velden die issue #68 toevoegt, zodat `ontologie` ze uit `termen_voor` leest.
+    assert termen.functie == f"{BASIS_17}functie"
+    assert termen.dt_voorvoegsel == f"{BASIS_17}Dt_"
+
+
+def test_termen_16_draagt_functie_en_dt_voorvoegsel() -> None:
+    """De gepinde 1.6-termenset draagt de twee nieuwe velden van issue #68."""
+    assert namen.TERMEN_16.functie == f"{BASIS_16}functie"
+    assert namen.TERMEN_16.dt_voorvoegsel == f"{BASIS_16}Dt_"
 
 
 def test_basis_voor_versie_en_terug() -> None:
@@ -79,6 +88,65 @@ def test_basis_uit_iri_herkent_predicaat_en_klasse() -> None:
     assert namen.basis_uit_iri(f"{BASIS_17}hasAspect") == BASIS_17
     assert namen.basis_uit_iri(f"{BASIS_16}Knooppunt") == BASIS_16
     assert namen.basis_uit_iri("http://www.w3.org/2000/01/rdf-schema#label") is None
+
+
+def test_basis_uit_iris_neemt_de_eerste_treffer() -> None:
+    """De gedeelde scan over een reeks IRI's; de eerste die een basis draagt wint (issue #52)."""
+    assert namen.basis_uit_iris([f"{BASIS_17}hasAspect"]) == BASIS_17
+    assert namen.basis_uit_iris(["http://x/p", f"{BASIS_16}Knooppunt"]) == BASIS_16
+    assert namen.basis_uit_iris(["http://x/p", "http://y/q"]) is None
+    assert namen.basis_uit_iris([]) is None
+
+
+def test_terugvalmelding_draagt_de_kernfrase_de_bron_en_de_laag() -> None:
+    """De gedeelde terugval-waarschuwing (bestand én clip); nooit stil, met de kernfrase (#52)."""
+    melding = namen.terugvalmelding("bron.ttl", "de lezing")
+    assert "geen herkenbare GWSW-versie" in melding
+    assert "bron.ttl" in melding
+    assert "de lezing" in melding
+
+
+def test_leestermen_16_is_per_veld_de_module_constante() -> None:
+    """Elk veld van `_leestermen(GWSW)` is exact de gepinde 1.6-module-constante (issue #52).
+
+    De module-constanten (`HAS_*`, `KLASSE_*`) worden sinds #52 uit `_leestermen(GWSW)` (`_T16`)
+    afgeleid in plaats van elk apart uit een basis-string opgebouwd. Deze test bindt elk veld
+    van de termenset aan zijn constante -- op waarde én type -- zodat een verschoven veld of
+    een uiteengelopen constante zich hier meldt en niet stil op een lege lezing uitkomt. De
+    veldenverzameling wordt meevergeleken, dus een nieuw veld dwingt een uitbreiding hier af.
+    """
+    import dataclasses
+
+    from gwsw_orox_helpers import inlezen
+    from gwsw_orox_helpers.namen import GWSW
+
+    t = inlezen._leestermen(GWSW)
+    per_veld = {
+        "has_aspect": inlezen.HAS_ASPECT,
+        "has_part": inlezen.HAS_PART,
+        "is_aspect_of": inlezen.IS_ASPECT_OF,
+        "is_part_of": inlezen.IS_PART_OF,
+        "has_connection": inlezen.HAS_CONNECTION,
+        "has_value": inlezen.HAS_VALUE,
+        "has_reference": inlezen.HAS_REFERENCE,
+        "klasse_inwinning": inlezen.KLASSE_INWINNING,
+        "klasse_wijze_van_inwinning": inlezen.KLASSE_WIJZE_VAN_INWINNING,
+        "klasse_datum_inwinning": inlezen.KLASSE_DATUM_INWINNING,
+        "klasse_maaiveldorientatie": inlezen.KLASSE_MAAIVELDORIENTATIE,
+        "klasse_maaiveldhoogte": inlezen.KLASSE_MAAIVELDHOOGTE,
+        "klasse_putdekselniveau": inlezen.KLASSE_PUTDEKSELNIVEAU,
+        "klasse_punt": inlezen.KLASSE_PUNT,
+        "klasse_lijn": inlezen.KLASSE_LIJN,
+        "klassen_beginpunt": inlezen.KLASSEN_BEGINPUNT,
+        "klassen_eindpunt": inlezen.KLASSEN_EINDPUNT,
+        "klasse_bob_begin": inlezen.KLASSE_BOB_BEGIN,
+        "klasse_bob_eind": inlezen.KLASSE_BOB_EIND,
+    }
+    assert set(per_veld) == {f.name for f in dataclasses.fields(t)}
+    for veld, constante in per_veld.items():
+        gevonden = getattr(t, veld)
+        assert gevonden == constante, veld
+        assert type(gevonden) is type(constante), veld
 
 
 def test_parse_leest_de_basis_uit_de_gwsw_prefix() -> None:
@@ -187,9 +255,12 @@ def test_onbekende_versie_valt_terug_op_de_16_bundel_met_waarschuwing(
 ) -> None:
     """Een gedetecteerde basis zonder gebundelde ontologie (bv. 1.8) valt terug op 1.6."""
     from gwsw_orox_helpers.bronnen import gebundelde_ontologie
-    from gwsw_orox_helpers.dataset import _gebundelde_paden_voor_basis
 
-    with caplog.at_level(logging.WARNING, logger="gwsw_orox_helpers.dataset"):
+    # `_gebundelde_paden_voor_basis` woont sinds issue #67 in `laden` (de lader), niet meer in
+    # het re-exportgezicht `dataset`; de terugvalwaarschuwing komt dus uit de `laden`-logger.
+    from gwsw_orox_helpers.laden import _gebundelde_paden_voor_basis
+
+    with caplog.at_level(logging.WARNING, logger="gwsw_orox_helpers.laden"):
         paden = _gebundelde_paden_voor_basis("http://data.gwsw.nl/1.8/totaal/")
     assert paden == [gebundelde_ontologie()]
     assert "geen ontologie voor gebundeld" in caplog.text
@@ -290,3 +361,141 @@ def test_gwsw_versie_laadt_de_luie_graaf_niet(
         # Tekst-onafhankelijke tegenhanger: `_graaf` is een echte instance-var uit `__init__`
         # (geen `__getattr__`-omweg) en blijft `None` zolang de pickle niet gelezen is.
         assert warm.graph._graaf is None
+
+
+# --------------------------------------------------------------------------------------
+# De versie-juiste termenset en de str-methoden op de dataset (issue #51)
+# --------------------------------------------------------------------------------------
+
+
+def test_termen_property_volgt_de_gedetecteerde_versie() -> None:
+    """`GwswDataset.termen` levert de versie-juiste termenset, gememoiseerd (issue #51)."""
+    from gwsw_orox_helpers.dataset import load_dataset
+
+    d16 = load_dataset(TTL16)
+    d17 = load_dataset(TTL17)
+    # De termen zijn `URIRef`-en (de munteenheid van de leeslaag), dus vergelijken via `str`.
+    assert str(d16.termen.has_connection) == f"{BASIS_16}hasConnection"
+    assert str(d17.termen.has_connection) == f"{BASIS_17}hasConnection"
+    assert str(d17.termen.klasse_punt) == f"{BASIS_17}Punt"
+    # De 1.6-termenset is per veld gelijk aan de gepinde module-constanten.
+    assert str(d16.termen.has_aspect) == namen.HAS_ASPECT
+    # Gememoiseerd: hetzelfde object bij een tweede lezing.
+    assert d17.termen is d17.termen
+
+
+def test_uris_of_class_is_versie_juist_op_17() -> None:
+    """`uris_of_class` treft de vier 1.7-punten waar de 1.6-constant er nul geeft (issue #51)."""
+    from rdflib import RDF
+
+    from gwsw_orox_helpers.dataset import KLASSE_PUNT, load_dataset
+
+    d17 = load_dataset(TTL17)
+    punten = d17.uris_of_class("Punt")
+    assert len(punten) == 4
+    assert all(isinstance(uri, str) for uri in punten)
+    # Precies het gat dat #51 dicht: de 1.6-constant vindt op een 1.7-graaf niets.
+    assert list(d17.graph.subjects(RDF.type, KLASSE_PUNT)) == []
+
+
+def test_buren_leest_hasconnection_beide_richtingen_op_17() -> None:
+    """`buren` volgt hasConnection in beide richtingen, versie-juist (issue #51)."""
+    from gwsw_orox_helpers.dataset import HAS_CONNECTION, load_dataset
+
+    d17 = load_dataset(TTL17)
+    putb_ori = "http://example.org/toets#PutB_ori"
+    # PutB_ori is het doel van twee koppelingen (D1_b en L1_e); `buren` leest de inverse.
+    assert set(d17.buren(putb_ori)) == {
+        "http://example.org/toets#D1_b",
+        "http://example.org/toets#L1_e",
+    }
+    # De zes hasConnection-tripels zijn versie-juist te vinden; via de 1.6-constant nul.
+    assert len(list(d17.graph.subject_objects(d17.termen.has_connection))) == 6
+    assert list(d17.graph.subject_objects(HAS_CONNECTION)) == []
+
+
+def test_kenmerken_met_waarde_leest_de_17_kenmerken() -> None:
+    """`kenmerken_met_waarde` leest de hasValue-waarden van een 1.7-kenmerkklasse (issue #51)."""
+    from gwsw_orox_helpers.dataset import load_dataset
+
+    d17 = load_dataset(TTL17)
+    assert d17.kenmerken_met_waarde("Putdekselniveau") == ["9.95"]
+    assert d17.kenmerken_met_waarde("BobBeginpuntLeiding") == ["8.6"]
+
+
+def test_str_methoden_zijn_gelijkwaardig_aan_de_16_constanten_op_16() -> None:
+    """Op een 1.6-dataset geven de methoden dezelfde treffers als de 1.6-constanten."""
+    from rdflib import RDF
+
+    from gwsw_orox_helpers.dataset import (
+        HAS_CONNECTION,
+        HAS_VALUE,
+        KLASSE_PUNT,
+        KLASSE_PUTDEKSELNIVEAU,
+        load_dataset,
+    )
+    from gwsw_orox_helpers.graaf import _uriref_snel
+
+    d16 = load_dataset(TTL16)
+    assert d16._basis == BASIS_16
+    # `uris_of_class` == de 1.6-constant-weg over de graaf.
+    assert set(d16.uris_of_class("Punt")) == {
+        str(s) for s in d16.graph.subjects(RDF.type, KLASSE_PUNT)
+    }
+    # `buren` == hasConnection in beide richtingen via de 1.6-constant.
+    uri = "http://example.org/toets#PutB_ori"
+    term = _uriref_snel(uri)
+    verwacht = {str(o) for o in d16.graph.objects(term, HAS_CONNECTION)} | {
+        str(s) for s in d16.graph.subjects(HAS_CONNECTION, term)
+    }
+    assert set(d16.buren(uri)) == verwacht
+    # `kenmerken_met_waarde` == de hasValue van de 1.6-kenmerkklasse.
+    verwacht_waarden = [
+        str(d16.graph.value(aspect, HAS_VALUE))
+        for aspect in d16.graph.subjects(RDF.type, KLASSE_PUTDEKSELNIVEAU)
+    ]
+    assert d16.kenmerken_met_waarde("Putdekselniveau") == verwacht_waarden
+
+
+def test_load_dataset_waarschuwt_eenmaal_bij_een_niet_16_versie(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Een 1.7-dataset logt precies één waarschuwing dat de 1.6-constanten niet gelden."""
+    from gwsw_orox_helpers.dataset import load_dataset
+
+    with caplog.at_level(logging.WARNING, logger="gwsw_orox_helpers.laden"):
+        load_dataset(TTL17)
+    constanten = [
+        record
+        for record in caplog.records
+        if record.levelno == logging.WARNING and "module-constanten" in record.getMessage()
+    ]
+    assert len(constanten) == 1
+    assert "1.7" in constanten[0].getMessage()
+
+
+def test_load_dataset_zwijgt_op_een_16_dataset(caplog: pytest.LogCaptureFixture) -> None:
+    """Op de leidende 1.6-versie is er geen versiewaarschuwing (issue #51)."""
+    from gwsw_orox_helpers.dataset import load_dataset
+
+    with caplog.at_level(logging.WARNING, logger="gwsw_orox_helpers.laden"):
+        load_dataset(TTL16)
+    assert not [r for r in caplog.records if "module-constanten" in r.getMessage()]
+
+
+def test_cachepad_waarschuwt_niet_opnieuw_op_een_treffer(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """De versiewaarschuwing komt uit `load_dataset`; een cachetreffer laadt niet en zwijgt."""
+    from gwsw_orox_helpers.cache import laad_met_cache
+
+    # Eerste run: cache-misser, `load_dataset` draait, precies één waarschuwing.
+    with caplog.at_level(logging.WARNING, logger="gwsw_orox_helpers.laden"):
+        laad_met_cache(TTL17, [], cache_dir=tmp_path)
+    assert len([r for r in caplog.records if "module-constanten" in r.getMessage()]) == 1
+    caplog.clear()
+    # Tweede run: cachetreffer, geen `load_dataset`, dus geen tweede waarschuwing.
+    with caplog.at_level(logging.WARNING, logger="gwsw_orox_helpers.laden"):
+        _, uitslag = laad_met_cache(TTL17, [], cache_dir=tmp_path)
+    assert uitslag.bron == "cache"
+    assert not [r for r in caplog.records if "module-constanten" in r.getMessage()]

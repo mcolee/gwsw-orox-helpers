@@ -66,12 +66,12 @@ from collections.abc import Iterable, Iterator, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from types import MappingProxyType
-from typing import Final
+from typing import Final, cast
 
 import pyoxigraph
 
 from gwsw_orox_helpers import namen, rdfmotor
-from gwsw_orox_helpers.codering import decodeer
+from gwsw_orox_helpers.codering import hercodeerstroom
 from gwsw_orox_helpers.errors import BestandError, CoderingError, TurtleError
 from gwsw_orox_helpers.namen import GWSW
 
@@ -114,7 +114,7 @@ class OroxBron:
     prefixen: dict[str, str]
 
 
-def lees_orox(bron: Path, fallback_encoding: str | None = None) -> OroxBron:
+def lees_orox(bron: str | os.PathLike[str], fallback_encoding: str | None = None) -> OroxBron:
     """Opent `bron` als quadstroom en haalt de prefixdeclaraties eruit.
 
     pyoxigraph kent de prefixen pas nadat het de kop gelezen heeft, dus wordt de stroom
@@ -124,58 +124,111 @@ def lees_orox(bron: Path, fallback_encoding: str | None = None) -> OroxBron:
 
     `fallback_encoding` betekent hetzelfde als in `load_dataset`: zonder opgave moet de
     bron UTF-8 zijn (en dan leest de parser hem streamend van schijf), met opgave wordt
-    een bron die dat niet is alsnog gelezen. Dat laatste kost geheugen -- het bestand
-    moet dan eerst in zijn geheel gedecodeerd worden -- en gebeurt daarom alleen als de
-    afnemer erom vraagt.
+    een bron die dat niet is alsnog gelezen. Ook die tak **streamt** sinds issue #66: hij
+    bouwt geen volledige `str` meer maar geeft een hercodeerstroom
+    (`codering.hercodeerstroom`) aan `ontleed_turtle_stroom`, die de bron blokgewijs van de
+    terugvalcodering naar UTF-8 hercodeert. Zo houdt ook een cp850-export van honderden
+    megabytes maar één blok tegelijk in het geheugen in plaats van de hele bron als bytes
+    én als `str`.
 
     Een lege bron (nul quads) levert een lege stroom met alleen de bronprefixen die de
     parser tot dan toe zag.
+
+    Draagt de bron een UTF-8-BOM, dan helpt het bestandspad niet: pyoxigraph opent het
+    bestand dan zelf en struikelt over de `U+FEFF` als eerste subject (issue #53). Daarom
+    wordt de kop gepeekt en gaat een bron met BOM langs de hercodeerstroom -- dezelfde tak
+    die er al is voor een terugvalcodering -- die de tekst zonder BOM (`utf-8-sig`) streamend
+    aan de motor levert. Zonder BOM en zonder terugvalcodering blijft het bestandspad
+    byte-gelijk naar de motor gaan, dus blijft de export van honderden megabytes buiten het
+    geheugen.
+
+    Een str- of ander `os.PathLike`-pad wordt hier tot `Path` gemaakt: een bibliotheek
+    hoort een str-pad te accepteren, en de hercodeerstroom opent `bron` zelf (issue #55).
     """
+    bron = Path(bron)
     try:
-        if fallback_encoding is None:
+        if fallback_encoding is None and not _begint_met_bom(bron):
             parser = rdfmotor.ontleed_turtle_bestand(bron)
         else:
-            parser = rdfmotor.ontleed_turtle(_gedecodeerd(bron, fallback_encoding))
+            parser = rdfmotor.ontleed_turtle_stroom(hercodeerstroom(bron, fallback_encoding))
     except OSError as fout:
         raise BestandError(f"{bron}: bestand kan niet gelezen worden ({fout}).") from fout
 
     stroom = _gecontroleerd(bron, parser, fallback_encoding)
     eerste = list(itertools.islice(stroom, 1))
-    prefixen = {**STANDAARD_PREFIXEN, **parser.prefixes}
+    prefixen = {**STANDAARD_PREFIXEN, **rdfmotor.prefixen_van(parser)}
     return OroxBron(quads=itertools.chain(eerste, stroom), prefixen=prefixen)
 
 
-def schrijf_orox(bron: Path, doel: Path, fallback_encoding: str | None = None) -> None:
+def schrijf_orox(
+    bron: str | os.PathLike[str],
+    doel: str | os.PathLike[str],
+    fallback_encoding: str | None = None,
+    *,
+    deterministisch: bool = False,
+) -> None:
     """Leest de OroX-TTL `bron` en schrijft hem als Turtle naar `doel`.
 
     Niet byte-gelijk aan de bron, wel graaf-gelijk: `doel` parseert naar dezelfde RDF-graaf
     (zie de moduledocstring). De prefixen van de bron -- inclusief de dataset-basis `:` --
     komen mee, aangevuld met `STANDAARD_PREFIXEN`. `fallback_encoding` betekent hetzelfde
-    als in `load_dataset` en `lees_orox`; de uitvoer is hoe dan ook UTF-8.
+    als in `load_dataset` en `lees_orox`; de uitvoer is hoe dan ook UTF-8. Een str- of ander
+    `os.PathLike`-pad mag: `lees_orox` en `schrijf_orox_quads` coerceren zelf naar `Path`.
+
+    `deterministisch` gaat ongewijzigd door naar `schrijf_orox_quads`; met de default
+    `False` verandert er geen byte aan de bestaande uitvoer, met `True` zijn twee beurten
+    van dezelfde bron byte-gelijk. Zie `schrijf_orox_quads` voor wat het doet en kost. De
+    graaf blijft in beide gevallen dezelfde.
     """
     geopend = lees_orox(bron, fallback_encoding)
-    schrijf_orox_quads(geopend.quads, doel, prefixen=geopend.prefixen)
+    schrijf_orox_quads(
+        geopend.quads, doel, prefixen=geopend.prefixen, deterministisch=deterministisch
+    )
 
 
 def schrijf_orox_quads(
     quads: Iterable[pyoxigraph.Quad] | Iterable[pyoxigraph.Triple],
-    doel: Path,
+    doel: str | os.PathLike[str],
     *,
     prefixen: Mapping[str, str] | None = None,
+    deterministisch: bool = False,
 ) -> None:
     """Schrijft een al geparseerde quad- of triplestroom als OroX-Turtle naar `doel`.
 
     Dit is de ingang voor afnemers die de bron zelf al in handen hebben -- de clip van
     fase 3 filtert de stroom van `lees_orox` en schrijft de helften hiermee weg, zonder
     de bron opnieuw te parsen. `quads` mag een luie iterator zijn; hij wordt al
-    schrijvend afgelopen en niet eerst verzameld. Quads en triples zijn niet te mengen:
-    pyoxigraph wil één van beide (Turtle kent geen benoemde grafen).
+    schrijvend afgelopen en niet eerst verzameld. Een gemengde Quad/Triple-stroom mag:
+    Turtle kent geen benoemde grafen, dus een default-graaf-`Quad` schrijft byte-gelijk aan
+    de gelijke `Triple`, en de clip van fase 3 leunt daarop (issue #64) -- hij geeft de
+    bron-`Quad` ongewijzigd door waar hij niets herschrijft en mengt dat met de `Triple`-en
+    van het herschrijfpad. Het uniontype verwoordt de stroom homogeen; de clip cast de mix.
 
     `prefixen` zijn de declaraties in de kop; zonder opgave staat er alleen
     `STANDAARD_PREFIXEN` (dus geen dataset-basis `:`, want die kent deze functie niet).
     Ze veranderen alleen de schrijfwijze van de IRI's, niet de graaf. De sleutels moeten
     wel PN_PREFIX-en zijn (`PREFIX_PATROON`); pyoxigraph controleert dat niet en zou een
     kapotte sleutel gewoon uitschrijven.
+
+    `deterministisch` (default `False`) maakt twee schrijfbeurten van dezelfde stroom
+    byte-gelijk. pyoxigraph mint per parse eigen namen voor blanke knopen (`_:<random>`),
+    dus verschilt de default-uitvoer per beurt -- graaf-gelijk maar niet byte-gelijk, en
+    dus diff- en git-onvriendelijk. Met `True` loopt de stroom eerst door `_hernummerd`,
+    dat elke blanke knoop op eerste ontmoeting (subject vóór object) hernummert naar
+    `_:b<n>` in stroomvolgorde; dezelfde stroom levert dan dezelfde bytes. Het **kost** een
+    extra gang over elke term en een tabel van de blanke knopen in het geheugen (niet de
+    hele stroom, alleen de labels), en het **verandert de graaf niet**: blanke-knooplabels
+    zijn documentgebonden, dus hernummeren geeft een isomorfe graaf. Met de default `False`
+    gaat de stroom onveranderd naar de serializer en verandert er geen byte aan wat de
+    functie tot nu toe schreef.
+
+    **rdflib-beperking (`:eind\\.`).** Draagt een IRI onder een prefix een lokaal deel dat
+    op een punt eindigt (bv. `<...#eind.>`), dan schrijft pyoxigraph dat als `:eind\\.`
+    (PN_LOCAL_ESC). Dat is geldig Turtle 1.1 en pyoxigraph leest het lexicaal identiek
+    terug, maar rdflib 7.x weigert de escape aan het eind van een PN_LOCAL met `BadSyntax`.
+    Deze serializer wijkt daar niet voor uit -- de basisprefix weglaten zou de bytes van de
+    default-uitvoer veranderen -- dus zo'n bron blijft door rdflib onleesbaar tot rdflib het
+    repareert (upstream te melden). `tests/test_schrijven.py` pint die stand.
 
     Er wordt naar een tmp-bestand naast `doel` geschreven en pas na de laatste quad
     hernoemd. Een luie bron kan halverwege afbreken -- een syntaxfout op regel 900.000 --
@@ -189,7 +242,19 @@ def schrijf_orox_quads(
     (CWE-59/377). En het willekeurige deel houdt twee gelijktijdige runs naar hetzelfde
     doel uit elkaars tijdelijke bestand. De rechten zijn de rechten van een nieuw
     aangemaakt bestand (`0o666 & ~umask`).
+
+    Een str- of ander `os.PathLike`-pad wordt hier tot `Path` gemaakt (issue #55): een
+    bibliotheek hoort een str-pad te accepteren, en hieronder wordt `doel.parent` gelezen.
     """
+    doel = Path(doel)
+    stroom: Iterable[pyoxigraph.Quad] | Iterable[pyoxigraph.Triple] = (
+        cast(
+            "Iterable[pyoxigraph.Quad] | Iterable[pyoxigraph.Triple]",
+            _hernummerd(quads),
+        )
+        if deterministisch
+        else quads
+    )
     kop = dict(prefixen) if prefixen is not None else dict(STANDAARD_PREFIXEN)
     for sleutel in kop:
         if not PREFIX_PATROON.match(sleutel):
@@ -219,7 +284,7 @@ def schrijf_orox_quads(
             # aanmaken, wordt het pad opruimbaar. De `finally` mag alleen weghalen wat hij
             # zelf maakte -- weigert de `x` de naam, dan is dat bestand van iemand anders.
             tijdelijk = kandidaat
-            rdfmotor.serialiseer_turtle(quads, bestand, prefixen=kop)
+            rdfmotor.serialiseer_turtle(stroom, bestand, prefixen=kop)
         tijdelijk.replace(doel)
         # Na de hernoeming bestaat het tijdelijke pad niet meer; de `finally` mag er dan
         # ook niet meer naar grijpen (een minuscule TOCTOU als de naam intussen hergebruikt
@@ -236,23 +301,82 @@ def schrijf_orox_quads(
                 tijdelijk.unlink(missing_ok=True)
 
 
-def _gedecodeerd(bron: Path, fallback_encoding: str) -> str:
-    """De inhoud van `bron` als tekst: UTF-8, of anders de opgegeven terugvalcodering.
+def _hernummerd(
+    quads: Iterable[pyoxigraph.Quad] | Iterable[pyoxigraph.Triple],
+) -> Iterator[pyoxigraph.Quad | pyoxigraph.Triple]:
+    """De stroom met elke blanke knoop hernummerd naar `_:b<n>` in stroomvolgorde.
 
-    Precies dezelfde regel als aan de leeskant, want het is dezelfde regel:
-    `codering.decodeer` schrijft hem een keer op en beide lagen lezen hem daar. Wat de
-    leeskant er extra bij doet -- het aantal afwijkende bytes en een paar voorbeeldregels
-    vastleggen in `DecodeFallback` -- hoort bij het rapporteren van een lezing en niet bij
-    het terugschrijven ervan, en het kost een tweede gang over het hele bestand; die stap
-    blijft daar.
+    Dit is het codepad achter `deterministisch=True`. Elke `BlankNode` krijgt op eerste
+    ontmoeting -- subject vóór object, altijd in die volgorde -- een naam `b<n>` die de
+    stroomvolgorde volgt, en is daarmee bij elke lezing van dezelfde bron dezelfde, anders
+    dan de willekeurige namen die pyoxigraph zelf mint. Een term die geen blanke knoop is
+    (een `NamedNode`, een `Literal`, of een RDF-ster-`Triple`) blijft ongewijzigd; een
+    RDF-ster-triple wordt dus als geheel doorgegeven en zijn binnenste knopen worden niet
+    hernummerd. Een quad zonder blanke knoop gaat ongewijzigd door -- geen nieuwe term, geen
+    nieuwe quad.
+
+    De pyoxigraph-term-fabrieken (`BlankNode`, `Quad`, `Triple`) worden hier rechtstreeks
+    aangeroepen en niet via `rdfmotor`: die naad draagt alleen parse en serialize, de
+    fabrieken staan bewust buiten de adapter (zie `docs/architectuur.md`, "Wat er niet
+    doorheen gaat"). De twee takken staan, net als in `clip.plan._genummerd`, uitgeschreven
+    in plaats van in een hulp per term: deze lus draait per quad van de bron.
     """
-    return decodeer(bron, bron.read_bytes(), fallback_encoding)[0]
+    labels: dict[str, pyoxigraph.BlankNode] = {}
+    teller = itertools.count()
+    blank_node = pyoxigraph.BlankNode
+    quad_type = pyoxigraph.Quad
+    triple_type = pyoxigraph.Triple
+    for item in quads:
+        subject = item.subject
+        nieuw_subject: pyoxigraph.NamedNode | pyoxigraph.BlankNode | pyoxigraph.Triple
+        if isinstance(subject, blank_node):
+            gevonden_s = labels.get(subject.value)
+            if gevonden_s is None:
+                gevonden_s = labels[subject.value] = blank_node(f"b{next(teller)}")
+            nieuw_subject = gevonden_s
+        else:
+            nieuw_subject = subject
+
+        object_ = item.object
+        nieuw_object: (
+            pyoxigraph.NamedNode | pyoxigraph.BlankNode | pyoxigraph.Literal | pyoxigraph.Triple
+        )
+        if isinstance(object_, blank_node):
+            gevonden_o = labels.get(object_.value)
+            if gevonden_o is None:
+                gevonden_o = labels[object_.value] = blank_node(f"b{next(teller)}")
+            nieuw_object = gevonden_o
+        else:
+            nieuw_object = object_
+
+        if nieuw_subject is subject and nieuw_object is object_:
+            yield item
+        elif isinstance(item, quad_type):
+            yield quad_type(nieuw_subject, item.predicate, nieuw_object, item.graph_name)
+        else:
+            yield triple_type(nieuw_subject, item.predicate, nieuw_object)
+
+
+def _begint_met_bom(bron: Path) -> bool:
+    """Of `bron` begint met de drie bytes van een UTF-8-BOM (`EF BB BF`).
+
+    Alleen de kop wordt gelezen (drie bytes), zodat de streamende leesweg heel blijft voor
+    een gewone bron. Een `OSError` bij het openen wordt hier ingeslikt en als "geen BOM"
+    behandeld: een ontbrekende bron of een map hoort langs de bestaande leesweg dezelfde
+    `BestandError` te geven als voorheen (`lees_orox` / `_gecontroleerd`), niet hier al een
+    andere fout. Zo verandert er niets aan het gedrag van een bron zonder BOM.
+    """
+    try:
+        with open(bron, "rb") as bestand:
+            return bestand.read(3) == b"\xef\xbb\xbf"
+    except OSError:
+        return False
 
 
 def _gecontroleerd(
     bron: Path, parser: Iterator[pyoxigraph.Quad], fallback_encoding: str | None
 ) -> Iterator[pyoxigraph.Quad]:
-    """Vertaalt parsefouten onderweg naar `TurtleError`, net als de leeslaag doet.
+    """Vertaalt parse- en I/O-fouten onderweg naar de juiste `DatasetError`-familie.
 
     De parser is lui: een syntaxfout halverwege een export van 112 MB komt pas boven bij
     de quad waar hij staat, dus midden in het schrijven. Zonder deze laag zou de afnemer
@@ -266,12 +390,22 @@ def _gecontroleerd(
     terugvalcodering ontbreekt (`codering.decodeer`), en dat zegt deze laag hem na. Het
     kost geen tweede lezing: het oordeel komt uit de foutmelding van de parser, dus de
     bron blijft streamen.
+
+    Ook `OSError` valt hier, want de streamende parser leest schijf pas terwijl hij
+    afgelopen wordt: een map als bron (`IsADirectoryError` op de eerste quad, buiten de
+    constructie-vangst van `lees_orox`) of een leesfout halverwege (`EIO` op een
+    weggevallen share) hoort dezelfde `BestandError` "kan niet gelezen worden" te geven als
+    een ontbrekende bron, en niet als rauwe OSError langs de afnemer te glippen of door de
+    schrijf-vangst als "kan niet geschreven worden" verkeerd gelabeld te worden (issue #49).
+    De eerste-quad-pull in `lees_orox` drijft deze generator, dus valt óók binnen deze vangst.
     """
     try:
         yield from parser
-    except (SyntaxError, ValueError) as fout:
-        if fallback_encoding is None and "Invalid UTF-8" in str(fout):
+    except rdfmotor.MOTORFOUTEN as fout:
+        if fallback_encoding is None and rdfmotor.is_coderingsfout(fout):
             raise CoderingError(
                 f"{bron}: geen geldige UTF-8 ({fout}) en er is geen terugvalcodering opgegeven."
             ) from fout
         raise TurtleError(f"{bron}: geen geldige Turtle ({fout}).") from fout
+    except OSError as fout:
+        raise BestandError(f"{bron}: bestand kan niet gelezen worden ({fout}).") from fout

@@ -10,15 +10,27 @@ from __future__ import annotations
 
 import itertools
 from pathlib import Path
+from typing import TYPE_CHECKING, cast
 
 from gwsw_orox_helpers.clip.bereik import _meld_bereikverschil
 from gwsw_orox_helpers.clip.grenzen import _bestandsnaam, _lees_grenzen
 from gwsw_orox_helpers.clip.merge import _samengevoegd, _scan_delen
 from gwsw_orox_helpers.clip.plan import _maak_plan
 from gwsw_orox_helpers.clip.stroom import _deelstroom
-from gwsw_orox_helpers.clip.termen import KNIP, KNIP_PREFIX, _bronbasis, _kniptermen
+from gwsw_orox_helpers.clip.termen import (
+    KNIP,
+    KNIP_PREFIX,
+    _bronbasis,
+    _bronbasis_en_rest,
+    _kniptermen,
+)
 from gwsw_orox_helpers.errors import KnipError
 from gwsw_orox_helpers.schrijven import lees_orox, schrijf_orox_quads
+
+if TYPE_CHECKING:
+    from collections.abc import Iterable
+
+    import pyoxigraph
 
 
 def clip_orox(
@@ -60,18 +72,36 @@ def clip_orox(
     De bron wordt N+1 keer gelezen: een keer om te bepalen wat waarheen gaat, en daarna
     een keer per vlak om te schrijven. Dat is bewust: de toewijzing is pas rond als de
     hele graaf gezien is, en de delen daarna uit een gefilterde stroom schrijven kost
-    geen geheugen voor de triples zelf. Met `bereikcontrole=True` komt daar een lezing bij
+    geen geheugen voor de triples zelf. Sinds issue #64 rekent elke schrijfpass niet meer
+    per quad uit waar hij heen gaat: de analyseronde slaat die kennis één keer plat tot een
+    positietabel (per stroompositie een masker-byte en een herschrijf-vlag) die de pass
+    alleen nog leest, zodat een quad zonder blanke knoop of geknipte geometrie ongewijzigd
+    de deur uit gaat. Met `bereikcontrole=True` komt daar een lezing bij
     die na een klein aantal geometrieen weer wordt losgelaten; zonder de vlag verandert er
     aan het aantal lezingen niets.
+
+    `bron` mag een str- of ander `os.PathLike`-pad zijn en wordt tot `Path` gemaakt (issue
+    #55): een bibliotheek hoort een str-pad te accepteren, en hieronder wordt `bron.stem`
+    gelezen. De annotatie blijft `Path` -- die is gepind in `tests/test_publieke_api.py`; dit
+    is een runtime-verbreding van de geaccepteerde typen, geen contractwijziging.
     """
+    bron = Path(bron)
     vlakken = _lees_grenzen(grenzen, sleutel)
-    # De basis van de bron één keer detecteren en als termenset doorgeven, zodat de
-    # analyseronde en de schrijfronde tegen dezelfde (versie-juiste) predicaten vergelijken.
+    # De basis van de bron één keer detecteren en die éne opening met het plan delen: de
+    # basisdetectie verbruikt alleen de kop tot het eerste GWSW-predicaat, en de kop plus de
+    # rest gaan via `itertools.chain` als één stroom naar `_maak_plan` (issue #61). Zo wordt
+    # de bron voor plan én basis samen één keer geopend in plaats van twee keer. De naam
+    # `geopend` mag de deellus hieronder niet overleven -- die half-verbruikte stroom houdt
+    # de motor-parser en zijn leesbuffer (sinds issue #66 nog één blok van de hercodeerstroom,
+    # niet meer de hele gedecodeerde bron) vast, en die horen losgelaten te worden zodra het
+    # plan hem gelezen heeft, niet pas bij de eerste herbinding in de lus.
     geopend = lees_orox(bron, fallback_encoding)
-    termen = _kniptermen(_bronbasis(geopend.quads, bron))
+    basis, verbruikt = _bronbasis_en_rest(geopend.quads, bron)
+    termen = _kniptermen(basis)
     if bereikcontrole:
         _meld_bereikverschil(bron, grenzen, vlakken, fallback_encoding, termen.has_value)
-    plan = _maak_plan(bron, vlakken, fallback_encoding, termen)
+    plan = _maak_plan(bron, itertools.chain(verbruikt, geopend.quads), vlakken, termen)
+    del geopend, verbruikt
 
     uitmap = Path(uitmap)
     paden: list[Path] = []
@@ -85,7 +115,16 @@ def clip_orox(
         # reviewronde). Voor een bron mét `gwsw:`-prefix is dit dezelfde waarde en dus geen
         # bytewijziging.
         prefixen = {**geopend.prefixen, "gwsw": termen.basis, KNIP_PREFIX: KNIP}
-        schrijf_orox_quads(_deelstroom(geopend.quads, plan, index, termen), doel, prefixen=prefixen)
+        # `_deelstroom` levert sinds issue #64 een gemengde Quad/Triple-stroom (de snelle tak
+        # geeft de bron-Quad ongewijzigd door, het herschrijfpad een Triple). De serializer
+        # aanvaardt de mix -- Turtle kent geen benoemde grafen -- maar het uniontype van
+        # `schrijf_orox_quads` verwoordt hem homogeen; de cast overbrugt dat zonder de gepinde
+        # publieke signatuur te raken.
+        deelstroom = cast(
+            "Iterable[pyoxigraph.Quad] | Iterable[pyoxigraph.Triple]",
+            _deelstroom(geopend.quads, plan, index, termen),
+        )
+        schrijf_orox_quads(deelstroom, doel, prefixen=prefixen)
         paden.append(doel)
     return paden
 
@@ -102,7 +141,12 @@ def merge_orox(delen: list[Path], doel: Path) -> None:
     De delen moeten samen compleet zijn -- van elke geknipte lijn moeten alle stukken
     er zijn. Ontbreekt er een, dan is de lijn niet te herstellen en volgt een
     `KnipError` in plaats van een stilzwijgend kortere geometrie.
+
+    `doel` mag een str- of ander `os.PathLike`-pad zijn en wordt door `schrijf_orox_quads`
+    tot `Path` gemaakt (issue #55); hier alvast, zodat de coercie zichtbaar bij de ingang
+    staat. De annotatie blijft `Path` (gepind in `tests/test_publieke_api.py`).
     """
+    doel = Path(doel)
     if not delen:
         raise KnipError("merge_orox: geen delen opgegeven; er valt niets samen te voegen.")
 
@@ -115,4 +159,13 @@ def merge_orox(delen: list[Path], doel: Path) -> None:
     quads = itertools.chain.from_iterable(lees_orox(pad).quads for pad in delen)
     termen = _kniptermen(_bronbasis(quads, delen[0]))
     scan = _scan_delen(delen, termen)
-    schrijf_orox_quads(_samengevoegd(delen, scan), doel, prefixen=scan.prefixen)
+    # `_samengevoegd` levert sinds issue #65 een gemengde Quad/Triple-stroom (de snelle tak
+    # geeft de bron-`Quad` ongewijzigd door, het herschrijfpad een `Triple`). De serializer
+    # aanvaardt de mix -- Turtle kent geen benoemde grafen -- maar het uniontype van
+    # `schrijf_orox_quads` verwoordt hem homogeen; de cast overbrugt dat zonder de gepinde
+    # publieke signatuur te raken, net als in `clip_orox` (issue #64).
+    samengevoegd = cast(
+        "Iterable[pyoxigraph.Quad] | Iterable[pyoxigraph.Triple]",
+        _samengevoegd(delen, scan),
+    )
+    schrijf_orox_quads(samengevoegd, doel, prefixen=scan.prefixen)

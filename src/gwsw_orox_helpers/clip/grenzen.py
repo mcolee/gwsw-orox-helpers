@@ -48,6 +48,11 @@ def _lees_grenzen(grenzen: Path, sleutel: str) -> tuple[_Vlak, ...]:
 
     vlakken: list[_Vlak] = []
     gezien: set[str] = set()
+    # Van gesaneerde bestandsnaam naar de ruwe naam die hem opleverde. `clip_orox` bouwt het
+    # uitvoerpad via `_bestandsnaam(naam)`, dus twee verschillende ruwe namen die naar
+    # dezelfde bestandsnaam saneren (`'a b'` en `'a/b'` -> `a_b`) zouden hetzelfde bestand
+    # schrijven -- net zo stil als twee gelijke ruwe namen hierboven, en daarom net zo'n fout.
+    gezien_bestandsnaam: dict[str, str] = {}
     for kenmerk in kenmerken:
         eigenschappen = kenmerk.get("properties") or {}
         if sleutel not in eigenschappen or eigenschappen[sleutel] is None:
@@ -61,7 +66,15 @@ def _lees_grenzen(grenzen: Path, sleutel: str) -> tuple[_Vlak, ...]:
                 f"{grenzen}: {sleutel!r} is {naam!r} op meer dan een vlak; twee vlakken zouden "
                 f"dan hetzelfde bestand schrijven."
             )
+        bestandsnaam = _bestandsnaam(naam)
+        botsende = gezien_bestandsnaam.get(bestandsnaam)
+        if botsende is not None:
+            raise GrenslaagError(
+                f"{grenzen}: {botsende!r} en {naam!r} leveren allebei de bestandsnaam "
+                f"{bestandsnaam!r} op; twee vlakken zouden dan hetzelfde bestand schrijven."
+            )
         gezien.add(naam)
+        gezien_bestandsnaam[bestandsnaam] = naam
 
         try:
             meetkunde = _vorm(kenmerk["geometry"])

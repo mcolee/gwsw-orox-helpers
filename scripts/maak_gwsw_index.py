@@ -33,11 +33,16 @@ from typing import Final, NamedTuple
 
 from rdflib import OWL, RDF, RDFS, Graph, URIRef
 
+from gwsw_orox_helpers.bestand import _parse
 from gwsw_orox_helpers.bronnen import (
     GEBUNDELDE_VERSIES,
+    gebundelde_graafindex_hash_pad_voor,
+    gebundelde_graafindex_pad_voor,
     gebundelde_ontologie_voor,
     vocabulaire_index_pad_voor,
 )
+from gwsw_orox_helpers.cache import _SnellePickler
+from gwsw_orox_helpers.laden import _graafindex_hash
 
 WORTEL = Path(__file__).resolve().parents[1]
 
@@ -237,10 +242,35 @@ def _schrijf_bundel(bundel: Bundel) -> None:
     )
 
 
+def _schrijf_graafindex(bundel: Bundel) -> None:
+    """Schrijft de gebundelde GraafIndex-pickle en haar versheidshash-sidecar (issue #70).
+
+    De pickle is dezelfde `GraafIndex` die `bestand._parse` van de bundel-TTL bouwt, gepickeld
+    met de snelle term-reductie van de cache (`_SnellePickler`), zodat de lader hem bij het
+    teruglezen zonder rdflib-validatie reconstrueert -- ~0,2 s goedkoper dan de TTL opnieuw
+    parsen. Het sidecar draagt `laden._graafindex_hash` over de bundel-TTL + `graaf.py` + de
+    rdflib-versie; daarop poort de lader (`laden._gebundelde_graafindex`) vóór hij depickelt.
+    Vergeet de auteur dit script na een ontologie-, `graaf.py`- of rdflib-wijziging, dan valt
+    `test_gwsw_index.py` (de pickle raakt uit de pas met de TTL/`graaf.py`/rdflib).
+    """
+    index = _parse(bundel.ontologie, None)[0]
+    pickle_pad = gebundelde_graafindex_pad_voor(bundel.versie)
+    hash_pad = gebundelde_graafindex_hash_pad_voor(bundel.versie)
+    with pickle_pad.open("wb") as uitvoer:
+        _SnellePickler(uitvoer, protocol=5).dump(index)
+    hash_pad.write_text(_graafindex_hash(bundel.ontologie) + "\n", encoding="ascii")
+    print(
+        f"{pickle_pad.relative_to(WORTEL)}: {len(index)} triples "
+        f"({pickle_pad.stat().st_size / 1024:.0f} kB) geschreven, versheidshash in "
+        f"{hash_pad.relative_to(WORTEL).name}."
+    )
+
+
 def main() -> None:
-    """Schrijft de index van elke gebundelde versie."""
+    """Schrijft de vocabulaire-index en de GraafIndex-pickle van elke gebundelde versie."""
     for bundel in BUNDELS:
         _schrijf_bundel(bundel)
+        _schrijf_graafindex(bundel)
 
 
 if __name__ == "__main__":

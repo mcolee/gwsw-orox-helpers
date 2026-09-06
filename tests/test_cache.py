@@ -7,25 +7,32 @@ in de sleutel.
 
 from __future__ import annotations
 
+import gc
 import inspect
 import logging
+import os
+import pickle
+import stat
 from collections.abc import Callable
 from pathlib import Path
 from types import ModuleType
 
 import pytest
-from rdflib import URIRef
+from rdflib import XSD, BNode, Literal, URIRef
 
+from gwsw_orox_helpers import bestand as bestand_module
 from gwsw_orox_helpers import cache as cache_module
 from gwsw_orox_helpers.bronnen import gebundelde_ontologie
 from gwsw_orox_helpers.cache import (
     BESTAND_GRAAF,
+    BESTAND_STRUCTUREN,
     LADERMODULES,
     LuieGraaf,
     cachesleutel,
     laad_met_cache,
 )
 from gwsw_orox_helpers.dataset import load_dataset
+from gwsw_orox_helpers.errors import BestandError
 from gwsw_orox_helpers.graaf import GraafIndex
 from gwsw_orox_helpers.namen import GWSW, RDF, RDFS
 
@@ -151,6 +158,78 @@ def test_de_luie_graaf_geeft_per_leesbewerking_hetzelfde_als_een_echte_graafinde
 
         assert vraag(warm.graph) == verwacht
         assert _graafleesregels(caplog) == 1, "en een tweede aanraking leest niet opnieuw"
+
+
+def test_de_cacheuitslag_draagt_de_graaflaadtijd_op_het_cachepad(tmp_path: Path) -> None:
+    """`graaf_seconden` is None tot de luie graaf geladen is, daarna een float > 0 (issue #71).
+
+    Het additieve veld maakt de winst van rang 1 (de graaflaadtijd, 7,7 -> ~2,75 s in een leeg
+    proces, ~3,5 s op het warme pad) meetbaar via de publieke API. Op een cachetreffer meet
+    `seconden` alleen de structurenlading; de graaf komt pas lui van schijf bij de eerste
+    aanraking, en dán -- en niet eerder -- draagt `graaf_seconden` zijn wandkloktijd.
+    """
+    laad_met_cache(VOORBEELD, [], cache_dir=tmp_path)  # koud: bouwt de cache
+    warm, uitslag = laad_met_cache(VOORBEELD, [], cache_dir=tmp_path)
+
+    assert uitslag.bron == "cache"
+    assert uitslag.graaf_seconden is None, "vóór de eerste aanraking is de graaftijd onbekend"
+
+    assert isinstance(warm.graph, LuieGraaf)
+    len(warm.graph)  # eerste aanraking -> graaf-pickle.load
+
+    assert isinstance(uitslag.graaf_seconden, float)
+    assert uitslag.graaf_seconden > 0, "na de eerste aanraking draagt het veld de laadtijd"
+
+
+def test_de_cacheuitslag_op_de_misser_heeft_geen_graaftijd(tmp_path: Path) -> None:
+    """Op een misser is de graaf gretig geladen binnen `seconden`; `graaf_seconden` blijft None.
+
+    Er is dan geen luie graaf om een aparte tijd voor te melden: `load_dataset` bouwt de graaf
+    binnen de gemeten `seconden`. `graaf_seconden` hoort dus `None` te zijn en te blijven.
+    """
+    _, uitslag = laad_met_cache(VOORBEELD, [], cache_dir=tmp_path)
+    assert uitslag.bron == "bestand"
+    assert uitslag.graaf_seconden is None
+
+
+def test_de_gc_staat_uit_tijdens_beide_pickle_loads(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """De cyclische GC ligt stil rond beide `pickle.load`-plekken (issue #59).
+
+    De structurenlading in `laad_met_cache` en de graaflading in `LuieGraaf._geladen`
+    bouwen samen miljoenen containers uit de pickle; de cyclische GC loopt daar telkens
+    opnieuw doorheen zonder dat er een kringetje kan ontstaan (de heropgebouwde objecten
+    wijzen alleen naar beneden). Net als op de koude leesweg (`bestand._gc_uit`) hoort de
+    GC daarom uit te staan tijdens het laden -- en de oude stand hersteld te zijn zodra het
+    laden klaar is, ook voor een afnemer die de graaf lui vanuit een check aanraakt.
+
+    We bewijzen het aan `pickle.load` zelf: een spion legt `gc.isenabled()` vast op het
+    moment dat de load draait. Beide plekken horen `False` te zien, en de procesbrede
+    GC-stand hoort er na elke lading weer bij te staan zoals hij ervoor stond.
+    """
+    laad_met_cache(VOORBEELD, [], cache_dir=tmp_path)  # koud: bouwt de cache
+
+    gc_tijdens_load: list[bool] = []
+    echte_load = pickle.load
+
+    def spion(*args: object, **kwargs: object) -> object:
+        gc_tijdens_load.append(gc.isenabled())
+        return echte_load(*args, **kwargs)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(cache_module.pickle, "load", spion)
+
+    assert gc.isenabled(), "voorwaarde: de GC staat aan vóór het laden"
+
+    warm, uitslag = laad_met_cache(VOORBEELD, [], cache_dir=tmp_path)
+    assert uitslag.bron == "cache"
+    assert gc_tijdens_load == [False], "de GC moet uit tijdens de structuren-pickle.load"
+    assert gc.isenabled(), "de GC-stand is hersteld na de structurenlading"
+
+    assert isinstance(warm.graph, LuieGraaf)
+    len(warm.graph)  # eerste aanraking -> graaf-pickle.load
+    assert gc_tijdens_load == [False, False], "de GC moet ook uit tijdens de graaf-pickle.load"
+    assert gc.isenabled(), "de GC-stand is hersteld na de graaflading"
 
 
 def test_de_sleutel_verandert_mee_met_de_lader(tmp_path: Path, monkeypatch) -> None:
@@ -312,15 +391,20 @@ def test_zonder_cache_wordt_er_niets_weggeschreven(tmp_path: Path) -> None:
     assert list(tmp_path.rglob("*.pickle")) == []
 
 
-def test_de_sleutel_bij_none_hasht_alle_gebundelde_versies(
+def test_de_sleutel_bij_none_hasht_de_gedetecteerde_bundel(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Bij `ontology_paths=None` reageert de sleutel op elke gebundelde ontologie (issue #32).
+    """Bij `ontology_paths=None` hasht de sleutel de bundel van de gedetecteerde versie (#52).
 
-    `load_dataset` kiest bij `None` de gebundelde ontologie op de gedetecteerde
-    dataset-versie, dus ook de 1.7-bundel. Zou de sleutel alleen de 1.6-bundel hashen, dan
-    invalideert een data-only upgrade van uitsluitend de 1.7-bundel de 1.7-cache niet. Hier
-    verzetten we (via een tmp-kopie) de inhoud van de 1.7-bundel en eisen een andere sleutel.
+    Sinds issue #52 leest `cachesleutel` de `gwsw:`-prefix uit de kop van de dataset (een
+    goedkope scan van de eerste paar KB, geen volledige parse) en hasht alleen de bundel die
+    `load_dataset._gebundelde_paden_voor_basis` dan kiest -- niet meer álle bundels. Zo
+    invalideert een toekomstige 1.8-bundel een 1.6-cache niet meer.
+
+    VOORBEELD draagt de 1.6-prefix, dus de sleutel hangt van de 1.6-bundel af en níét van de
+    1.7-bundel: een data-only wijziging van uitsluitend de 1.7-bundel laat de sleutel met
+    rust. Een bron zonder herkenbare `gwsw:`-prefix valt terug op alle bundels, en dán telt de
+    1.7-bundel wel mee.
     """
     origineel = cache_module.gebundelde_ontologie_voor
     kopie17 = tmp_path / "bundel17.ttl"
@@ -331,11 +415,489 @@ def test_de_sleutel_bij_none_hasht_alle_gebundelde_versies(
         lambda versie: kopie17 if versie == "1.7" else origineel(versie),
     )
 
+    # 1.6-dataset: de sleutel hangt niet van de 1.7-bundel af.
     eerste = cachesleutel(VOORBEELD)
     kopie17.write_text("B", encoding="utf-8")
-    assert cachesleutel(VOORBEELD) != eerste
+    assert cachesleutel(VOORBEELD) == eerste
 
-    # Een expliciete 1.6-lijst hangt niet van de 1.7-bundel af.
-    zonder_17 = cachesleutel(VOORBEELD, [origineel("1.6")])
+    # Een bron zonder `gwsw:`-prefix valt terug op alle bundels; dán telt de 1.7-bundel wel.
+    zonder_prefix = tmp_path / "zonder_prefix.ttl"
+    zonder_prefix.write_text("<http://x/S> <http://x/p> <http://x/O> .\n", encoding="utf-8")
+    voor = cachesleutel(zonder_prefix)
     kopie17.write_text("C", encoding="utf-8")
-    assert cachesleutel(VOORBEELD, [origineel("1.6")]) == zonder_17
+    assert cachesleutel(zonder_prefix) != voor
+
+
+def test_de_sleutelkant_en_de_laderkant_kiezen_dezelfde_basis_bij_een_herdeclaratie(
+    tmp_path: Path,
+) -> None:
+    """Twee `gwsw:`-prefixdeclaraties in de kop (eerst 1.6, dan 1.7): sleutel en lader
+    kiezen dezelfde basis (#69, conservatieve route).
+
+    De lader (`bestand._parse`) neemt de láátste declaratie -- `parser.prefixes` houdt de
+    laatste waarde per prefixnaam. De sleutelkant (`_dataset_basis_uit_kop`) neemt sinds
+    #69 óók de laatste treffer in het 8 KB-venster, in plaats van de eerste. Zo detecteren
+    beide dezelfde versie op een herdeclarerende bron en loopt de gerichte-bundel-hash (#52)
+    niet meer uiteen van de lezing -- vóór #69 hashte de sleutel de 1.6-bundel terwijl de
+    lader 1.7 las.
+    """
+    herdeclaratie = tmp_path / "herdeclaratie.ttl"
+    herdeclaratie.write_text(
+        "@prefix gwsw: <http://data.gwsw.nl/1.6/totaal/> .\n"
+        "@prefix gwsw: <http://data.gwsw.nl/1.7/totaal/> .\n"
+        "@prefix rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .\n"
+        "gwsw:PutA rdf:type gwsw:Inspectieput .\n",
+        encoding="utf-8",
+    )
+
+    sleutelkant = cache_module._dataset_basis_uit_kop(herdeclaratie)
+    laderkant = bestand_module._parse(herdeclaratie, None)[0].gwsw_basis
+
+    assert sleutelkant == "http://data.gwsw.nl/1.7/totaal/"
+    assert sleutelkant == laderkant, "sleutelkant en laderkant horen dezelfde basis te kiezen"
+
+
+# --- De cache als vertrouwensgrens (issue #45) --------------------------------
+#
+# De cache leest zijn artefacten met `pickle.load`, en pickle voert bij het laden
+# willekeurige code uit (`__reduce__`). De cachemap is daarmee een vertrouwensgrens:
+# alleen een map die van ons is en die niet voor groep of anderen schrijfbaar is, mag
+# gelezen worden. De tests hieronder plegen niet-root; op POSIX omzeilt uid 0 de
+# rechtenbits, dus de gevallen die daarop leunen slaan zichzelf dan over.
+
+MAG_RECHTEN_TOETSEN = os.name == "posix" and os.getuid() != 0
+
+
+def test_de_cachemap_krijgt_mode_0o700(tmp_path: Path) -> None:
+    """De aangemaakte cachemap is privé (0o700), niet groep-/wereldleesbaar."""
+    if os.name != "posix":
+        pytest.skip("de rechten-mode betekent alleen iets op POSIX")
+    _, uitslag = laad_met_cache(VOORBEELD, [], cache_dir=tmp_path)
+    map_ = tmp_path / uitslag.sleutel
+    assert map_.is_dir()
+    assert stat.S_IMODE(map_.stat().st_mode) == 0o700
+
+
+def test_een_groepschrijfbare_cachemap_wordt_overgeslagen(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Een cachemap waar groep of anderen in mogen schrijven, wordt niet vertrouwd:
+    niet gelezen én niet geschreven, de dataset komt uit het bestand terug.
+    """
+    if not MAG_RECHTEN_TOETSEN:
+        pytest.skip("root of niet-POSIX omzeilt de rechtenbits")
+    sleutel = cachesleutel(VOORBEELD, [])
+    map_ = tmp_path / sleutel
+    map_.mkdir()
+    os.chmod(map_, 0o770)
+
+    with caplog.at_level(logging.WARNING, logger=cache_module.__name__):
+        dataset, uitslag = laad_met_cache(VOORBEELD, [], cache_dir=tmp_path)
+
+    assert dataset.nodes
+    assert uitslag.bron == "bestand"
+    assert list(map_.glob("*.pickle")) == [], "op een onvertrouwde map wordt niets geschreven"
+    assert any("schrijfbaar" in bericht for bericht in caplog.messages)
+
+
+def test_een_cachemap_van_een_vreemde_eigenaar_wordt_overgeslagen(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Een cachemap die niet van de huidige gebruiker is, wordt niet vertrouwd.
+
+    We simuleren de vreemde eigenaar door onze `os.getuid` te laten afwijken van de
+    werkelijke eigenaar van de (door ons aangemaakte) map.
+    """
+    if os.name != "posix":
+        pytest.skip("de eigenaarcheck betekent alleen iets op POSIX")
+    sleutel = cachesleutel(VOORBEELD, [])
+    map_ = tmp_path / sleutel
+    map_.mkdir(mode=0o700)
+    echte_uid = os.getuid()  # vóór de patch vastleggen, anders recurseert de lambda
+    monkeypatch.setattr(cache_module.os, "getuid", lambda: echte_uid + 1)
+
+    with caplog.at_level(logging.WARNING, logger=cache_module.__name__):
+        dataset, uitslag = laad_met_cache(VOORBEELD, [], cache_dir=tmp_path)
+
+    assert dataset.nodes
+    assert uitslag.bron == "bestand"
+    assert list(map_.glob("*.pickle")) == []
+    assert any("eigendom van uid" in bericht for bericht in caplog.messages)
+
+
+def test_een_onvertrouwde_structurenpickle_wordt_niet_geladen(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Een structurenpickle met groep-/wereldschrijfrechten wordt niet gedepickled.
+
+    We bewijzen het hard: `pickle.load` mag op dit pad niet aangeroepen worden. In
+    plaats daarvan wordt opnieuw uit het bestand ingelezen.
+    """
+    if not MAG_RECHTEN_TOETSEN:
+        pytest.skip("root of niet-POSIX omzeilt de rechtenbits")
+    laad_met_cache(VOORBEELD, [], cache_dir=tmp_path)
+    sleutel = cachesleutel(VOORBEELD, [])
+    pad_structuren = tmp_path / sleutel / BESTAND_STRUCTUREN
+    assert pad_structuren.exists()
+    os.chmod(pad_structuren, 0o666)
+
+    geroepen: list[bool] = []
+    echte_load = pickle.load
+
+    def spion(*args: object, **kwargs: object) -> object:
+        geroepen.append(True)
+        return echte_load(*args, **kwargs)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(cache_module.pickle, "load", spion)
+
+    dataset, uitslag = laad_met_cache(VOORBEELD, [], cache_dir=tmp_path)
+
+    assert dataset.nodes
+    assert uitslag.bron == "bestand"
+    assert geroepen == [], "een onvertrouwde pickle mag niet gedepickled worden"
+
+
+def test_op_niet_posix_wordt_de_rechtencheck_overgeslagen(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Op Windows (`os.name != 'posix'`) betekenen uid en de bits niets: de check slaat
+    over en een map die op POSIX onvertrouwd zou zijn (0o777) geldt daar als vertrouwd.
+
+    We toetsen de twee helpers rechtstreeks en niet de hele `laad_met_cache`, want
+    `monkeypatch.setattr(os, "name", "nt")` zet ook `pathlib` op `WindowsPath`: een nieuw
+    `Path(...)` (zoals `cachesleutel` er intern maakt) kan de Linux-bronbestanden dan niet
+    meer lezen. De helpers krijgen een bestaande `PosixPath` mee en roepen zelf geen
+    `Path(...)` aan, dus die draaien wel onder de gefakete `os.name`.
+    """
+    map_ = tmp_path / "sleutel"
+    map_.mkdir()
+    map_.chmod(0o777)  # op POSIX onvertrouwd (wereldschrijfbaar)
+
+    monkeypatch.setattr(os, "name", "nt")
+    assert cache_module._cachepad_vertrouwd(map_) is None, "op niet-POSIX is alles vertrouwd"
+
+    nieuwe_map = tmp_path / "vers"
+    cache_module._maak_cachemap(nieuwe_map)  # mag niet crashen en slaat de chmod over
+    assert nieuwe_map.is_dir()
+
+
+def test_een_geplante_reduce_payload_draait_niet(tmp_path: Path) -> None:
+    """De repro uit issue #45: een pickle met een `__reduce__`-payload, geplant met
+    0o666, mag zijn payload niet uitvoeren -- het payloadbestand ontstaat niet.
+    """
+    if not MAG_RECHTEN_TOETSEN:
+        pytest.skip("root of niet-POSIX omzeilt de rechtenbits")
+    doelwit = tmp_path / "GEPWNED"
+
+    class Aanval:
+        def __reduce__(self) -> tuple[Callable[[str], int], tuple[str]]:
+            return (os.system, (f"touch {doelwit}",))
+
+    sleutel = cachesleutel(VOORBEELD, [])
+    map_ = tmp_path / sleutel
+    map_.mkdir()
+    with (map_ / BESTAND_STRUCTUREN).open("wb") as fh:
+        pickle.dump(Aanval(), fh)
+    with (map_ / BESTAND_GRAAF).open("wb") as fh:
+        pickle.dump({}, fh)
+    os.chmod(map_ / BESTAND_STRUCTUREN, 0o666)
+    os.chmod(map_ / BESTAND_GRAAF, 0o666)
+
+    dataset, uitslag = laad_met_cache(VOORBEELD, [], cache_dir=tmp_path)
+
+    assert dataset.nodes
+    assert uitslag.bron == "bestand"
+    assert not doelwit.exists(), "de payload mag niet gedraaid hebben"
+
+
+def test_een_onvertrouwde_graafpickle_wordt_hersteld_zonder_terug_te_schrijven(
+    tmp_path: Path,
+) -> None:
+    """De luie graafpickle wordt vóór het depicklen getoetst; onvertrouwd -> herstel.
+
+    En de keerzijde die de docstring van `LuieGraaf._geladen` vastlegt: staat de pickle
+    in een onvertrouwde map, dan schrijft het herstel niet terug (dat zou een verse pickle
+    in een map leggen waar een ander bij kan). De originele pickle blijft dus ongewijzigd.
+    """
+    if not MAG_RECHTEN_TOETSEN:
+        pytest.skip("root of niet-POSIX omzeilt de rechtenbits")
+    map_ = tmp_path / "sleutel"
+    map_.mkdir()
+    pad_graaf = map_ / BESTAND_GRAAF
+    with pad_graaf.open("wb") as fh:
+        pickle.dump(load_dataset(VOORBEELD, []).graph, fh)
+    os.chmod(pad_graaf, 0o666)
+    os.chmod(map_, 0o770)  # de map is onvertrouwd
+
+    hersteld = load_dataset(VOORBEELD, []).graph
+    aanroepen: list[bool] = []
+
+    def herstel() -> GraafIndex:
+        aanroepen.append(True)
+        return hersteld
+
+    luie = LuieGraaf(pad_graaf, herstel)
+    assert len(luie) == len(hersteld)  # bevraagt de graaf, dus laadt/hersteltt hem
+
+    assert aanroepen == [True], "de onvertrouwde pickle is niet gedepickled maar hersteld"
+    assert stat.S_IMODE(pad_graaf.stat().st_mode) == 0o666, (
+        "naar een onvertrouwde map wordt niet teruggeschreven"
+    )
+
+
+# --- Eén foutbeleid in cache.py (issue #48) ------------------------------------
+#
+# Vier randen waar `cache.py` de belofte "herstel in plaats van crashen" niet dekte:
+# (a) een pickle die geen `UnpicklingError` maar bv. een `ValueError` gooit, (b) een
+# niet-schrijfbare cachemap ná een geslaagde lezing, (c) `_bestandshash` op een ontbrekend
+# bestand mét cache aan, (d) `source` op een cachetreffer uit een gelijknamig bestand.
+
+
+def test_een_inhoudelijk_beschadigde_structurenpickle_leidt_tot_herinlezen(
+    tmp_path: Path,
+) -> None:
+    """Deel a: een structurenpickle die geen `UnpicklingError` maar een `ValueError` gooit.
+
+    `b"\\x80\\x08..."` is protocol 8 en laat `pickle.load` een `ValueError: unsupported
+    pickle protocol` gooien -- een fout die de oude, smalle except-lijst (die alleen
+    `UnpicklingError`, `EOFError`, `TypeError`, `AttributeError` ving) liet ontsnappen.
+    Onder één foutbeleid geldt zo'n pickle net zo goed als "onbruikbaar" en valt de lezing
+    terug op het bestand.
+    """
+    laad_met_cache(VOORBEELD, [], cache_dir=tmp_path)
+    sleutel = cachesleutel(VOORBEELD, [])
+    pad_structuren = tmp_path / sleutel / BESTAND_STRUCTUREN
+    assert pad_structuren.exists()
+    pad_structuren.write_bytes(b"\x80\x08dit is protocol acht")
+
+    dataset, uitslag = laad_met_cache(VOORBEELD, [], cache_dir=tmp_path)
+
+    assert dataset.nodes
+    assert uitslag.bron == "bestand"
+    assert "cache" in uitslag.melding.lower()
+
+
+def test_een_inhoudelijk_beschadigde_graafpickle_herstelt_zichzelf(tmp_path: Path) -> None:
+    """Deel a, graafkant: dezelfde vreemde pickle op de luie graafcache herstelt zichzelf.
+
+    De structurencache blijft geldig, dus `laad_met_cache` meldt een schone treffer; pas een
+    aanraking van `dataset.graph` leest de graafpickle, en die is nu onbruikbaar op een
+    manier die de oude lijst niet ving. Het herstel leest de graaf alsnog uit de brondata.
+    """
+    laad_met_cache(VOORBEELD, [], cache_dir=tmp_path)
+    graafbestanden = list(tmp_path.rglob(BESTAND_GRAAF))
+    assert graafbestanden, "de graafcache had al moeten bestaan"
+    graafbestanden[0].write_bytes(b"\x80\x08dit is protocol acht")
+
+    dataset, uitslag = laad_met_cache(VOORBEELD, [], cache_dir=tmp_path)
+    assert uitslag.bron == "cache"  # de structurencache was intact
+
+    vers = load_dataset(VOORBEELD, [])
+    assert len(dataset.graph) == len(vers.graph)  # geen crash, en de juiste graaf
+
+
+def test_een_structurenpickle_die_laadt_maar_geen_dataset_geeft_valt_terug(
+    tmp_path: Path,
+) -> None:
+    """Deel a, vervolg: een pickle die wél laadt maar geen bruikbare velden oplevert.
+
+    Een lijst pickelt en depickelt prima, maar `GwswDataset(graph=..., **[...])` is geen
+    geldige heropbouw. De fuzz vond dat zulke gevallen (7/300 op de structurenpickle) een
+    `TypeError` buiten het oude vangnet gooiden; de heropbouw staat nu binnen dezelfde `try`,
+    zodat ze net zo goed als "onbruikbaar" terugvallen op herinlezen.
+    """
+    laad_met_cache(VOORBEELD, [], cache_dir=tmp_path)
+    sleutel = cachesleutel(VOORBEELD, [])
+    pad_structuren = tmp_path / sleutel / BESTAND_STRUCTUREN
+    assert pad_structuren.exists()
+    with pad_structuren.open("wb") as fh:
+        pickle.dump([1, 2, 3], fh)  # laadt prima, maar `**[...]` is geen mapping
+
+    dataset, uitslag = laad_met_cache(VOORBEELD, [], cache_dir=tmp_path)
+
+    assert dataset.nodes
+    assert uitslag.bron == "bestand"
+    assert "cache" in uitslag.melding.lower()
+
+
+def test_een_niet_schrijfbare_cachemap_geeft_een_melding_geen_crash(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Deel b: een cachemap (mode 0o500) is vertrouwd -- geen groep-/wereldschrijf -- maar
+    niet schrijfbaar. Na een geslaagde lezing loopt de schrijfstap op een `PermissionError`;
+    die mag niet crashen maar een `logger.warning` en een `CacheUitslag.melding` geven.
+    """
+    if not MAG_RECHTEN_TOETSEN:
+        pytest.skip("root of niet-POSIX omzeilt de rechtenbits")
+    cache_dir = tmp_path / "cache"
+    cache_dir.mkdir(mode=0o500)  # eigen map, alleen lezen: vertrouwd maar niet schrijfbaar
+    try:
+        with caplog.at_level(logging.WARNING, logger=cache_module.__name__):
+            dataset, uitslag = laad_met_cache(VOORBEELD, [], cache_dir=cache_dir)
+
+        assert dataset.nodes
+        assert uitslag.bron == "bestand"
+        assert uitslag.melding, "een niet-schrijfbare cachemap hoort een melding te geven"
+        assert any("weggeschreven" in bericht for bericht in caplog.messages)
+        assert list(cache_dir.rglob("*.pickle")) == []
+    finally:
+        os.chmod(cache_dir, 0o700)  # zodat pytest de tmp_path weer kan opruimen
+
+
+def test_de_luie_graaf_crasht_niet_als_terugschrijven_faalt(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Deel b, graafkant: herstelt de luie graaf zich maar faalt het terugschrijven (een
+    volle schijf, een read-only mount), dan is dat een melding en geen crash.
+
+    Het terugschrijven wordt met een `OSError` doorgeprikt; zonder vangnet zou die kale
+    uit `_geladen` ontsnappen op het moment dat een check de graaf voor het eerst aanraakt.
+    """
+    map_ = tmp_path / "sleutel"
+    map_.mkdir(mode=0o700)
+    pad_graaf = map_ / BESTAND_GRAAF
+    pad_graaf.write_bytes(b"dit is geen pickle")  # onbruikbaar -> herstel + terugschrijven
+    hersteld = load_dataset(VOORBEELD, []).graph
+
+    def valende_schrijf(pad: Path, inhoud: object) -> None:
+        raise OSError("schijf vol")
+
+    monkeypatch.setattr(cache_module, "_schrijf_atomair", valende_schrijf)
+
+    luie = LuieGraaf(pad_graaf, lambda: hersteld)
+    with caplog.at_level(logging.WARNING, logger=cache_module.__name__):
+        assert len(luie) == len(hersteld)  # herstelt en crasht niet op de mislukte schrijf
+
+    assert any("weggeschreven" in bericht for bericht in caplog.messages)
+
+
+def test_een_ontbrekend_bestand_geeft_bestanderror_ook_met_cache_aan(tmp_path: Path) -> None:
+    """Deel c: met `gebruik_cache=True` liep de sleutelberekening (`_bestandshash`) op een
+    ontbrekend bestand vroeger op een rauwe `FileNotFoundError`. Nu is het -- net als op de
+    directe leesweg (`bestand._parse`) -- een `BestandError`, ongeacht `gebruik_cache`.
+    """
+    ontbreekt = tmp_path / "bestaat_niet.ttl"
+    with pytest.raises(BestandError, match="kan niet gelezen worden"):
+        laad_met_cache(ontbreekt, [], cache_dir=tmp_path, gebruik_cache=True)
+    # En dezelfde fout op de weg zonder cache, zodat het contract gelijk is.
+    with pytest.raises(BestandError, match="kan niet gelezen worden"):
+        laad_met_cache(ontbreekt, [], cache_dir=tmp_path, gebruik_cache=False)
+
+
+def test_source_op_een_treffer_is_het_gevraagde_pad(tmp_path: Path) -> None:
+    """Deel d: de sleutel hasht alleen de bestandsnaam, dus een gelijknamig, inhoudsgelijk
+    bestand uit een andere map treft dezelfde cache. `source` hoort dan het gevraagde pad te
+    zijn en niet dat van de eerste lezing, dat uit de pickle zou komen.
+    """
+    inhoud = VOORBEELD.read_bytes()
+    map_a = tmp_path / "projectA"
+    map_b = tmp_path / "projectB"
+    map_a.mkdir()
+    map_b.mkdir()
+    (map_a / "mini.ttl").write_bytes(inhoud)
+    (map_b / "mini.ttl").write_bytes(inhoud)
+    cache = tmp_path / "cache"
+
+    koud, eerste = laad_met_cache(map_a / "mini.ttl", [], cache_dir=cache)
+    warm, tweede = laad_met_cache(map_b / "mini.ttl", [], cache_dir=cache)
+
+    assert eerste.bron == "bestand"
+    assert tweede.bron == "cache", "gelijke naam en inhoud horen dezelfde cache te treffen"
+    assert eerste.sleutel == tweede.sleutel
+    assert koud.source == map_a / "mini.ttl"
+    assert warm.source == map_b / "mini.ttl"
+
+
+# --- De atomische schrijfweg (`_schrijf_atomair`) ------------------------------
+
+
+def test_schrijf_atomair_ruimt_het_tijdelijke_bestand_op_bij_een_afgebroken_schrijf(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """De opruim-tak van `_schrijf_atomair`: een afgebroken schrijf laat niets half achter.
+
+    `_schrijf_atomair` schrijft eerst naar een `mkstemp`-bestand en hernoemt dat pas
+    atomisch naar de doelnaam, zodat een lezer nooit een half geschreven bestand als
+    geldige cache ziet. Breekt het schrijven af -- hier een `KeyboardInterrupt` in de
+    `dump` van `_SnellePickler` (sinds issue #63 de pickler van de schrijfweg), precies de
+    "afgebroken schrijfactie" uit de docstring -- dan vangt de brede `except BaseException`
+    hem op, verwijdert het tijdelijke bestand en gooit de fout door. De `except` is bewust op
+    `BaseException` en niet op `Exception`: juist een Ctrl-C midden in de schrijf mag geen
+    half bestand achterlaten.
+    """
+    pad = tmp_path / BESTAND_GRAAF
+
+    def afgebroken_dump(self: object, obj: object) -> None:
+        raise KeyboardInterrupt("afgebroken tijdens het schrijven")
+
+    monkeypatch.setattr(cache_module._SnellePickler, "dump", afgebroken_dump)
+
+    with pytest.raises(KeyboardInterrupt):
+        cache_module._schrijf_atomair(pad, {"iets": 1})
+
+    assert not pad.exists(), "de atomische hernoeming mag niet gebeurd zijn"
+    assert list(tmp_path.glob("*.tijdelijk")) == [], "het tijdelijke bestand is opgeruimd"
+
+
+# --- Het snelpad in de schrijfweg (issue #63) ----------------------------------
+#
+# `_schrijf_atomair` pickelt de rdflib-termen via een `dispatch_table` die ze naar de snelle
+# constructors van `graaf` reduceert, in plaats van via de validerende `URIRef`/`Literal`-
+# constructors. pickle noemt die functies bij naam, dus het teruglezen kiest het snelpad
+# vanzelf. De picklevorm verandert daardoor; bestaande caches worden één keer herbouwd (de
+# `graaf.py`-hash in `LADERMODULES` plus de `LADER_VERSIE`-bump).
+
+
+def _kleine_index() -> GraafIndex:
+    """Een index met elke termvorm die de dispatch_table apart behandelt."""
+    index = GraafIndex()
+    s = URIRef("http://voorbeeld/s")
+    label = URIRef(RDFS + "label")
+    index.voeg_toe(s, TYPE, URIRef("http://voorbeeld/O"))  # URIRef-object
+    index.voeg_toe(BNode("b1"), label, Literal("kaal"))  # kale Literal + BNode-subject
+    index.voeg_toe(s, label, Literal("twee", lang="nl"))  # taal-literaal
+    index.voeg_toe(s, URIRef("http://voorbeeld/n"), Literal("42", datatype=XSD.integer))
+    return index
+
+
+def test_de_schrijfweg_pickelt_de_termen_via_de_snelpaden(tmp_path: Path) -> None:
+    """De pickle uit `_schrijf_atomair` refereert de snelpaden bij naam; teruglezen is graaf-gelijk.
+
+    Dat de reduce-functies de snelpaden noemen (en niet `URIRef`/`Literal`) is precies wat het
+    teruglezen langs `URIRef.__new__`/`Literal.__new__` weghaalt: pickle roept bij het laden de
+    genoemde functie aan. We tonen het aan de opcodes zelf (`pickletools` geeft elke globale naam
+    als stringargument terug) en bewijzen daarnaast dat het teruggelezen resultaat op elk punt
+    gelijk is aan het origineel.
+    """
+    import pickletools
+
+    index = _kleine_index()
+    pad = tmp_path / BESTAND_GRAAF
+    cache_module._schrijf_atomair(pad, index)
+
+    namen = {arg for _, arg, _ in pickletools.genops(pad.read_bytes()) if isinstance(arg, str)}
+    assert "_uriref_snel" in namen, "URIRef hoort via _uriref_snel gepickeld te zijn"
+    assert "_literal_string_snel" in namen, "de kale Literal hoort via _literal_string_snel te gaan"
+    assert "_literal_snel" in namen, "de taal-/getypeerde Literal hoort via _literal_snel te gaan"
+    assert "BNode" in namen, "de BNode hoort via de BNode-constructor terug te komen"
+    # Geen validerende constructors meer in de reduce-tupels.
+    assert "_uriref_snel" in namen and "URIRef" not in namen
+
+    with pad.open("rb") as bestand:
+        terug = pickle.load(bestand)
+
+    assert terug.gwsw_basis == index.gwsw_basis
+    assert len(terug) == len(index)
+    assert terug._spo == index._spo
+    assert terug._pos == index._pos
+    # De typen komen exact terug -- `==` op een dict zou een verkeerd termtype niet zien.
+    for (s_o, pp_o), (s_t, pp_t) in zip(index._spo.items(), terug._spo.items(), strict=True):
+        assert type(s_o) is type(s_t)
+        for (p_o, o_o), (p_t, o_t) in zip(pp_o.items(), pp_t.items(), strict=True):
+            assert type(p_o) is type(p_t)
+            assert type(o_o) is type(o_t)
+    # En de getypeerde literaal draagt na teruglezen nog datatype én de berekende waarde.
+    getal = terug._spo[URIRef("http://voorbeeld/s")][URIRef("http://voorbeeld/n")]
+    assert isinstance(getal, Literal)
+    assert getal.datatype == XSD.integer
+    assert getal.value == 42

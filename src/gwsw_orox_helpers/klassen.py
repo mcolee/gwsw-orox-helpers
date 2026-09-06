@@ -39,6 +39,12 @@ WORTELS_VOOR_HERKENNING = (WORTEL_KNOOPPUNT, WORTEL_VERBINDING)
 WORTEL_HULPSTUK = "Hulpstuk"
 WORTEL_HULPSTUKORIENTATIE = "Hulpstukorientatie"
 
+# De Putdeksel-klasse waarvan de lezing en de lader de afsluiting maken (issue #68). Een
+# korte klassenaam, net als de `WORTEL_*` hierboven; hij stond op `inlezen` en `laden` nog
+# als kale literal naast de plekken die hem gebruikten. Een hernoeming zou anders stil langs
+# beide literalen glippen -- de put verliest dan haar dekselniveau en valt terug op maaiveld.
+KLASSE_PUTDEKSEL = "Putdeksel"
+
 
 def _afsluiting(
     subclasses: dict[str, frozenset[str]], wortel: str, basis: str = GWSW
@@ -52,7 +58,7 @@ def _afsluiting(
     Bewust geen `subclasses.get(_uri(wortel), frozenset({_uri(wortel)}))`: die default
     is een gewoon argument en wordt dus ook opgebouwd op de treffer, met een tweede
     `_uri`-aanroep erbij. `GwswDataset.closure` vraagt deze functie via `is_a` ruim een
-    miljoen keer per nlriochecker-run (issue #12), en dan telt een wegwerp-frozenset per
+    miljoen keer per run (issue #12), en dan telt een wegwerp-frozenset per
     aanroep mee. Het antwoord is aan beide kanten hetzelfde als voorheen.
 
     `basis` (issue #32) is de gedetecteerde GWSW-basis waarin de sleutel wordt opgebouwd;

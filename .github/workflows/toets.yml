@@ -7,6 +7,13 @@ on:
   push:
     branches: [main, dev]
   pull_request:
+  # `workflow_call` maakt deze poort herbruikbaar: `release.yml` roept hem op de getagde
+  # commit aan, zodat een release door exact dezelfde vijf stappen (plus de zesde
+  # verpakkingsbewaker) gaat als élke push op `main`/`dev`. De `push`- en
+  # `pull_request`-triggers, de matrix en de jobnaam blijven ongewijzigd — de
+  # branchbeveiliging op `main` hangt aan de checknamen `poort (3.12)`, `poort (3.13)` en
+  # `poort (3.14)`, en die mogen niet verschuiven.
+  workflow_call:
 
 # Een nieuwe push op dezelfde ref maakt de lopende run overbodig: annuleer hem in plaats
 # van hem te laten uitdraaien.
@@ -18,13 +25,15 @@ jobs:
   poort:
     runs-on: ubuntu-latest
     strategy:
-      # Beide interpreters afmaken; een rode 3.13 mag de 3.12-uitslag niet wegnemen.
+      # Alle drie de interpreters afmaken; een rode 3.13 of 3.14 mag de 3.12-uitslag niet
+      # wegnemen.
       fail-fast: false
       matrix:
-        # `requires-python = ">=3.12"` wordt zo op de onder- én bovengrens getoetst in
-        # plaats van op een toevallige interpreter. Kost 2x de runtime van één leg;
-        # de cache en het annuleren van superseded runs hierboven betalen dat terug.
-        python-version: ["3.12", "3.13"]
+        # `requires-python = ">=3.12"` wordt zo op de ondergrens (3.12) én de bovengrens
+        # (3.14, de nieuwste gedragen interpreter) getoetst in plaats van op een toevallige
+        # interpreter. Kost 3x de runtime van één leg; de cache en het annuleren van
+        # superseded runs hierboven betalen dat terug.
+        python-version: ["3.12", "3.13", "3.14"]
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v5
@@ -41,3 +50,10 @@ jobs:
       # pytest-cov komt uit de gelockte dev-groep, niet meer ongepind van PyPI via
       # `--with`; uv synct de dev-groep standaard mee.
       - run: uv run pytest -q --cov=gwsw_orox_helpers --cov-fail-under=95
+      # Zesde stap, ná de vijf poortstappen: bouw wheel én sdist en laat er twee
+      # verpakkingsbewakers overheen. `twine check` toetst de metadata en
+      # `check-wheel-contents` de wheel-inhoud; samen borgen ze dat een release geen
+      # agent-tooling of lokale paden meeneemt (issue #44). `uvx` haalt de twee tools los
+      # van de gelockte set. De vijf stappen hierboven blijven de poort; dit is een bewaker
+      # ernaast.
+      - run: uv build && uvx twine check dist/* && uvx check-wheel-contents dist/*.whl

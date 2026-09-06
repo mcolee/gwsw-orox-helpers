@@ -9,6 +9,7 @@ in de docstring van `gwsw_orox_helpers.clip`.
 from __future__ import annotations
 
 import itertools
+from array import array
 from collections.abc import Iterable, Iterator
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -17,11 +18,10 @@ import pyoxigraph
 
 from gwsw_orox_helpers.clip.grenzen import _Vlak
 from gwsw_orox_helpers.clip.knip import _plaats, _Stuk
-from gwsw_orox_helpers.clip.termen import _KNIPSTAART, _Kniptermen
+from gwsw_orox_helpers.clip.termen import _KNIPSTAART, KNIP, _Kniptermen
 from gwsw_orox_helpers.errors import KnipError
 from gwsw_orox_helpers.geometry import is_multipart_literal
 from gwsw_orox_helpers.namen import GML_LITERAL
-from gwsw_orox_helpers.schrijven import lees_orox
 
 # De predicaten die een houder aan een onderdeel binden staan sinds issue #32 niet meer als
 # vaste 1.6-constanten hier maar in `_Kniptermen`, dat `clip_orox` uit de bron afleidt: op
@@ -43,8 +43,16 @@ class _Plan:
     # Blok-sleutel van een houder van een geknipte geometrie -> bitmasker; draagt `knip:geknipt`.
     geknipte_houders: dict[str, int] = field(default_factory=dict)
     # Het bitmasker per term, platgeslagen: `toewijzing` na `blok`. `_maak_plan` vult hem
-    # met `bouw_maskers` als laatste stap; de schrijfronde leest hem alleen.
+    # met `bouw_maskers` als laatste stap; `_bouw_positietabel` leidt er de positietabel uit
+    # af, en de test `test_maak_plan_zet...` leest hem terug.
     maskers: dict[str, int] = field(default_factory=dict)
+    # De positietabel (issue #64): per stroompositie het effectieve masker -- welke vlakken
+    # deze quad in gaat, ná de `blok`-afleiding én ná de rand-predicaat-overslag van
+    # `stroom._deelstroom` -- plus een vlag "herschrijven" (blanke knoop of geknipte
+    # geometrieknoop). `_maak_plan` slaat hem als laatste stap plat; de schrijfronde leest
+    # hem in plaats van hem per pass te herberekenen. Leeg tot `_bouw_positietabel` hem vult.
+    posmasker: array[int] = field(default_factory=lambda: array("B"))
+    herschrijf: bytearray = field(default_factory=bytearray)
 
     def blok(self, sleutel: str) -> str:
         """Het blok waar deze term in valt: hijzelf, of het blok van zijn blanke knoop."""
@@ -53,9 +61,9 @@ class _Plan:
     def bouw_maskers(self) -> None:
         """Slaat `toewijzing` en `eigenaar` plat tot een tabel per term.
 
-        De schrijfronde stelt die vraag per quad -- op de export van De Wolden en
-        Hoogeveen ruim vier miljoen keer per deel -- en per term langs `blok` lopen
-        kost er twee opzoekingen in plaats van een. Platgeslagen is het er een.
+        Dit is de basis waaruit `_bouw_positietabel` (issue #64) het effectieve masker per
+        stroompositie afleidt: per term langs `blok` lopen kost twee opzoekingen in plaats
+        van een, en platgeslagen is het er een.
 
         `_maak_plan` bouwt de tabel als laatste stap, wanneer `toewijzing` en `eigenaar`
         niet meer veranderen. Dat is bewust geen luie vulling bij de eerste vraag: die zou
@@ -82,8 +90,10 @@ def _genummerd(
     sleutel; als object levert dat `None`, als subject kan het niet voorkomen.
 
     De twee takken staan bewust twee keer uitgeschreven in plaats van in een hulpfunctie
-    per term: deze lus draait per quad van de bron en de bron gaat er N+1 keer doorheen,
-    dus een aanroep per term is er op de export van De Wolden en Hoogeveen elf miljoen.
+    per term: deze lus draait per quad van de bron. Sinds issue #64 loopt hij nog maar één
+    keer -- in `_maak_plan`, dat de per-quad-kennis platslaat tot de positietabel -- in
+    plaats van in elke schrijfpass opnieuw; de schrijfronde leest die tabel en nummert met
+    `stroom._nummer` alleen nog de blanke knopen van de quads die herschreven worden.
     """
     namen: dict[str, str] = {}
     teller = itertools.count()
@@ -115,10 +125,38 @@ def _genummerd(
         yield quad, onderwerp, voorwerp
 
 
+def _nummer(quad: pyoxigraph.Quad, namen: dict[str, str], teller: Iterator[int]) -> None:
+    """Kent de blanke knopen in `quad` hun stroomvolgorde-naam `_:b<n>` toe.
+
+    Dezelfde nummering als `_genummerd` (subject vóór object, op eerste ontmoeting), maar per
+    quad en zonder de sleutels terug te geven: `stroom._deelstroom` roept hem alleen aan voor
+    de quads die de positietabel als "herschrijven" merkt, en dat zijn de enige die een
+    blanke knoop kunnen dragen. Zo krijgt elke blanke knoop bij elke lezing van de bron
+    dezelfde naam en delen de N geschreven delen dezelfde brug -- zonder dat de schrijfronde
+    nog per quad hoeft te nummeren.
+    """
+    subject = quad.subject
+    if isinstance(subject, pyoxigraph.BlankNode) and subject.value not in namen:
+        namen[subject.value] = f"_:b{next(teller)}"
+    object_ = quad.object
+    if isinstance(object_, pyoxigraph.BlankNode) and object_.value not in namen:
+        namen[object_.value] = f"_:b{next(teller)}"
+
+
 def _maak_plan(
-    bron: Path, vlakken: tuple[_Vlak, ...], fallback_encoding: str | None, termen: _Kniptermen
+    bron: Path,
+    quads: Iterable[pyoxigraph.Quad],
+    vlakken: tuple[_Vlak, ...],
+    termen: _Kniptermen,
 ) -> _Plan:
-    """Leest de bron een keer en bepaalt per blok naar welke vlakken het gaat."""
+    """Loopt de al geopende bronstroom één keer af en bepaalt per blok naar welke vlakken het gaat.
+
+    `quads` is de stroom die `clip_orox` al opende voor de basisdetectie, met de daar
+    verbruikte kop ervoor geketend (issue #61): `_maak_plan` opent de bron niet zelf, zodat
+    de basisdetectie en het plan samen één opening delen. `bron` is er nog alleen voor de
+    foutmeldingen. Wie hem los aanroept, geeft dus `lees_orox(bron, ...).quads` mee (met de
+    kop ervoor als de basisdetectie al liep).
+    """
     plan = _Plan(namen=tuple(vlak.naam for vlak in vlakken))
     ouder_van: dict[str, str] = {}
     randen: list[tuple[str, str]] = []
@@ -127,25 +165,57 @@ def _maak_plan(
     subjecten: set[str] = set()
     houder_naar_onderdeel = termen.houder_naar_onderdeel
     onderdeel_naar_houder = termen.onderdeel_naar_houder
+    randpredicaten = termen.randpredicaten
 
-    for quad, onderwerp, voorwerp in _genummerd(lees_orox(bron, fallback_encoding).quads):
+    # De per-positie-kennis voor de positietabel (issue #64): elke term-sleutel krijgt een
+    # int-id (interning), en per stroompositie bewaren we het subject-id, het object-id (-1
+    # voor een literaal) en of de quad een randpredicaat met een voorwerp draagt. `array('i')`
+    # is ~4 B per kolom en dus ~8-9 B per positie, geen quads; ná `bouw_maskers` slaat
+    # `_bouw_positietabel` dat plat tot één masker-byte plus een herschrijf-vlag per positie
+    # en worden deze int-tabellen losgelaten.
+    sleutel_id: dict[str, int] = {}
+    sleutels: list[str] = []
+    subj_ids = array("i")
+    obj_ids = array("i")
+    randpred = bytearray()
+
+    def _id(sleutel: str) -> int:
+        gevonden = sleutel_id.get(sleutel)
+        if gevonden is None:
+            gevonden = sleutel_id[sleutel] = len(sleutels)
+            sleutels.append(sleutel)
+        return gevonden
+
+    for quad, onderwerp, voorwerp in _genummerd(quads):
         subjecten.add(onderwerp)
+        subj_ids.append(_id(onderwerp))
         if voorwerp is not None and voorwerp.startswith("_:"):
             ouder_van.setdefault(voorwerp, onderwerp)
         predicaat = quad.predicate.value
+        if predicaat.startswith(KNIP):
+            raise KnipError(
+                f"{bron}: het predicaat {predicaat!r} zit in de knip-naamruimte die de clip "
+                f"zelf voor de knipmerken gebruikt; zo'n bron is na de hereniging niet van een "
+                f"geknipte te onderscheiden."
+            )
         if voorwerp is not None:
+            obj_ids.append(_id(voorwerp))
+            randpred.append(1 if predicaat in randpredicaten else 0)
             if predicaat in houder_naar_onderdeel:
                 randen.append((onderwerp, voorwerp))
             elif predicaat in onderdeel_naar_houder:
                 randen.append((voorwerp, onderwerp))
             elif predicaat == termen.has_connection:
                 verbindingen.append((onderwerp, voorwerp))
-        elif (
-            predicaat == termen.has_value
-            and isinstance(quad.object, pyoxigraph.Literal)
-            and quad.object.datatype.value == GML_LITERAL
-        ):
-            literalen.setdefault(onderwerp, []).append(quad.object.value)
+        else:
+            obj_ids.append(-1)
+            randpred.append(0)
+            if (
+                predicaat == termen.has_value
+                and isinstance(quad.object, pyoxigraph.Literal)
+                and quad.object.datatype.value == GML_LITERAL
+            ):
+                literalen.setdefault(onderwerp, []).append(quad.object.value)
 
     for naam in subjecten:
         if "__knip" in naam and _KNIPSTAART.search(naam):
@@ -164,7 +234,52 @@ def _maak_plan(
     _omhoog(plan, ouders)
     _merk_houders(plan, randen)
     plan.bouw_maskers()
+    _bouw_positietabel(plan, sleutels, subj_ids, obj_ids, randpred)
     return plan
+
+
+def _bouw_positietabel(
+    plan: _Plan,
+    sleutels: list[str],
+    subj_ids: array[int],
+    obj_ids: array[int],
+    randpred: bytearray,
+) -> None:
+    """Slaat de per-positie-kennis van de analyseronde plat tot de positietabel (issue #64).
+
+    Per stroompositie wordt één byte bewaard: het effectieve masker -- het masker van het
+    subject, en voor een randpredicaat-quad versmald met het masker van het voorwerp, precies
+    zoals `stroom._deelstroom` het vroeger per quad opnieuw uitrekende. Daarnaast een
+    herschrijf-vlag: aan zodra een van beide einden een blanke knoop of een geknipte
+    geometrieknoop (`plan.stukken`) is, anders uit. De maskers en de vlag per *term* worden
+    één keer opgezocht (`mask_per_id`, `herschrijf_per_id`) en dan per positie geïndexeerd,
+    zodat het platslaan over de posities niets meer opzoekt.
+
+    De masker-byte volstaat voor de reële grenslagen (N ≤ 8); een grenslaag met meer vlakken
+    laat de tabel meegroeien naar een breder type, zodat het masker blijft passen.
+    """
+    maskers = plan.maskers
+    stukken = plan.stukken
+    mask_per_id = [maskers.get(sleutel, 0) for sleutel in sleutels]
+    herschrijf_per_id = [sleutel.startswith("_:") or sleutel in stukken for sleutel in sleutels]
+
+    posmasker = array("B" if len(plan.namen) <= 8 else "L")
+    herschrijf = bytearray(len(subj_ids))
+    for positie in range(len(subj_ids)):
+        onder = subj_ids[positie]
+        masker = mask_per_id[onder]
+        herschrijven = herschrijf_per_id[onder]
+        voor = obj_ids[positie]
+        if voor != -1:
+            if randpred[positie] and mask_per_id[voor]:
+                masker &= mask_per_id[voor]
+            if herschrijf_per_id[voor]:
+                herschrijven = True
+        posmasker.append(masker)
+        if herschrijven:
+            herschrijf[positie] = 1
+    plan.posmasker = posmasker
+    plan.herschrijf = herschrijf
 
 
 def _eigenaren(ouder_van: dict[str, str]) -> dict[str, str]:

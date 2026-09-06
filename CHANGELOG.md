@@ -2,6 +2,570 @@
 
 ## [Unreleased]
 
+## [0.2.4] - 2026-09-06
+_Versie 0.2.3 is nooit gepubliceerd: de tag `v0.2.3` (05-09-2026) wees naar een commit waarvan
+de release-workflow op de laatste stap (`gh release create` zonder checkout) omviel; de fix zit
+in deze versie. Alles hieronder is de inhoud van die bedoelde 0.2.3, plus issue #70._
+- Twee koude-pad-restposten op `load_dataset` (issue #70, performance; **additief** — geen
+  signatuur-, retourvorm- of gedragswijziging; `structural_diff`, het verslag en de gekozen
+  ontologie blijven byte-gelijk). **(a)** `inlezen._read_nodes`/`_read_conduits` geven de
+  bezochte houder-URI's mee terug en `inlezen._structural_diff_uit` hergebruikt die (bij
+  klassenkennis de ontologische, anders de structurele houders) in plaats van dezelfde
+  orientaties een tweede keer te lopen; de bestaande `_structural_diff` blijft (gedeelde helper
+  `_verschillen`). **(b)** Per gebundelde versie reist een gepickelde `GraafIndex` mee naast de
+  vocabulaire-index (`gwsw-graafindex-16/17.pickle` + `.sha256`), geschreven door
+  `scripts/maak_gwsw_index.py`; `laden._stapel_ontologie` depickelt hem in plaats van de
+  63.614-tripel-bundel te parsen, maar **alleen** achter een hash-poort (`_gebundelde_graafindex`
+  / `_graafindex_hash`) op bundel-TTL + `graaf.py` + rdflib-versie — anders de gewone parse.
+  `bronnen` levert de pickle- en sidecar-paden per versie (`gebundelde_graafindex_pad_voor`,
+  `versie_van_gebundelde_ontologie`) en blijft een leaf. Drifttest `test_graafindex_pickle_volgt_
+  ttl_en_graaf` bindt het gecommitte sidecar aan TTL/`graaf.py`/rdflib; de packaging neemt de
+  pickle in de wheel mee. De cachesleutel verandert niet als ingang (de pickle is van de TTL
+  afgeleid en hash-gepoort, en die TTL + `graaf`/`laden`-bron + rdflib zitten al in de sleutel).
+  Meting (gepaard, vers proces, export De Wolden/Hoogeveen): end-to-end `load_dataset` ~18 s
+  wint per deelstap ~0,1–0,2 s bij 0,5–0,9 s run-tot-run-ruis en is daarmee níét eenduidig
+  (5/5 paren gunstig voor (b), gemiddeld +0,21 s); de subfase `_stapel_ontologie` is wél
+  eenduidig ≈ −0,39 s. De auteur accepteerde de deelstappen op 06-09-2026 op die
+  subfase-meting, buiten het strikte end-to-end-protocol om.
+- Acht versie-juiste graafvraag-methoden op `GwswDataset` naast de #51-str-laag, plus
+  `namen.korte_naam` (issue #72; **additief** — nieuwe methoden en een nieuwe publieke functie,
+  geen bestaande signatuur, retourvorm of gedrag wijzigt). `houders`/`dragers` (hasPart- resp.
+  hasAspect-houders als `list[str]`), `kenmerkinstanties(kenmerk) -> Iterator[(uri, hasValue,
+  hasReference)]`, `knopen_van(*wortels) -> list[Node]` / `strengen_van(*wortels) -> list[Conduit]`
+  (ontdubbeld, in de `of_class`-volgorde), `knopen_van_streng(conduit, roots)` (het begin/eind-paar
+  via `resolve_network_node`), `valt_onder(types, wortels)` (de korte naam van het meest-specifieke
+  type — dezelfde rangorde als `beheerobjecttype`, **niet** het alfabet van de gekopieerde
+  `_soortnaam`) en `typen_kort(uri)` (de korte namen van `graph_types_of`). Alle lezen via de
+  gedetecteerde basis (`self.termen`/de privé-lezers), dus op een 1.7-export niet-nul waar het
+  1.6-constanten-idioom stil nul leest. `namen.korte_naam` is de publieke, versie-onafhankelijke
+  terugweg naast `klasse_iri`; `namen._short` blijft als privé-alias hetzelfde object. De
+  rdflib-typed namen en de 1.6-constanten blijven byte-voor-byte staan; `docs/afnemers.md` draagt
+  nu een aanbevolen kern met die namen als "te vermijden — gebruik de versie-juiste str-laag".
+- `CacheUitslag` krijgt het additieve veld `graaf_seconden: float | None = None` (issue #71;
+  **additief** — nieuw veld met default, ná de bestaande vier, dus elke bestaande constructie en
+  positionele lezing blijft werken; precedent `bereikcontrole`, #28). Het draagt op een cachetreffer
+  de wandkloktijd van de eerste graafaanraking (de luie graafpickle van schijf), en `None` zolang
+  die niet gebeurd is of het geen luie graaf was (op een misser is de graaf gretig geladen binnen
+  `seconden`); zo wordt de graaflaadtijd — de winst van rang 1 (#59) — meetbaar via de publieke API.
+  Daarnaast bijgestelde beloften (docs/docstrings, geen runtime-wijziging): de graaf komt in de
+  praktijk elke standaardrun aan de beurt maar pas bij de eerste check die hem raakt; de lui-belofte
+  van de schrijfweg is scherper geformuleerd (de bron komt nooit in het geheugen, het plan draagt een
+  positietabel van O(1) byte per quad); `docs/architectuur.md` legt vast dat `pyoxigraph.Store` geen
+  derde pad is en dat parallellisme en de Rust-routes gemeten en bewust niet gedaan zijn; de
+  fork-bnode-valkuil staat in de `rdfmotor`-docstring. `scripts/benchmark.py --profiel-map` schrijft
+  naast het cProfile-bestand een kale fasetabel. Drifttest: `"24.20"^^xsd:decimal` komt byte-gelijk
+  door `schrijf_orox`.
+- Opruiming in de cache- en bestandslaag (issue #69; **additief** — alle namen privé, geen
+  signatuur, retourvorm of gedrag op de cachetreffer/-misser wijzigt). (a) `cache._herlees_graaf`
+  (de herstelweg van een beschadigde luie graafpickle) leest alleen nog de datasetgraaf via
+  `bestand._parse` binnen `_gc_uit` in plaats van de hele `load_dataset` te draaien: de graaf is
+  object-identiek aan `bestand._parse(...)[0]` (de ontologie raakt alleen de restrictiebron, de
+  lezers muteren de graaf niet), dus de ontologieparse, klassenafleiding, objectopbouw en
+  structurendiff waren op dit zeldzame pad dood werk; `ontology_paths` verviel uit de handtekening.
+  (b) `LuieGraaf._geladen` heeft nog één herstelpad (één `reden`, één warning, één herstel +
+  terugschrijven) in plaats van twee identieke blokken voor de rechtencheck en de laadfout.
+  (c) De sleutelkant (`cache._dataset_basis_uit_kop`) neemt nu de **láátste** `gwsw:`-declaratie
+  in het 8 KB-venster, net als de lader (`bestand._parse` via `parser.prefixes`); een bron die
+  `gwsw:` herdeclareert (eerst 1.6, dan 1.7) kreeg zo sleutel en lezing op dezelfde basis, waar de
+  sleutel eerder de 1.6-bundel hashte terwijl de lader 1.7 las. De gerichte-bundel-hash van #52
+  blijft staan.
+- **Harde regel: geen PyPI-interactie.** Publiceren gebeurt uitsluitend als GitHub-Release met
+  de wheel en de sdist als assets. `.github/workflows/release.yml` verloor daarom zijn
+  TestPyPI- en PyPI-jobs (trusted publishing, `id-token: write`, de environments); de keten is
+  nu poort → controle → github-release. `CLAUDE.md` draagt de regel onder Harde regels
+  (besluit van de auteur, 05-09-2026). Geen wijziging aan de package zelf.
+- `ontologie` leest zijn GWSW-properties via `namen.termen_voor` en drie klassenamen-literalen
+  worden constanten (issue #68, architectuur; **additief** — geen signatuur, retourvorm of
+  gedrag wijzigt, dezelfde IRI-strings dus dezelfde treffers). `namen.Termen` krijgt achteraan
+  en met een default de velden `functie` (`gwsw:functie`) en `dt_voorvoegsel` (`gwsw:Dt_`), die
+  `termen_voor` uit de basis vult; `ontologie.datatype_van_kenmerk`/`verwachte_property`/
+  `functie_van_klasse` bouwen hun `URIRef`-en nu uit `termen_voor(basis)` in plaats van
+  `hasValue`/`hasReference`/`functie`/`Dt_` zelf naast `namen` te spellen. `klassen` krijgt de
+  constante `KLASSE_PUTDEKSEL` naast `WORTEL_*`; `inlezen` en `laden` gebruiken die plus
+  `WORTEL_KNOOPPUNT`/`WORTEL_VERBINDING` waar eerder de kale literals `"Putdeksel"`/`"Knooppunt"`/
+  `"Verbinding"` stonden, en `model.is_connection_class` gebruikt `WORTEL_VERBINDING`. `Leestermen`
+  (de `URIRef`-leestermenset van de leeslaag) groeit niet mee: `functie`/`Dt_` zijn een
+  ontologie-restrictiebegrip dat alleen `ontologie` via `termen_voor` nodig heeft. Geen nieuwe
+  importrand (`inlezen`/`laden` importeren `klassen` al, `ontologie` importeert `namen` al); een
+  grep-bewaker in `test_de_namensnit_ligt_vast` sluit een tweede property-spelling buiten `namen`
+  voortaan uit.
+- `dataset.py` (~1081 regels) is hersneden in drie modules en werd zelf een re-exportgezicht
+  (issue #67, wijzigingsmoeite; **additief** — geen signatuur, retourvorm of gedrag wijzigt).
+  Het domeinmodel (`GwswDataset`, `GwswVersie`) staat nu in `model`, de lader-orkestratie
+  (`load_dataset`, `lees_ontologie`, `ontologiepaden`, `_gebundelde_paden_voor_basis`,
+  `_stapel_ontologie`) in `laden`, en `markeer_vulwaarden` in `vulwaarden`. `dataset` bevat
+  nog slechts imports + `__all__`: elke naam in `dataset.__all__` is het identieke object
+  (`is`) als in zijn nieuwe module (`dataset.load_dataset is laden.load_dataset`,
+  `dataset.GwswDataset is model.GwswDataset`, enz.), dus het bevroren oppervlak dat
+  nlriochecker importeert verandert niet. Importrichting: `model` weet van de lader niets,
+  `laden` importeert `model`, `vulwaarden` importeert `model`, `dataset` importeert alle
+  drie. **De cachesleutel verandert één keer**: de drie nieuwe modules staan nu in
+  `cache.LADERMODULES`, zodat een wijziging aan het model, de lader of de vulwaarden de
+  cache invalideert; bestaande caches worden daardoor één keer opnieuw opgebouwd (bedoelde
+  mechaniek, geen gedragswijziging). De list-memo-vorm van `gwsw_versie`/`termen` blijft
+  staan (geen `functools.cached_property`): de publieke leesweg is als `property` gepind
+  (`isinstance(..., property)` in `tests/test_publieke_api.py`) en een `cached_property` is
+  geen `property`. Eén nuance: de waarschuwingen van `load_dataset` (terugvalcodering,
+  niet-1.6-versie) loggen nu onder de loggernaam `gwsw_orox_helpers.laden` in plaats van
+  `gwsw_orox_helpers.dataset`, omdat de logger de module volgt; een afnemer die op de
+  package-logger of de root filtert merkt daar niets van.
+- De terugval- en BOM-tak van de schrijfweg streamt in plaats van de hele bron als `str` in
+  het geheugen te zetten (issue #66, performance; **additief** — geen signatuur-, retourvorm-
+  of gedragswijziging van de publieke `lees_orox`/`schrijf_orox`/`schrijf_orox_quads`/
+  `ontleed_turtle`/`ontleed_turtle_bestand`; de uitvoer is byte-gelijk). `rdfmotor` krijgt een
+  **derde ontleedingang** `ontleed_turtle_stroom(io)`, die een binaire file-like als `input=`
+  aan pyoxigraph geeft (naast `path=` en de bytes/str-ingang); `codering.hercodeerstroom` levert
+  die file-like: hij leest de bron blokgewijs, decodeert incrementeel met **dezelfde regel als
+  `codering.decodeer`** (UTF-8 via `utf-8-sig` eerst, anders de terugval) en encodeert per blok
+  naar UTF-8. De coderingskeuze weegt de héle bron blokgewijs (`_zuiver_utf8`), zodat een bron
+  die pas ná het eerste blok een niet-UTF-8-byte draagt niet half als UTF-8 en half als terugval
+  gelezen wordt; de foutmeldingen (`CoderingError` bij geen/onleesbare terugval) komen letterlijk
+  van `decodeer`. `schrijven.lees_orox` gaat op de terugval- en BOM-tak nu langs deze stroom in
+  plaats van `read_bytes` + volledige decode; `schrijf_orox` én `clip_orox` profiteren, want
+  beide lezen hierlangs. Gemeten op de cp850-export van De Wolden en Hoogeveen (112 MB, gepaard
+  n=4, om en om, referentie = HEAD 1611e3b in een worktree, vers proces per run, piek = ru_maxrss
+  van het hele proces): `schrijf_orox`-piek **371 → 55 MiB** (eenduidig — traagste-hoogste
+  experiment 55 MiB onder de laagste referentie 371 MiB), tijd 7,02–7,06 → 6,93–7,03 s (niet
+  hoger, eenduidig gelijk); `clip_orox`-piek **788 → 697 MiB** (−12 %, eenduidig — 697 onder 788),
+  tijd 33,6–39,7 → 32,5–38,7 s (traagste experiment 38,7 s onder de traagste referentie 39,7 s,
+  niet meetbaar hoger). sha256 van elke uitvoer gelijk over alle runs (referentie en experiment
+  byte-identiek, ook per clipdeel). De per-passage-winst bevestigt de voorspelling (347 → 31 MiB
+  operatie-footprint); de end-to-end clip-piek daalt eenduidig maar met −12 % minder dan het
+  vermoeden (−20 tot −30 %), want de clip-piek wordt gezet door de analyseronde (het plan met de
+  positietabel), niet door één losse lezing.
+- De tweede ronde van `merge_orox` leest een positietabel uit de scanronde in plaats van de
+  per-quad-kennis opnieuw te herleiden (issue #65, performance; **additief** — geen signatuur-,
+  retourvorm- of gedragswijziging van de publieke `merge_orox`/`clip_orox`/`schrijf_orox_quads`;
+  de merge-uitvoer is byte-gelijk). Net als de schrijfronde van de clip sinds issue #64 slaat de
+  eerste ronde (`clip.merge._scan_delen`) tijdens haar ene lezing per deel een **positietabel**
+  plat (`_bouw_posities`): per stroompositie één byte — `0` doorgeven, `1` knipmerk overslaan,
+  `2` herschrijven-ontdubbelen. `_samengevoegd` leest die tabel per positie en doet alleen op
+  byte `2` nog de herkomst-substitutie, ontdubbeling en het aaneen naaien van de stukken; een
+  byte `0`-quad — verreweg de meeste — gaat als de bron-`Quad` ongewijzigd naar de serializer
+  (byte-gelijk aan de gelijke `Triple`, want Turtle kent geen benoemde grafen). Zo levert de
+  ronde een gemengde Quad/Triple-stroom; `merge_orox` cast de mix, net als `clip_orox`. Twee
+  snitten samen: **(9a)** de positietabel, en **(9c)** het GML-sjabloon wordt in de scanronde
+  alleen nog voor een stukknoop (`__knip` in de sleutel) bewaard — `_verwerk_merken` en
+  `_hersteld` lezen de sjabloon alleen voor stukknopen en hun herkomsten, dus de sjabloon van
+  een gewoon geometrie-subject was dood. De tabel is O(1) byte per quad per deel (`array('B')`);
+  tijdens de scan dragen twee transiënte `array('i')` (subject- en object-id per positie) die ná
+  het platslaan losgelaten worden. Gemeten op de cp850-export van De Wolden en Hoogeveen (112 MB,
+  gepaard n=4, om en om, referentie = HEAD-code 58b57aa in een worktree, vers proces per run):
+  `merge_orox` end-to-end op de twee delen 18,25–19,87 s → 15,58–16,66 s (mediaan ~18,9 → ~15,7 s,
+  eenduidig — traagste experiment 16,66 s onder snelste referentie 18,25 s, elk paar in dezelfde
+  richting), circa −15 %. sha256 van de merge-uitvoer gelijk over alle acht runs (referentie en
+  experiment byte-identiek). cProfile bevestigt de snit: `_gml_waarde` **358.665 → 62** aanroepen
+  (alleen de stukknopen), `_samengevoegd` tottime 7,46 → 1,07 s; de interning en de arrayopbouw
+  verhuizen naar de scanronde (`_scan_delen` tottime 4,66 → 7,64 s, plus `_bouw_posities` 0,35 s),
+  wat het theoretische plafond uit het issue (−26 %) tot de gemeten −15 % tempert. **Geen
+  parallellisme** (de fork van de scanronde, destijds "9b", is door de auteur afgewezen).
+  Kanttekening bij het meetprotocol: `merge(clip(bron))` is **niet** byte-gelijk aan het ruwe
+  bronbestand (de merge-uitvoer `55880721…` tegen de bron `afd1c989…`, óók op HEAD) — de
+  cliplaag regenereert Turtle via pyoxigraph in UTF-8 en compacter dan de cp850-BrutIS-export;
+  de gelijkheid is graaf-gelijkheid (bewaakt door de ordeloze vingerafdruk in de `zwaar`-test),
+  niet byte-gelijkheid tegen de ruwe bron.
+- De naad tussen de analyse- en de schrijfronde van `clip_orox` is een positietabel (issue
+  #64, performance; **additief** — geen signatuur-, retourvorm- of gedragswijziging van de
+  publieke `clip_orox`/`merge_orox`/`schrijf_orox_quads`; de geschreven delen zijn byte-gelijk).
+  De analyseronde (`clip.plan._maak_plan`) slaat tijdens haar ene lezing de per-quad-kennis plat
+  tot een tabel per stroompositie: één masker-byte (het effectieve masker ná `blok` én ná de
+  rand-predicaat-overslag) plus een herschrijf-vlag (blanke knoop of geknipte geometrieknoop).
+  Elke schrijfpass (`clip.stroom._deelstroom`) leest die tabel in plaats van hem per quad te
+  herberekenen: staat de vlag uit, dan gaat de bron-`Quad` ongewijzigd naar de serializer (geen
+  nieuwe `Triple`, geen nummering, geen `_genummerd`). Zo levert de fase een gemengde
+  Quad/Triple-stroom, die pyoxigraph in Turtle byte-gelijk wegschrijft (een default-graaf-`Quad`
+  is de gelijke `Triple`; `schrijf_orox_quads` aanvaardt de mix, de docstring vermeldt dat nu).
+  De tabel is O(1) byte per quad (`array`), nooit de bron; op een bron zonder blanke knopen staat
+  de vlag bijna overal uit. Gemeten op de cp850-export van De Wolden en Hoogeveen (112 MB, gepaard
+  en om en om, referentie = HEAD-code 91e561b, vers proces per run): één schrijfpass op deel 0
+  (1.190.591 triples) 10,47–10,88 s → 5,84–5,88 s (n=4, −45%); `clip_orox` end-to-end (twee
+  delen) 39,0–69,4 s → 33,2–33,4 s (n=3, eenduidig; de referentie liep onder een gelijktijdige
+  meting uit een andere sessie); de hermeting van de reviewer op een rustige machine gaf
+  39,1–57,2 s → 33,4–47,4 s (−12 tot −17%, elk paar in dezelfde richting); sha256 van beide delen
+  gelijk. Bijvangst: de analyseronde draagt tijdelijk twee `array('i')` van samen ~15 MB
+  (subject- en object-id per positie) die ná het platslaan losgelaten worden.
+- De cache pickelt de rdflib-termen via een snelpad (issue #63, performance; **additief** —
+  geen signatuur-, retourvorm- of gedragswijziging; `_schrijf_atomair`, `CacheUitslag`,
+  `LuieGraaf` en `laad_met_cache` houden hun vorm, het teruggelezen resultaat is graaf- en
+  byte-gelijk). `_schrijf_atomair` schrijft de pickle nu met een `pickle.Pickler`-subklasse
+  (`_SnellePickler`) met een `dispatch_table`: `URIRef → _uriref_snel`, `BNode → BNode`,
+  kale `Literal → _literal_string_snel`, taal-/getypeerde `Literal → _literal_snel` (nieuw in
+  `graaf`). Zo reconstrueert `pickle.load` de ~1,88 M termen via de snelle constructors in
+  plaats van via `URIRef.__new__`/`Literal.__new__` met hun validatie (pyoxigraph heeft de
+  termen bij het inlezen al gecontroleerd). **Formaatwijziging: bestaande caches worden één
+  keer herbouwd** — `LADER_VERSIE` gaat van `"2"` naar `"3"` (`cache.py` staat niet in
+  `LADERMODULES`, dus de bump is de knop die de sleutel verzet); de eerstvolgende run leest
+  opnieuw in en is daarna weer een treffer.
+- `GraafIndex` draagt een hybride binnenvorm (issue #62, performance; **additief** — geen
+  signatuur-, retourvorm- of gedragswijziging; het leescontract, de volgorde- en de
+  dedupe-garantie blijven byte-voor-byte gelijk, `GraafIndex()` blijft parameterloos). De
+  twee indexen droegen elke `(s, p)`-cel als een dict en elke `(p, o)`-cel als een lijst,
+  terwijl het gros precies één element vasthield — op de De Wolden en Hoogeveen-export heeft
+  94% van de `(s, p)`-paren één object en 91% van de `(p, o)`-paren één subject, elk een
+  container van 64–224 B om één verwijzing. Nu staat een enkel object/subject **kaal** en
+  wordt het pas bij het tweede een insertie-geordende dict resp. een lijst; de lezers
+  onderscheiden de twee vormen met `type(x) is dict` / `type(x) is list` (een rdflib-term is
+  nooit een dict of een lijst). Zowel `vul_uit`, `voeg_toe` als alle lezers
+  (`objects`/`subjects`/`value`/`subject_objects`/`__contains__`) doen mee. **De picklevorm
+  van `_spo`/`_pos` verandert** hierdoor; dat is bedoelde mechaniek: `cachesleutel` hasht
+  `graaf.py` via `LADERMODULES`, dus bestaande caches worden één keer opnieuw opgebouwd en
+  zijn daarna weer een treffer — géén `LADER_VERSIE`-bump nodig. Gemeten op de cp850-export
+  van De Wolden en Hoogeveen (112 MB, gepaard n=3, referentie = HEAD-code 9b6aa4e ná #60/#61,
+  vers proces per run): koud laden niet meetbaar trager (`scripts/benchmark.py load_dataset`:
+  traagste experiment 17,99 s onder snelste referentie 18,61 s) en de piek `load_dataset`
+  1009–1011 → 646 MiB (−36%, eenduidig). De kleinere index maakt de graafpickle kleiner
+  (90.551.515 → 82.924.232 B, −8%) en dat maakt het warme pad sneller: de graafpickle-lading
+  (`LuieGraaf` eerste aanraking) 3,33–3,35 → 2,38–2,46 s (traagste experiment onder snelste
+  referentie, eenduidig), warm-geheugen 1170–1172 → 778–780 MiB. Triplecount (1.877.729),
+  knopen/strengen (23.485/23.440) en de graafinhoud (sha256 over de gesorteerde tripels)
+  zijn gelijk aan HEAD.
+- `clip_orox` opent de bron nog N+1 keer in plaats van N+2 (issue #61, performance;
+  **additief** — geen signatuur-, retourvorm- of gedragswijziging van de publieke
+  `clip_orox`/`merge_orox`; dezelfde delen, byte voor byte). De basisdetectie en de
+  analyseronde deelden sinds issue #32 elk hun eigen opening van de bron, en tussendoor bleef
+  de eerste, half-verbruikte stroom onnodig aan `orkest` gebonden — met een terugvalcodering
+  draagt die stroom de hele gedecodeerde bron. Nu detecteert `clip.termen._bronbasis_en_rest`
+  de GWSW-basis én geeft de daarbij verbruikte kop-quads terug, zet `orkest` die kop met
+  `itertools.chain` voor de rest van diezelfde opening, en accepteert `clip.plan._maak_plan`
+  die al geopende stroom in plaats van de bron zelf een tweede keer te openen; de naam naar de
+  eerste opening overleeft de deellus niet meer. `_bronbasis`, `_bronbasis_en_rest` en
+  `_maak_plan` zijn privé; `merge_orox` blijft ongemoeid. Gemeten op de cp850-export van De
+  Wolden en Hoogeveen (112 MB, gepaard n=3, referentie = HEAD-code, vers proces per run): piek
+  `clip_orox` 959 → 744 MiB (−22%, eenduidig — hoogste experiment 744 MiB onder laagste
+  referentie 955 MiB), tijd niet meetbaar omhoog (`scripts/benchmark.py`: mediaan ref 38,9 s,
+  exp 38,1 s; bereiken overlappen — ref 38,3–39,1 s, exp 38,1–39,0 s). De twee geschreven
+  delen zijn per stuk byte-gelijk aan HEAD (sha256).
+- De leesweg draagt op de piek minder buffers (issue #60, performance; **additief** — geen
+  signatuur-, retourvorm- of gedragswijziging; dezelfde graaf, hetzelfde `decode_fallback`).
+  `bestand._parse` liet tijdens `GraafIndex.vul_uit` drie kopieën van de bron naast elkaar
+  leven (de ruwe bytes, de gedecodeerde tekst en de als UTF-8 gehercodeerde bytes). Twee
+  interne takken snoeien dat, zonder dat een bestaande signatuur, retourvorm of foutmelding
+  verandert. **(a)** De gedecodeerde tak laat `rauw` los zodra de tekst er is (het
+  `DecodeFallback`-verslag is dan al gemaakt) en de tekst zodra hij als UTF-8 gecodeerd is,
+  zodat er nog hoogstens één buffer naast de parser staat. **(b)** Is de bron zuiver UTF-8
+  zonder BOM — vooraf beslist met een chunksgewijze validatie door een `codecs`-incremental
+  decoder — dan opent de motor het bestand zelf en leest het streamend van schijf
+  (`rdfmotor.ontleed_turtle_bestand`, dezelfde ingang die `schrijven.lees_orox` al gebruikt),
+  en blijft `decode_fallback` None. Een niet-UTF-8-bron of een leidende BOM (waar pyoxigraph
+  als eerste subject over struikelt, issue #53) valt terug op de gedecodeerde weg met de
+  terugvalcodering; zo werkt de streamende weg ook mét een opgegeven `fallback_encoding` die
+  op een feitelijk zuivere UTF-8-bron niet nodig blijkt. Beide takken komen op dezelfde quads
+  en dezelfde volgorde uit. Gemeten op de cp850-export van De Wolden en Hoogeveen (112 MB,
+  gepaard n=3, referentie = HEAD-code): piek `load_dataset` 1221 → 1008 MiB (−17%, eenduidig),
+  tijd neutraal (`scripts/benchmark.py` mediaan 19,3 → 19,3 s); op een zuivere UTF-8-kopie
+  stroomt de leesweg 1221 → 1011 MiB (−17%, eenduidig). Triplecount (1.877.729), aantal
+  knopen/strengen (23.485/23.440), `structural_diff` en `decode_fallback` zijn gelijk aan HEAD,
+  en een read→`schrijf_orox`-round-trip is byte-gelijk (sha256). De streamende tak brengt twee nieuwe
+  raise-plekken in `bestand._parse` (een `BestandError` op een leesfout onderweg en een
+  `TurtleError` op een parsefout), meegeteld in `tests/test_uitzonderingen.py` en de
+  `errors`-docstrings. **Cachesleutel:** `bestand` zit in `cache.LADERMODULES`, dus de sleutel
+  roteert en bestaande caches worden één keer opnieuw opgebouwd.
+- De cyclische GC ligt stil rond beide `pickle.load`-plekken van de cache (issue #59,
+  performance; **additief** — geen signatuur-, retourvorm- of gedragswijziging). De
+  structurenlading in `laad_met_cache` en de graaflading in `LuieGraaf._geladen` depicklen
+  nu binnen `bestand._gc_uit`, net als de koude leesweg dat al deed; de cyclische GC is er
+  zuivere verspilling omdat de heropgebouwde containers alleen naar beneden wijzen. Op het
+  warme pad zakt de graaflading gemeten van ~7,8 s naar ~3,5 s en de structurenlading van
+  ~1,8 s naar ~1,0 s (gepaard, n≥3, eenduidig; de 2,75 s uit het issue was de meting in een
+  leeg proces).
+  **Geen formaatwijziging:** de picklebytes blijven gelijk, `LADER_VERSIE` blijft `"2"` en
+  bestaande caches blijven geldig. Het neveneffect (procesbreed, en voor de graaf lui
+  afgaand vanuit de eerste leesbewerking van een check) staat in de docstrings van
+  `laad_met_cache` en `LuieGraaf._geladen`.
+- Opt-in byte-stabiele uitvoer voor de schrijflaag (issue #58, feature; **additief** — een
+  nieuw keyword-only argument met default `False`, geen bestaande signatuur, retourvorm of
+  byte-uitvoer geraakt). `schrijf_orox(..., *, deterministisch=False)` en
+  `schrijf_orox_quads(..., *, deterministisch=False)` kregen het keyword; met `False`
+  verandert er geen byte aan de bestaande uitvoer (bewezen door een test die de default- en
+  de weggelaten-keyword-weg de hernummering nooit laat raken), met `True` zijn twee
+  schrijfbeurten van dezelfde bron byte-gelijk (gelijke sha256) én graaf-gelijk. pyoxigraph
+  mint per parse willekeurige namen voor blanke knopen (`_:<random>`), dus is de
+  default-uitvoer graaf-gelijk maar niet byte-gelijk en daarmee diff-/git-onvriendelijk; de
+  nieuwe privéhulp `schrijven._hernummerd` loopt de stroom af en hernummert elke blanke knoop
+  op eerste ontmoeting (subject vóór object) naar `_:b<n>` in stroomvolgorde — een isomorfe
+  graaf, tegen de kosten van een extra gang over elke term en een tabel van de labels in het
+  geheugen. `clip/` bleef ongemoeid: `clip.plan._genummerd` levert *sleutels* naast de quad en
+  herschrijft niets, dus het hergebruik was niet laagrichting-conform (`schrijven` importeert
+  `clip` niet); de fabrieken `BlankNode`/`Quad`/`Triple` komen rechtstreeks uit pyoxigraph,
+  buiten de `rdfmotor`-naad, zoals `docs/architectuur.md` voorschrijft. Nieuw in
+  `tests/test_schrijven.py`: byte-gelijkheid met `deterministisch=True`, de negatieve
+  demonstratie dat de default niet byte-stabiel is, de default-weg-pin, en een
+  `:eind\.`-regressie — een IRI die onder de basisprefix op een punt eindigt schrijft
+  pyoxigraph als `:eind\.` (PN_LOCAL_ESC, geldig Turtle 1.1) en leest hij lexicaal identiek
+  terug, terwijl rdflib 7.6.0 hem met `BadSyntax` weigert (upstream te melden; de docstring
+  van `schrijf_orox_quads` benoemt de beperking). De basisprefix weglaten om rdflib te
+  plezieren zou de default-bytes veranderen en is bewust **niet** gedaan.
+- Publieke docstrings staan in domeintaal: de module-, klasse- en methode-docstrings van de
+  leeslaag noemen geen interne nlriochecker-checkcodes (`HGT-004`, `NET-007`, `TOP-020`,
+  `ATTR-013`, ...) of nlriochecker-bestandsnamen (`uitvoer/melding.py`, `SHACL-nulmeting`,
+  `analysis.bepaal_typeringspoort`, ...) meer, zodat `help()` zelfstandig leesbaar is voor
+  een PyPI-afnemer. De `graaf`-moduledocstring somt alleen nog aanroepers *binnen* de package
+  op. De herkomst (checkcode en aanroepende module per publieke naam) is bewaard in de nieuwe
+  `docs/afnemers.md`, waarnaar `docs/architectuur.md` verwijst (issue #56, documentatie;
+  **additief** — alleen docstringtekst, geen signatuur, retourvorm, foutmelding of gedrag
+  geraakt; `#`-commentaar met checkcodes bleef staan).
+- CI toetst nu ook op Python 3.14 (`toets.yml`-matrix `["3.12", "3.13", "3.14"]`), de
+  dekking wordt met takdekking gemeten (`[tool.coverage.run] branch = true`) en de tot dan
+  ongedekte opruim-tak van `cache._schrijf_atomair` (een afgebroken schrijf verwijdert het
+  tijdelijke bestand) heeft een test (issue #54, config/tests; **additief** — geen bestaande
+  signatuur, retourvorm of gedrag geraakt). De dekkingsdrempel blijft 95 %.
+- Lagentekening compleet en bewaakt: de ontbrekende randen `bestand -> namen`,
+  `cache -> bronnen` en `cache -> errors` staan nu in `docs/architectuur.md` (en `namen` in
+  de docstring van `bestand.py`), en een nieuwe wortel-AST-test
+  `test_de_wortelsnit_houdt_de_importrichting` in `tests/test_publieke_api.py` houdt de
+  tekening en de echte imports per rij gelijk (issue #57, docs/tests; **additief** — geen
+  import, signatuur of gedrag geraakt). Het issue voorspelde twee randen; de meting op de
+  huidige code (ná #48/#51/#52) vond er drie — `cache -> errors` (`BestandError`, issue #48)
+  ontbrak ook.
+- Bibliotheek-etiquette aan de rand: str-paden, twee gedocumenteerde fouten en een minder
+  invasieve rdflib-demping (issue #55, robuustheid/docs; **additief** — geen bestaande
+  signatuur, retourvorm of gedrag geraakt).
+  - **(a) str-paden crashen niet meer.** De publieke ingangen `clip_orox`, `merge_orox`,
+    `lees_orox`, `schrijf_orox` en `schrijf_orox_quads` accepteren nu een `str`- of ander
+    `os.PathLike`-pad in plaats van erop te crashen met een `AttributeError`
+    (`.stem`/`.parent`/`.read_bytes`), net als `load_dataset` al deed (`Path(dataset_path)`).
+    De schrijflaag-ingangen (`lees_orox`, `schrijf_orox`, `schrijf_orox_quads`) coerceren aan
+    het begin naar `Path` en hun annotatie verbreedt naar `str | os.PathLike[str]` (die zijn
+    niet gepind). `clip_orox`/`merge_orox` coerceren ook (`bron`/`doel`), maar houden hun
+    `Path`-annotatie: die staat in `tests/test_publieke_api.py` gepind, dus dit is een
+    runtime-verbreding van de geaccepteerde typen en geen contractwijziging. Eén nieuwe
+    parametrische test (`tests/test_schrijven.py`) roept elke ingang met een `str`-pad aan en
+    legt de uitkomst isomorf naast de `Path`-aanroep.
+  - **(b) De foutkaart benoemt de twee fouten buiten de familie.** `errors.py` kreeg een
+    alinea "Buiten de hiërarchie": `geometry.GeometryError` is bewust een `ValueError` en geen
+    `DatasetError` (een onleesbare literaal is een fout per literaal die de leeslaag zelf
+    opvangt in `GwswDataset.geometry_errors`), en de kale `ValueError` uit
+    `bronnen.gebundelde_ontologie_voor`/`vocabulaire_index_pad_voor` op een niet-gebundelde
+    versie. De MRO-optie `GeometryError(ValueError, OroxError)` is bewust **niet** genomen: dat
+    wijzigt de MRO van een publiek geëxporteerde, gepinde klasse (contract). De docstring van
+    `bronnen` (r. 8-12) is bijgewerkt naar de huidige stand: de versiedetectie bestaat sinds
+    issue #32 deel c in `bestand._parse`/`load_dataset`.
+  - **(c) `_quiet_rdflib` is niet meer onvoorwaardelijk procesbreed.** `bestand._quiet_rdflib`
+    dempt `rdflib.term` alleen nog als de afnemer er zelf geen niveau op zette (`NOTSET`). Een
+    afnemer die het bewust op bijvoorbeeld DEBUG zette, houdt dat niveau tijdens en na de parse
+    in plaats van het naar ERROR te zien springen; zonder eigen niveau blijft de demping als
+    vanouds en herstelt de `finally` naar `NOTSET`.
+- Een leidende UTF-8-BOM maakt een verder geldige OroX-export niet langer onleesbaar met een
+  misleidende `TurtleError` (issue #53, bugfix; **additief** — geen publieke signatuur of
+  bestaande retourvorm geraakt, alleen invoer die nu faalt gaat slagen). `codering.decodeer`
+  leest UTF-8 met `utf-8-sig`, een superset die de BOM eruit haalt en op BOM-loze invoer
+  gelijk is aan `utf-8`; dat dekt zowel `load_dataset` (via `bestand._decode`) als
+  `schrijven._gedecodeerd`. `schrijven.lees_orox` peekt de kop en stuurt een bron met BOM langs
+  de gedecodeerde inhoud in plaats van pyoxigraph het bestand zelf te laten openen; zonder BOM
+  blijft de streamende leesweg van het bestandspad ongewijzigd. De terugvalcodering-tak en het
+  `DecodeFallback`-verslag blijven op BOM-loze invoer gelijk.
+- De `CoderingError` van een bron mét BOM meldt nu de juiste byte en bestand-positie
+  (issue #53, bugfix; **additief** — alleen de foutmelding klopt weer). `utf-8-sig` telt
+  `error.start` vanaf de BOM-gestripte tekst; de melding verrekent nu de BOM-lengte, zodat de
+  positie het bestand-offset is (inclusief BOM, zoals in een hex-editor) en de gerapporteerde
+  byte de werkelijk foute byte. Op BOM-loze invoer verandert de melding niet.
+- Versiekennis staat nu op één plek (issue #52, interne opschoning; **additief** — geen
+  publieke signatuur, constante of retourvorm geraakt, en de detectie-uitkomst blijft
+  gelijk). De basis-scan over de IRI's van een bron staat nog op één plek
+  (`namen.basis_uit_iris`); `bestand`, `dataset` en `clip.termen` roepen die aan en houden
+  alleen hun eigen signaalbron over. De twee terugval-waarschuwingen (lezing, clip) zijn één
+  geworden via `namen.terugvalmelding`. `inlezen._leestermen` spelt de zeven properties via
+  `namen.termen_voor` en de gepinde 1.6-`HAS_*`/`KLASSE_*`-constanten worden nu uit
+  `_leestermen(GWSW)` afgeleid (waarde en type ongewijzigd). `cache.cachesleutel` hasht bij
+  `ontology_paths=None` voortaan alleen de gebundelde bundel van de versie die een goedkope
+  prefix-scan van de datasetkop detecteert (met terugval op alle bundels zonder herkenbare
+  `gwsw:`-prefix), zodat een toekomstige 1.8-bundel een 1.6-cache niet meer invalideert;
+  **bestaande caches vervallen hierdoor één keer** (de sleutel verandert) en worden bij de
+  volgende run opnieuw opgebouwd.
+- Het publieke oppervlak leest nu versie-juist naast de gepinde 1.6-constanten (issue #51,
+  feature; **additief** — geen bestaande signatuur, constante of retourvorm geraakt).
+  `inlezen._Leestermen` is publiek als `Leestermen` (het privé `_Leestermen`/`_leestermen`
+  blijft als alias werken), `GwswDataset.termen` levert de `URIRef`-termenset van de
+  gedetecteerde basis (gememoiseerd, niet gepickeld), en `namen.klasse_iri(naam, basis)` is de
+  publieke tegenhanger van `_uri`. Drie str-methoden op de dataset bevragen de graaf
+  versie-juist: `uris_of_class(root)`, `buren(uri)` (hasConnection, beide richtingen) en
+  `kenmerken_met_waarde(kenmerk)`. `load_dataset` logt één `logging.warning` wanneer de dataset
+  niet de leidende 1.6-versie is (en niet nog eens op het cachepad), dat de module-constanten
+  (`HAS_*`, `KLASSE_*`) voor deze dataset stil nul treffen. Zo hoeft nlriochecker `graph`,
+  `URIRef` of de 1.6-`HAS_*`/`KLASSE_*` niet aan te raken om een 1.7-dataset te lezen; de
+  gepinde constanten en signaturen blijven ongewijzigd.
+- De clip weigert nu luid twee invarianten die hij eerder half bewaakte (issue #47, bugfix;
+  **additief** — geen publieke signatuur of bestaande retourvorm geraakt, alleen invoer die
+  nu stil data verloor gaat falen). (a) Twee grenslaag-namen die na sanering hetzelfde
+  bestand zouden opleveren (`'a b'` en `'a/b'` → `a_b`) leverden stil één overschreven deel
+  op; `clip.grenzen._lees_grenzen` ontdubbelt nu óók op `_bestandsnaam(naam)` en gooit een
+  `GrenslaagError` met beide ruwe namen. De bestaande dedup op de exact gelijke ruwe naam
+  blijft ongewijzigd. (b) Een bron die zelf al een predicaat uit de `knip:`-naamruimte
+  droeg, verloor dat stil bij `merge_orox` (`isomorf=False`); `clip.plan._maak_plan` weigert
+  zo'n bron nu met een `KnipError`, net als een bron die de `__knip<n>`-staart al draagt.
+- Een 3D-`gml:posList` zonder `srsDimension` wordt niet langer stil verminkt bij
+  `clip_orox`/`merge_orox` (issue #46, bugfix; **additief** — geen publieke signatuur of
+  bestaande retourvorm geraakt). `clip.knip._knip_lijn` knipt zo'n lijn niet meer maar geeft
+  hem heel door, net als een lijn met een andere verhouding dan 2 of 3 getallen per punt. De
+  oorzaak: `geometry._dimensie_van` kiest zonder srsDimension bij een even tokental dimensie 2,
+  dus een stuk van vier punten (12 tokens) las als 2D terwijl de bron (15 tokens, oneven) als
+  3D las; `merge._hersteld` snoeide daardoor 2 getallen per punt waar de bron er 3 schreef,
+  wat een half knippunt en een onduidbare geometrie opleverde — en het defect hing van de
+  stukvolgorde af. Nieuw: `geometry.heeft_srsdimension`, waarmee de knip 3D-zonder-srsDimension
+  onderscheidt (de telling in `tokens_per_punt` leest de srsDimension met opzet niet). Conforme
+  GWSW-exports dragen de srsDimension op elke posList en houden ongewijzigd gedrag.
+- Motorfouten één keer vertalen in `rdfmotor`; `bestand._parse` vangt smal (issue #50,
+  robuustheid; grotendeels **additief**, met één door de auteur goedgekeurde
+  gedragsverschuiving). `rdfmotor` draagt nu naast parse/serialize ook de fouttaxonomie en
+  de prefixlezing: `MOTORFOUTEN` (`SyntaxError`, `ValueError`), `is_coderingsfout` (de
+  `"Invalid UTF-8"`-tekstmatch) en `prefixen_van` (de `parser.prefixes`-lezing). `bestand.
+  _parse` en `schrijven._gecontroleerd`/`lees_orox` lenen die in plaats van elk een eigen
+  kopie te dragen; een AST-sweep weert `.prefixes` en `SyntaxError` voortaan buiten
+  `rdfmotor`. **Gedragsverschuiving:** `bestand._parse` verving zijn brede `except Exception`
+  door een smalle vangst op `MOTORFOUTEN` plus de `TypeError` uit `graaf.naar_rdflib`. Een
+  `MemoryError` (of `RecursionError`, of een bug in eigen code) tijdens het vullen van de
+  index komt daardoor **rauw** naar buiten in plaats van als een misleidende "geen geldige
+  Turtle ()" met een lege oorzaak; concreet presenteert `load_dataset` een `MemoryError` niet
+  langer als `TurtleError`. Een echte syntaxfout blijft een `TurtleError` met regelnummer in
+  de melding. De publieke API en alle bestaande foutmeldingen zijn ongewijzigd.
+- `OSError` tijdens het streamen valt nu binnen de `DatasetError`-familie (issue #49,
+  robuustheid; **additief** — `BestandError` valt al onder `DatasetError`, geen bestaande
+  signatuur of retourvorm geraakt). `schrijven._gecontroleerd` vangt naast de parsefout nu
+  ook `OSError` en maakt er dezelfde `BestandError` "kan niet gelezen worden" van als een
+  ontbrekende bron. Twee gaten gedicht: een **map als bron** gaf via `lees_orox`,
+  `schrijf_orox` én `clip_orox` een rauwe `IsADirectoryError` (de eerste-quad-pull stond
+  buiten de constructie-vangst), en een **leesfout halverwege de stroom** (`EIO`) kwam
+  ofwel rauw naar buiten, ofwel via de schrijf-vangst als "kan niet geschreven worden" —
+  een schrijfmelding voor wat een leesfout is. Geen achtergebleven tijdelijk bestand.
+- Eén foutbeleid in `cache.py` (issue #48, robuustheid; grotendeels **additief**, met één
+  door de auteur goedgekeurde fouttype-verschuiving — zie deel c). Vier randen waar de cache
+  de belofte "herstel in plaats van de hele run laten crashen" niet dekte, elk gesloten:
+  - **(a) Eén beleid rond beide `pickle.load`-plekken.** De twee sites vingen elk een eigen,
+    smalle tuple (`LuieGraaf._geladen` mét, de structurenlezing in `laad_met_cache` zónder
+    `OSError`), en geen van beide ving `ValueError`/`UnicodeDecodeError`/`MemoryError` — een
+    fuzz (3 bytes, 300×) liet honderden ongevangen fouten ontsnappen en `b"\x80\x08…"` gaf
+    een rauwe `ValueError: unsupported pickle protocol`. Beide plekken vangen nu op de
+    module-constante `_PICKLE_FOUTEN` (= `Exception`): `pickle.load` is in feite een
+    bytecode-interpreter, dus een opgesomde tuple is per definitie incompleet en "onbruikbaar"
+    betekent gewoon "gaf geen bruikbaar object". `BaseException` blijft buiten (`KeyboardInterrupt`/
+    `SystemExit` lopen door); de rechtencheck van issue #45 blijft de bewaker tegen
+    `__reduce__`-payloads. **Additief** — een beschadigde pickle viel al terug op herinlezen,
+    nu doet elke soort beschadiging dat.
+  - **(b) De schrijfpaden crashen niet meer ná een geslaagde lezing.** `_schrijf` in
+    `laad_met_cache` en `_schrijf_atomair` in `LuieGraaf._schrijf_indien_vertrouwd` staan in
+    `try/except OSError` met een `logger.warning`; `laad_met_cache` zet de melding ook in
+    `CacheUitslag.melding`. Een read-only cachemap (mode 0o500 — vertrouwd, want geen
+    groep-/wereldschrijf) gaf tot nu toe een `PermissionError` ná een geslaagde
+    `load_dataset`; nu een melding en een gemiste versnelling. **Additief** — geen bestaande
+    signatuur of retourvorm geraakt.
+  - **(c) `_bestandshash` gooit `BestandError` op een onleesbaar bestand** (`except OSError →
+    BestandError`, dezelfde tekst als `bestand._parse`, alle OSError-varianten). Dit is de
+    door de auteur goedgekeurde fouttype-verschuiving (04-09-2026): **`laad_met_cache` gooit
+    bij een onleesbaar dataset- of ontologiebestand nu een `BestandError` in plaats van een
+    rauwe `OSError`.** `cachesleutel` hasht de invoer vóór de eigenlijke lezing, dus met
+    `gebruik_cache=True` ontsnapte een `FileNotFoundError` terwijl dezelfde aanroep zónder
+    cache al langs `load_dataset` een `BestandError` gaf; dat contract is nu gelijk, ongeacht
+    `gebruik_cache`. `BestandError` is een `DatasetError` en **geen** `OSError`-subtype;
+    nlriochecker vangt rond `laad_met_cache` nergens `OSError`/`FileNotFoundError`, wel breed
+    `DatasetError`. De `BestandError`-docstring in `errors.py` staat nu op **vijf** plekken
+    (`cache._bestandshash` erbij) en `tests/test_uitzonderingen.py` telt 30 raise-plekken.
+  - **(d) `source` op een cachetreffer is het gevraagde pad.** De sleutel hasht alleen
+    `pad.name`, dus een gelijknamig, inhoudsgelijk bestand uit een andere map treft dezelfde
+    cache; `ds.source` (en bij een expliciete ontologieopgave `ds.ontologies`) kwam dan uit
+    de pickle van de eerste lezing. Op een treffer zet `laad_met_cache` ze nu terug op het
+    gevraagde pad via `replace(...)`, zoals `load_dataset` op een misser doet. **Additief** —
+    corrigeert een verkeerde waarde, raakt geen type of handtekening.
+
+  Nieuwe tests in `tests/test_cache.py`: een inhoudelijk beschadigde structuren- én
+  graafpickle (vreemd protocolbyte) valt terug op herinlezen; een niet-schrijfbare cachemap
+  en een mislukt graaf-terugschrijven geven een melding zonder crash; een ontbrekend bestand
+  geeft `BestandError` met én zonder cache; en twee mappen met een gelijknamig bestand geven
+  `source` op het gevraagde pad.
+- Publicatieketen in `.github/workflows/release.yml` (issue #41, ci/config; **additief** —
+  geen regel `src/**.py` geraakt, geen contract dat nlriochecker importeert). De release-tag
+  `v*` draait nu een keten van vijf `needs`-gekoppelde jobs in plaats van alleen `uv build`
+  + `gh release create`: `poort` (de volledige toets uit `toets.yml`, hergebruikt via een
+  nieuw `workflow_call`-ingang — de `push`/`pull_request`-triggers, de matrix en de
+  checknamen `poort (3.12)`/`poort (3.13)` blijven ongewijzigd), `controle`
+  (`uv sync --locked`, tag↔versie-check `test "v$(uv version --short)" = "$GITHUB_REF_NAME"`,
+  `uv build`, `twine check`, `check-wheel-contents`, en een rooktest van de wheel in een
+  verse venv buiten de projectmap die `load_dataset` op `mini_orox.ttl` draait en het
+  knopental > 0 eist; `dist/` gaat als artifact door), `testpypi` en `pypi` (publiceren via
+  trusted publishing/OIDC met `id-token: write` in de environments `testpypi`/`pypi`,
+  `pypa/gh-action-pypi-publish`; TestPyPI eerst met `skip-existing: true`), en
+  `github-release` (de bestaande `gh release create … --verify-tag --generate-notes` op het
+  gedownloade artifact, zodat de release-assets byte-gelijk zijn aan wat op PyPI staat).
+  Top-level `permissions: contents: read`, per job alleen wat nodig is; alle third-party
+  actions gepind op een commit-SHA met de tagnaam als commentaar. `CLAUDE.md` (Werkwijze,
+  "Een versie uitbrengen") beschrijft de nieuwe keten. **Auteurshandeling buiten scope**:
+  de pending trusted publisher registreren op pypi.org én test.pypi.org — zonder die
+  registratie falen de publish-jobs (verwacht) tot de auteur ze heeft gezet.
+- De cache is een vertrouwensgrens geworden (issue #45, security; **additief** — geen
+  bestaande signatuur, retourvorm of gedrag van `laad_met_cache`, `cachesleutel`,
+  `CacheUitslag` of `LuieGraaf` gewijzigd, alleen nieuwe privéhelpers). De cache leest zijn
+  artefacten met `pickle.load`, dat bij het laden willekeurige code uitvoert (`__reduce__`),
+  terwijl de cachemap tot nu toe kaal en groep-/wereldschrijfbaar (`drwxrwxr-x`) werd
+  aangemaakt: een geplant `structuren.pickle` kon zo een payload draaien vóór enige
+  validatie. Nu maakt de package de cachemap privé aan (`mkdir(mode=0o700)` + een `os.chmod`
+  op de eigen map, POSIX-only) en toetst hij vóór élke `pickle.load` of het pad te
+  vertrouwen is (`_cachepad_vertrouwd`: `st_uid != os.getuid()` of `st_mode & 0o022` →
+  onvertrouwd). Een onvertrouwde cachemap wordt overgeslagen (niet gelezen én niet
+  geschreven, dataset uit het bestand met een `logging.warning`); een onvertrouwd
+  cachebestand (structuren of de luie graafpickle) geldt als "onbruikbaar" en leidt tot
+  herinlezen. `LuieGraaf._geladen` schrijft de herstelde graaf alleen terug naar een
+  vertrouwde map — was de pickle onvertrouwd, dan is de map eromheen verdacht en schrijven we
+  niet terug. Op niet-POSIX (Windows) draait de check niet; de cachemap hoort daar in het
+  gebruikersprofiel (`%LOCALAPPDATA%`). `LADER_VERSIE` gaat van `"1"` naar `"2"`, dus
+  bestaande caches uit vóór deze verharding vervallen één keer. Bewust **buiten scope**
+  (auteursbeslissing 04-09-2026): HMAC over de bytes of een ander, robuuster cacheformaat.
+  Nieuwe tests in `tests/test_cache.py` (map-mode 0o700; onvertrouwde map → overslaan +
+  niets geschreven; onvertrouwde pickle → `pickle.load` niet aangeroepen; de `__reduce__`-repro
+  draait niet; niet-POSIX slaat de check over; de graafpickle-terugval schrijft niet naar een
+  onvertrouwde map). README en de docstring van `laad_met_cache` beschrijven de cachemap nu
+  als vertrouwde, niet-gedeelde map.
+- Sdist-hygiëne plus een verpakkingsbewaker in de poort (issue #44; config/tests/scripts,
+  **additief** — geen regel `src/**.py` geraakt, geen contract dat nlriochecker importeert).
+  `pyproject.toml` kreeg `[tool.hatch.build.targets.sdist]` met een expliciete
+  `only-include`-allowlist (`src`, `tests`, `scripts`, `docs/architectuur.md`, `README.md`,
+  `CHANGELOG.md`, `LICENSE`, `pyproject.toml`); de sdist droeg tot nu toe de hele werkboom —
+  `.claude/`, `CLAUDE.md`, `uv.lock`, `.github/`, `docs/agents/`, `manifesto.md`, en de
+  hard gespelde thuismap-paden die de scripts en drie testbestanden droegen (122
+  bestanden, 1.185.400 bytes). De wheel blijft byte-identiek (36 bestanden, eigen
+  `wheel`-target). Kanttekening: hatchling 1.32 `force_include`t de projecteigen
+  `.gitignore` altijd in de sdist en geen `pyproject.toml`-optie zet dat uit — een gewoon,
+  ongevaarlijk sdist-bestand, buiten de §3-controle van het issue en de drifttest gelaten.
+  `.github/workflows/toets.yml` draait ná de vijf poortstappen een zesde stap
+  `uv build && uvx twine check dist/* && uvx check-wheel-contents dist/*.whl` als
+  sdist-/wheel-bewaker; `CLAUDE.md` (Werkwijze) noemt die stap nu. De vier
+  benchmarkscripts en `tests/test_clip.py`/`tests/test_schrijven.py` lezen het pad naar de
+  niet-getrackte 112 MB-export voortaan uit `Path.home()` met een override via
+  `GWSW_OROX_FIXTUREPAD` (voor de tests op één plek in `tests/conftest.py`); de `zwaar`-tests
+  slaan zichzelf net als voorheen over als het bestand ontbreekt. Nieuw:
+  `tests/test_sdist.py`, dat `uv build --sdist` in een `tmp_path` draait en de tar-listing
+  toetst — de zeven verboden vormen eruit, de gebundelde 1.6-ontologie plus `README.md`,
+  `LICENSE` en `pyproject.toml` erin.
+- `README.md` als PyPI-landingspagina (issue #43; docs, **additief** — geen regel
+  `src/**.py` en geen `pyproject.toml` geraakt). Alle relatieve links (badges naar `LICENSE`
+  en `pyproject.toml`, en de verwijzingen naar `CHANGELOG.md`, `docs/architectuur.md` en
+  `tests/test_publieke_api.py`) wijzen nu absoluut naar
+  `https://github.com/mcolee/gwsw-orox-helpers/blob/main/...`, zodat ze op de PyPI-projectpagina
+  niet dood zijn. De zelf-ontkenning "Niet op PyPI" en het git-installatieblok maken plaats voor
+  `pip install gwsw-orox-helpers` / `uv add gwsw-orox-helpers` als hoofdweg, met de
+  `git+https://...`-variant als dev-alternatief eronder. De `CLAUDE.md`-verwijzing is vervangen
+  door een korte bijdrage-alinea (issue, de vijf poortstappen, PR naar `dev`), zodat de
+  distributie niet naar een intern agent-document wijst.
+- Projectmetadata in `pyproject.toml` (`[project]`, issue #42; config, **additief** — geen
+  regel `src/**.py` geraakt, geen contract dat nlriochecker importeert). De wheel-METADATA
+  droeg geen `Author`, `Keywords`, `Classifier` of `Project-URL`; nu wel: `authors`
+  (Martin Colee), `keywords` (gwsw/orox/riolering/rdf/turtle), zeven `classifiers`
+  (`Development Status :: 4 - Beta`, Python 3.12/3.13/3.14, `Typing :: Typed`,
+  `Topic :: Scientific/Engineering :: GIS`, `Operating System :: OS Independent`) en
+  `[project.urls]` (Homepage, Repository, Changelog, Issues). De `description` kondigt
+  schrijven en clippen niet meer als toekomst ("(en later ...)") aan — allebei geleverd
+  sinds 0.2.0 — en luidt nu "Lezen, terugschrijven en ruimtelijk knippen van GWSW-OroX
+  (TTL) rioleringsdatasets: grafmodel, geometrie, klassenhierarchie en cache." Python 3.14
+  staat er nu al bij, zodat issue #54 (CI-matrix) `pyproject.toml` niet opnieuw hoeft te
+  raken. `Typing :: Typed` klopt met de bestaande `src/gwsw_orox_helpers/py.typed`. Een
+  drifttest `tests/test_projectmetadata.py` leest `pyproject.toml` met `tomllib` en pint de
+  velden en de vier urls vast (geen wheel-bouw in de test).
+- Ontwikkelstraat: Fable-audit-swarm `.claude/workflows/orox-fable-audit.js`
+  (`Workflow({name: 'orox-fable-audit'})`): negen lenzen met bewijsplicht (packaging,
+  api-docs, security, defecten lezen/geo-clip, architectuur snit/evolutie, kwaliteit,
+  tests-ci) → adversariële verify → regisseur met `releaseKlaar`, blokkers,
+  architectuuroordeel en ≤20 aanbevelingen. Draait in twee stappen (`stap: 'audit'` als
+  kostenmeting, daarna volledige run met `resumeFromRunId`). Eerste run 04-09-2026:
+  37/37 bevindingen bevestigd, niet release-klaar (verpakking), architectuurcijfer 7.
+
 ## [0.2.2] - 2026-09-04
 - Publieke leesweg naar de GWSW-versie van een dataset: `GwswDataset.gwsw_versie`
   (issue #39, additief). De nieuwe gememoiseerde property levert een frozen

@@ -83,6 +83,38 @@ def test_ontleed_turtle_bestand_geeft_dezelfde_quads_en_prefixen() -> None:
     assert parser.prefixes[""] == "http://sparql.gwsw.nl/repositories/Mini#"
 
 
+def test_ontleed_turtle_stroom_geeft_dezelfde_quads_en_prefixen() -> None:
+    """De derde ingang: een binaire file-like via `input=`, streamend ontleed.
+
+    `schrijven.lees_orox` geeft hier de hercodeerstroom aan mee zodra er een
+    terugvalcodering of een BOM in het spel is; net als de padweg leunt hij op de stroom
+    én op `parser.prefixes` na de eerste quad, dus moet de adapter het parserobject
+    teruggeven en niet een kale iterator. Byte-voor-byte dezelfde bytes als de padweg
+    (dezelfde inhoud), dus dezelfde quads en dezelfde prefixen.
+    """
+    verwacht = _genormaliseerd(pyoxigraph.parse(path=MINI, format=pyoxigraph.RdfFormat.TURTLE))
+    with open(MINI, "rb") as bestand:
+        parser = rdfmotor.ontleed_turtle_stroom(bestand)
+        gekregen = _genormaliseerd(parser)
+        prefixen = parser.prefixes
+
+    assert gekregen == verwacht
+    assert prefixen[""] == "http://sparql.gwsw.nl/repositories/Mini#"
+
+
+def test_ontleed_turtle_stroom_geeft_een_syntaxfout_ongemoeid_door(tmp_path: Path) -> None:
+    """De adapter vangt ook op de stroomingang niets af: een syntaxfout komt rauw boven.
+
+    `schrijven._gecontroleerd` maakt er zijn eigen `TurtleError` van, net als bij de twee
+    andere ingangen.
+    """
+    stuk = tmp_path / "stuk.ttl"
+    stuk.write_text("@prefix : <http://x#> .\n:a :b :c .\n:d :e\n", encoding="utf-8")
+
+    with pytest.raises(SyntaxError), open(stuk, "rb") as bestand:
+        list(rdfmotor.ontleed_turtle_stroom(bestand))
+
+
 def test_een_str_pad_leest_het_bestand_en_niet_de_padtekst() -> None:
     """`ontleed_turtle_bestand` geeft zijn argument altijd als `path=` door.
 
@@ -192,6 +224,37 @@ def test_alleen_rdfmotor_roept_de_motor_aan() -> None:
     assert overtreders == [], (
         f"{overtreders} roept pyoxigraph rechtstreeks aan; de parse/serialize-naad hoort "
         "in `gwsw_orox_helpers.rdfmotor` te blijven (issue #18)."
+    )
+
+
+def test_de_foutvertaling_en_de_prefixen_wonen_alleen_in_rdfmotor() -> None:
+    """Buiten `rdfmotor` staat geen `parser.prefixes`-lezing en geen losse `SyntaxError`.
+
+    Sinds issue #50 draagt de motor-naad niet alleen parse/serialize maar ook de
+    foutvertaling (`MOTORFOUTEN`, `is_coderingsfout`) en de prefixlezing (`prefixen_van`).
+    `bestand._parse` en `schrijven` lenen die daar. Zonder deze sweep zou een tweede
+    `parser.prefixes` of een losse `except SyntaxError` de fouttaxonomie stilletjes weer uit
+    elkaar laten lopen -- precies zoals `test_alleen_rdfmotor_roept_de_motor_aan` dat voor
+    parse/serialize belet. Aan de **AST** en niet aan een grep, om dezelfde reden.
+
+    `.prefixes` als keyword bij `pyoxigraph.serialize` (`prefixes=...`) is een `ast.keyword`
+    en geen `ast.Attribute`, dus die valt hier terecht niet onder; en `rdfmotor.py` zelf is
+    de ene toegestane plek en wordt overgeslagen.
+    """
+    pakket = Path(rdfmotor.__file__ or "").parent
+    overtreders: list[str] = []
+    for pad in sorted(pakket.rglob("*.py")):
+        if pad.name == "rdfmotor.py" or "__pycache__" in pad.parts:
+            continue
+        for knoop in ast.walk(ast.parse(pad.read_text(encoding="utf-8"))):
+            if isinstance(knoop, ast.Attribute) and knoop.attr == "prefixes":
+                overtreders.append(f"{pad.name}:{knoop.lineno}: .prefixes")
+            elif isinstance(knoop, ast.Name) and knoop.id == "SyntaxError":
+                overtreders.append(f"{pad.name}:{knoop.lineno}: SyntaxError")
+
+    assert overtreders == [], (
+        f"{overtreders} leest `.prefixes` of noemt `SyntaxError` buiten `rdfmotor`; die horen "
+        "sinds issue #50 via `rdfmotor.prefixen_van` en `rdfmotor.MOTORFOUTEN` te lopen."
     )
 
 

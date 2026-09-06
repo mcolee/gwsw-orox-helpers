@@ -2,7 +2,10 @@
 
 ## [Unreleased]
 
-## [0.2.3] - 2026-09-05
+## [0.2.4] - 2026-09-06
+_Versie 0.2.3 is nooit gepubliceerd: de tag `v0.2.3` (05-09-2026) wees naar een commit waarvan
+de release-workflow op de laatste stap (`gh release create` zonder checkout) omviel; de fix zit
+in deze versie. Alles hieronder is de inhoud van die bedoelde 0.2.3, plus issue #70._
 - Twee koude-pad-restposten op `load_dataset` (issue #70, performance; **additief** — geen
   signatuur-, retourvorm- of gedragswijziging; `structural_diff`, het verslag en de gekozen
   ontologie blijven byte-gelijk). **(a)** `inlezen._read_nodes`/`_read_conduits` geven de

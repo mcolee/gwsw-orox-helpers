@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "gwsw-orox-helpers"
-version = "0.2.3"
+version = "0.2.4"
 description = "Lezen, terugschrijven en ruimtelijk knippen van GWSW-OroX (TTL) rioleringsdatasets: grafmodel, geometrie, klassenhierarchie en cache."
 readme = "README.md"
 license = "MIT"

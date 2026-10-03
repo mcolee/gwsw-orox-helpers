@@ -128,6 +128,13 @@ Eerste afnemer: nlriochecker. Nederlandse identifiers, GWSW-conform.
   `scripts/maak_gwsw_index.py`) en commit het gegenereerde bestand in dezelfde stap mee;
   de drifttests bewaken beide richtingen.
 
+## Lessen (begrensde zelfverbetering)
+Corrigeert de eigenaar een uitkomst, schrijf dan een les in `docs/lessen.md`, onder de kop van
+het onderdeel, in de vorm bovenaan dat bestand. Ook als je de fout meteen repareert.
+Verwerken gaat alleen via de skill `onderhoud` (`.claude/skills/onderhoud/SKILL.md`): één
+onderdeel, rode test → groen, één PR; de eigenaar merget. Testcommando's en beschermde paden
+staan in `.claude/cyclus.toml`. Principe 9 (voorstel) van `manifesto.md`.
+
 ## Naslag
 - **`docs/architectuur.md`** beschrijft de snit van `src/gwsw_orox_helpers/`: de lagen en
   hun importrichting, de twee paden door pyoxigraph (lezen met index, schrijven als

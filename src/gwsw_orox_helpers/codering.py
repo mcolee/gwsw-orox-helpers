@@ -35,6 +35,12 @@ if TYPE_CHECKING:
 # Elke byte die geen ASCII is; het zoeken ernaar gebeurt zo in C en niet per byte in
 # Python. Zie `_fallback_samples`.
 _NIET_ASCII: Final = re.compile(rb"[\x80-\xff]")
+_ASCII: Final = bytes(range(0x80))
+
+# Het verslag zoekt alleen in blokken die `bytes.isascii` afkeurt. Die toets loopt
+# ~20x sneller dan de regex; de export van De Wolden en Hoogeveen heeft 4 van 107 zulke
+# blokken (issue #87).
+_ZOEKBLOK: Final = 1 << 20
 
 # De bron wordt bij het hercoderen blokgewijs gelezen; een blok van 1 MiB houdt de
 # decode-encode-lus in C en het geheugen laag (zie `hercodeerstroom`).
@@ -102,17 +108,29 @@ def terugvalverslag(pad: Path, rauw: bytes, encoding: str) -> DecodeFallback:
     """Legt vast hoeveel bytes er van UTF-8 afweken en in welke regels ze stonden."""
     # De niet-ASCII-bytes tellen zonder een Python-lus over alle 112 MB: `translate`
     # verwijdert in C alle bytes 0x00-0x7F, en wat overblijft zijn er precies de bytes
-    # groter dan 0x7F.
-    byte_count = len(rauw.translate(None, bytes(range(0x80))))
+    # groter dan 0x7F. Alleen in de blokken die er minstens één dragen.
+    blokken = _niet_ascii_blokken(rauw)
+    byte_count = sum(len(rauw[begin:eind].translate(None, _ASCII)) for begin, eind in blokken)
     return DecodeFallback(
         path=pad,
         encoding=encoding,
         byte_count=byte_count,
-        samples=_fallback_samples(rauw, encoding),
+        samples=_fallback_samples(rauw, encoding, blokken),
     )
 
 
-def _fallback_samples(rauw: bytes, encoding: str, limiet: int = 5) -> list[str]:
+def _niet_ascii_blokken(rauw: bytes) -> list[tuple[int, int]]:
+    """Begin en eind van elk blok van `_ZOEKBLOK` bytes met minstens één niet-ASCII-byte."""
+    return [
+        (begin, min(begin + _ZOEKBLOK, len(rauw)))
+        for begin in range(0, len(rauw), _ZOEKBLOK)
+        if not rauw[begin : begin + _ZOEKBLOK].isascii()
+    ]
+
+
+def _fallback_samples(
+    rauw: bytes, encoding: str, blokken: list[tuple[int, int]], limiet: int = 5
+) -> list[str]:
     """De regels waarin de niet-ASCII-bytes staan, ter controle door de gebruiker.
 
     Twee dingen houden dit weg van een Python-lus over alle bytes. Het zoeken naar de
@@ -121,21 +139,26 @@ def _fallback_samples(rauw: bytes, encoding: str, limiet: int = 5) -> list[str]:
     `load_dataset`, en dat voor vijf voorbeeldregels. En na een regel springt de scan
     over de rest van die regel heen: elke verdere afwijkende byte erin zou dezelfde
     tekst opleveren, en die staat er dan al in.
+
+    De regex zoekt alleen in `blokken` (zie `_niet_ascii_blokken`); een regel mag over een
+    blokgrens lopen, want begin en eind van de regel komen uit de hele `rauw`.
     """
     voorbeelden: list[str] = []
     einde = len(rauw)
     positie = 0
-    while (treffer := _NIET_ASCII.search(rauw, positie)) is not None:
-        index = treffer.start()
-        start = rauw.rfind(b"\n", 0, index) + 1
-        eind = rauw.find(b"\n", index)
-        regel = rauw[start : eind if eind != -1 else einde]
-        tekst = regel.decode(encoding, "replace").strip()
-        if tekst not in voorbeelden:
-            voorbeelden.append(tekst)
-        if len(voorbeelden) >= limiet:
-            break
-        positie = eind + 1 if eind != -1 else einde
+    for blokbegin, blokeind in blokken:
+        positie = max(positie, blokbegin)
+        while (treffer := _NIET_ASCII.search(rauw, positie, blokeind)) is not None:
+            index = treffer.start()
+            start = rauw.rfind(b"\n", 0, index) + 1
+            eind = rauw.find(b"\n", index)
+            regel = rauw[start : eind if eind != -1 else einde]
+            tekst = regel.decode(encoding, "replace").strip()
+            if tekst not in voorbeelden:
+                voorbeelden.append(tekst)
+            if len(voorbeelden) >= limiet:
+                return voorbeelden
+            positie = eind + 1 if eind != -1 else einde
     return voorbeelden
 
 

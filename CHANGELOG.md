@@ -1,6 +1,12 @@
 # Changelog
 
 ## [Unreleased]
+- Terugvalverslag zoekt alleen in blokken met een niet-ASCII-byte (issue #87, performance;
+  **additief**: `DecodeFallback` blijft identiek). `bytes.isascii` keurt per MiB-blok in C;
+  de regex en de `translate`-telling draaien alleen nog in de blokken die afwijken (4 van de
+  107 in de 112 MB-export). `terugvalverslag` op die export: 0,66–1,09 → 0,05–0,07 s CPU
+  (n = 5), verslag byte-gelijk. Het issue ging uit van 187.705 dubbele regels; de export
+  heeft er 5, dus de tijd zat in de scan zelf en niet in de `decode`.
 - Canonieke vraagtermen in de leesweg (issue #81, performance; **additief**: geen signatuur,
   retourvorm of volgorde wijzigt). `graaf._kanoniek` geeft voor `rdf:type`, `rdfs:label`,
   `rdfs:subClassOf` en de leestermen in elke GWSW-basis (`namen._LEESNAMEN`) één gedeeld

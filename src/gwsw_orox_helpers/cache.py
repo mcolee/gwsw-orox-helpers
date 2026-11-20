@@ -20,6 +20,7 @@ wordt er opnieuw ingelezen.
 from __future__ import annotations
 
 import copyreg
+import io
 import logging
 import os
 import pickle
@@ -31,7 +32,7 @@ from dataclasses import dataclass, fields, replace
 from functools import partial
 from hashlib import sha256
 from pathlib import Path
-from typing import Any, cast
+from typing import IO, Any, cast
 
 import pyoxigraph
 import rdflib
@@ -79,6 +80,8 @@ logger = logging.getLogger(__name__)
 # één keer herbouwd -- bedoelde mechaniek.
 # Bij "4" sinds issue #81: een vraagterm (`graaf._kanoniek`) pickelt naar die functie, zodat
 # de gedepickelde graaf dezelfde objecten draagt als de lezers; ook dat is een vormwijziging.
+# In dezelfde versie (issue #82): de structurenpickle draagt haar geometrieën vooraf als één
+# WKB-lijst (`_schrijf_structuren`).
 LADER_VERSIE = "4"
 
 BESTAND_STRUCTUREN = "structuren.pickle"
@@ -629,7 +632,7 @@ def laad_met_cache(
         else:
             try:
                 with pad_structuren.open("rb") as bestand, bestand_module._gc_uit():
-                    velden = pickle.load(bestand)
+                    velden = _lees_structuren(bestand)
                 # Onder hetzelfde foutbeleid (issue #48): een pickle die wél laadt maar geen
                 # bruikbare velden geeft -- een niet-mapping, of verkeerde/ontbrekende sleutels
                 # na een bitflip die de pickle structureel heel liet -- is even onbruikbaar
@@ -724,7 +727,7 @@ def _schrijf(map_: Path, dataset: GwswDataset) -> None:
     """
     overslaan = {"graph"} | {f.name for f in fields(GwswDataset) if not f.init}
     velden = {naam: waarde for naam, waarde in vars(dataset).items() if naam not in overslaan}
-    _schrijf_atomair(map_ / BESTAND_STRUCTUREN, velden)
+    _schrijf_atomair(map_ / BESTAND_STRUCTUREN, velden, structuren=True)
     _schrijf_atomair(map_ / BESTAND_GRAAF, dataset.graph)
 
 
@@ -796,7 +799,50 @@ class _SnellePickler(pickle.Pickler):
     }
 
 
-def _schrijf_atomair(pad: Path, inhoud: object) -> None:
+class _GeometriePickler(_SnellePickler):
+    """Pickelt elke shapely-geometrie als verwijzing naar een lijst ernaast (issue #82).
+
+    Een shapely-geometrie pickelt zichzelf als WKB en komt per object terug via
+    `shapely.from_wkb`: op De Wolden en Hoogeveen 46.925 aanroepen, samen 1,2 s van de
+    structurenlading. Deze pickler verzamelt de geometrieën in `geometrieen`;
+    `_schrijf_structuren` schrijft ze als één WKB-lijst vóór de pickle, en `_lees_structuren`
+    maakt ze in één `shapely.from_wkb` terug.
+    """
+
+    def __init__(self, bestand: IO[bytes]) -> None:
+        super().__init__(bestand, protocol=5)
+        self.geometrieen: list[shapely.Geometry] = []
+        self._plek: dict[int, int] = {}
+
+    def persistent_id(self, obj: Any) -> int | None:
+        if not isinstance(obj, shapely.Geometry):
+            return None
+        plek = self._plek.get(id(obj))
+        if plek is None:
+            plek = self._plek[id(obj)] = len(self.geometrieen)
+            self.geometrieen.append(obj)
+        return plek
+
+
+def _schrijf_structuren(bestand: IO[bytes], velden: object) -> None:
+    """Schrijft eerst de geometrieën als één WKB-lijst en daarna de structuren (issue #82)."""
+    buffer = io.BytesIO()
+    pickler = _GeometriePickler(buffer)
+    pickler.dump(velden)
+    wkb = list(shapely.to_wkb(pickler.geometrieen, include_srid=True))
+    pickle.dump(wkb, bestand, protocol=5)
+    bestand.write(buffer.getbuffer())
+
+
+def _lees_structuren(bestand: IO[bytes]) -> Any:
+    """De tegenhanger van `_schrijf_structuren`: de WKB-lijst in één keer, dan de structuren."""
+    geometrieen = list(shapely.from_wkb(pickle.load(bestand)))
+    lezer = pickle.Unpickler(bestand)
+    lezer.persistent_load = geometrieen.__getitem__  # type: ignore[method-assign]
+    return lezer.load()
+
+
+def _schrijf_atomair(pad: Path, inhoud: object, *, structuren: bool = False) -> None:
     """Schrijft eerst naar een tijdelijk bestand en hernoemt dan atomisch.
 
     Zonder die omweg laat een afgebroken schrijfactie een half bestand achter dat
@@ -821,7 +867,10 @@ def _schrijf_atomair(pad: Path, inhoud: object) -> None:
     tijdelijk = Path(tijdelijk_pad)
     try:
         with os.fdopen(beschrijving, "wb") as bestand:
-            _SnellePickler(bestand, protocol=5).dump(inhoud)
+            if structuren:
+                _schrijf_structuren(bestand, inhoud)
+            else:
+                _SnellePickler(bestand, protocol=5).dump(inhoud)
         tijdelijk.replace(pad)
     except BaseException:
         tijdelijk.unlink(missing_ok=True)

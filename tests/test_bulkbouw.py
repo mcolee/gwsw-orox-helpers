@@ -67,3 +67,33 @@ def test_elke_fixture_leest_dezelfde_geometrie_als_per_object(monkeypatch) -> No
             assert (gelezen.wkb if gelezen else None) == (
                 conduit.line.wkb if conduit.line else None
             )
+
+
+def test_de_cache_geeft_dezelfde_geometrie_terug_uit_één_wkb_lijst(tmp_path, monkeypatch) -> None:
+    import shapely
+
+    from gwsw_orox_helpers import cache
+
+    bron = FIXTURES / "ttl" / "schoon.ttl"
+    koud, _ = cache.laad_met_cache(bron, [], cache_dir=tmp_path)
+    aanroepen: list[int] = []
+    echte = shapely.from_wkb
+
+    def tel(*args, **kwargs):
+        aanroepen.append(1)
+        return echte(*args, **kwargs)
+
+    monkeypatch.setattr(shapely, "from_wkb", tel)
+    warm, uitslag = cache.laad_met_cache(bron, [], cache_dir=tmp_path)
+    assert uitslag.bron == "cache"
+    assert len(aanroepen) == 1
+    geometrieen = [n.point for n in koud.nodes.values()] + [c.line for c in koud.conduits.values()]
+    assert any(g is not None for g in geometrieen)
+    for uri, node in koud.nodes.items():
+        terug = warm.nodes[uri].point
+        assert (terug.wkb if terug else None) == (node.point.wkb if node.point else None)
+    for uri, conduit in koud.conduits.items():
+        terug = warm.conduits[uri].line
+        assert (terug.wkb if terug else None) == (conduit.line.wkb if conduit.line else None)
+    structuren = next(tmp_path.rglob(cache.BESTAND_STRUCTUREN)).read_bytes()
+    assert b"from_wkb" not in structuren  # geen enkele geometrie op de weg per object

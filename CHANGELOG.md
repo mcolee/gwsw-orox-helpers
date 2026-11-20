@@ -24,6 +24,13 @@
   geometrie, z en `geometry_errors` op alle fixtures gelijk aan de weg per object. CPU-tijd
   van `_read_nodes` + `_read_conduits`, drie gepaarde runs ten opzichte van #81:
   7,93 → 5,94 s, 7,24 → 6,34 s en 6,00 → 3,98 s.
+- Geometrie in bulk in de cache (issue #82, deel b; performance; **additief**; het
+  cacheformaat valt onder dezelfde `LADER_VERSIE` "4" als #81). De structurenpickle verwijst
+  naar elke shapely-geometrie via een persistent id (`cache._GeometriePickler`). De
+  geometrieën staan vooraf als één WKB-lijst in hetzelfde bestand en komen terug met één
+  `shapely.from_wkb`, in plaats van 46.925 losse aanroepen. CPU-tijd van een cachetreffer
+  (structuren plus sleutel), drie gepaarde runs: 2,16 → 1,59 s, 2,15 → 1,60 s en
+  1,91 → 1,76 s.
 
 ## [0.2.4] - 2026-09-06
 _Versie 0.2.3 is nooit gepubliceerd: de tag `v0.2.3` (05-09-2026) wees naar een commit waarvan

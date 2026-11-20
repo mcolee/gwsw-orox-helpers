@@ -94,3 +94,10 @@ def test_membership_met_een_verse_gelijke_term_blijft_waar() -> None:
     assert vers is not objecten
     assert (subject, URIRef(str(RDF.type)), vers) in graaf
     assert (subject, inlezen._RDF_TYPE, URIRef("http://example.org/Anders")) not in graaf
+
+
+def test_membership_met_een_niet_term_is_onwaar_zonder_typefout() -> None:
+    graaf, _ = _parse(SCHOON, None)
+    subject = next(s for s, per_p in graaf._spo.items() if inlezen._RDF_TYPE in per_p)
+    for vreemd in (None, 5, object()):
+        assert (subject, inlezen._RDF_TYPE, vreemd) not in graaf

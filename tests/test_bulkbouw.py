@@ -97,3 +97,32 @@ def test_de_cache_geeft_dezelfde_geometrie_terug_uit_één_wkb_lijst(tmp_path, m
         assert (terug.wkb if terug else None) == (conduit.line.wkb if conduit.line else None)
     structuren = next(tmp_path.rglob(cache.BESTAND_STRUCTUREN)).read_bytes()
     assert b"from_wkb" not in structuren  # geen enkele geometrie op de weg per object
+
+
+def test_de_bulkbouw_valt_terug_op_de_weg_per_object_als_shapely_in_bulk_faalt(
+    monkeypatch,
+) -> None:
+    import shapely
+    from shapely.errors import ShapelyError
+
+    echt = {"points": shapely.points, "linestrings": shapely.linestrings}
+
+    def faal_in_bulk(naam):
+        # Alleen de bulkaanroep (een lijst) faalt; `Point(...)`/`LineString(...)` lopen zelf
+        # ook via deze functies en moeten blijven werken.
+        def aanroep(coords, *args, **kwargs):
+            bulk = "indices" in kwargs if naam == "linestrings" else isinstance(coords, list)
+            if bulk:
+                raise ShapelyError("bulk faalt")
+            return echt[naam](coords, *args, **kwargs)
+
+        return aanroep
+
+    monkeypatch.setattr(shapely, "points", faal_in_bulk("points"))
+    monkeypatch.setattr(shapely, "linestrings", faal_in_bulk("linestrings"))
+    bouw = _Bulkbouw()
+    gelezen = [bouw.lees(literal) for literal in LITERALEN]
+    for literal, (waarde, _z) in zip(LITERALEN, gelezen, strict=True):
+        geometrie = bouw.geometrie(waarde)
+        assert geometrie is not None
+        assert geometrie.wkb == parse_gml_met_z(literal)[0].wkb

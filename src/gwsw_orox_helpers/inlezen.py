@@ -34,8 +34,8 @@ from gwsw_orox_helpers import namen
 from gwsw_orox_helpers.domein import Aspect, Conduit, Inwinning, Koppelingsherstel, Node, _as_date
 from gwsw_orox_helpers.geometry import (
     GeometryError,
-    Uitgesteld,
     _Bulkbouw,
+    _Uitgesteld,
     is_multipart_literal,
 )
 from gwsw_orox_helpers.graaf import GraafIndex, _kanoniek, _uriref_snel
@@ -474,7 +474,7 @@ def _types(graph: GraafIndex, subject: RdfNode) -> frozenset[str]:
 
 def _geometry(
     graph: GraafIndex, orientation: RdfNode, klasse: URIRef, bouw: _Bulkbouw
-) -> tuple[Point | LineString | Polygon | Uitgesteld | None, list[float | None], str | None]:
+) -> tuple[Point | LineString | Polygon | _Uitgesteld | None, list[float | None], str | None]:
     """Zoekt de geometrie van een orientatie en geeft die met haar z-waarden en fout terug.
 
     Via `_Bulkbouw.lees` (de tekststappen van `parse_gml_met_z`; een punt of lijn komt als
@@ -534,7 +534,7 @@ def _read_nodes(
     # De punten worden na de lus in één shapely-aanroep gebouwd (issue #82); `te_bouwen`
     # houdt bij welke knoop welk uitgesteld punt krijgt.
     bouw = _Bulkbouw()
-    te_bouwen: list[tuple[Node, Uitgesteld]] = []
+    te_bouwen: list[tuple[Node, _Uitgesteld]] = []
 
     if knooppunt_klassen:
         bron = _orientations_of_class(graph, knooppunt_klassen)
@@ -668,7 +668,7 @@ def _read_conduits(
     houders: set[str] = set()
     # Zie `_read_nodes`: de lijnen komen na de lus uit één shapely-aanroep (issue #82).
     bouw = _Bulkbouw()
-    te_bouwen: list[tuple[Conduit, Uitgesteld]] = []
+    te_bouwen: list[tuple[Conduit, _Uitgesteld]] = []
 
     bron = (
         _orientations_of_class(graph, verbinding_klassen)

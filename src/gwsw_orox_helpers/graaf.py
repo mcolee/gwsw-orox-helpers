@@ -367,7 +367,9 @@ class GraafIndex:
                     if o in objecten:
                         continue
                     objecten[o] = None
-                elif objecten is o or (str.__eq__(cast(str, objecten), o) and objecten == o):
+                elif objecten is o or (
+                    str.__eq__(cast(str, objecten), o) is not False and objecten == o
+                ):
                     continue
                 else:
                     per_predicaat[p] = {cast(RdfNode, objecten): None, o: None}
@@ -435,9 +437,14 @@ class GraafIndex:
             return True
         # `str.__eq__` in C als voorfilter: rdflib's `__eq__` is Python-code en twee termen met
         # een verschillende tekst zijn nooit gelijk (issue #81).
-        return objecten is not None and bool(
-            str.__eq__(cast(str, objecten), object_) and objecten == object_
-        )
+        # `is True`: tegen een niet-str geeft `str.__eq__` `NotImplemented`, en dat is in een
+        # booleaanse context een `TypeError` (Python 3.14); dan beslist `==` zoals voorheen.
+        if objecten is None:
+            return False
+        voorfilter = str.__eq__(cast(str, objecten), object_)
+        if voorfilter is False:
+            return False
+        return bool(objecten == object_)
 
     def __len__(self) -> int:
         """Het aantal triples, zonder duplicaten."""

@@ -6,7 +6,9 @@
   `rdfs:subClassOf` en de leestermen in elke GWSW-basis (`namen._LEESNAMEN`) één gedeeld
   `URIRef`-object. De index krijgt het via `naar_rdflib`, de lezers via `inlezen._leestermen`,
   en de cache pickelt zo'n term naar `_kanoniek` (`LADER_VERSIE` → "4": bestaande caches
-  herbouwen één keer). `GraafIndex.__contains__` en `vul_uit` filteren eerst met `str.__eq__`.
+  herbouwen één keer). `GraafIndex.__contains__` en `vul_uit` filteren eerst met `str.__eq__`
+  (`NotImplemented` tegen een niet-str valt door naar `==`, dus `(s, p, None) in graaf` blijft
+  `False`).
   De gebundelde GraafIndex-pickles zijn opnieuw gebouwd (`graaf.py` zit in hun hash).
   Gemeten op de 112 MB-export:
   - rdflib-`Identifier.__eq__` in `_read_nodes` + `_read_conduits`: 2.416.720 → 23.489
@@ -24,13 +26,15 @@
   geometrie, z en `geometry_errors` op alle fixtures gelijk aan de weg per object. CPU-tijd
   van `_read_nodes` + `_read_conduits`, drie gepaarde runs ten opzichte van #81:
   7,93 → 5,94 s, 7,24 → 6,34 s en 6,00 → 3,98 s.
-- Geometrie in bulk in de cache (issue #82, deel b; performance; **additief**; het
-  cacheformaat valt onder dezelfde `LADER_VERSIE` "4" als #81). De structurenpickle verwijst
+- Geometrie in bulk in de cache (issue #82, deel b; performance; **additief**; `LADER_VERSIE`
+  → "5", want een "4"-structurenpickle is in het nieuwe formaat niet te lezen). De structurenpickle verwijst
   naar elke shapely-geometrie via een persistent id (`cache._GeometriePickler`). De
   geometrieën staan vooraf als één WKB-lijst in hetzelfde bestand en komen terug met één
   `shapely.from_wkb`, in plaats van 46.925 losse aanroepen. CPU-tijd van een cachetreffer
   (structuren plus sleutel), drie gepaarde runs: 2,16 → 1,59 s, 2,15 → 1,60 s en
-  1,91 → 1,76 s.
+  1,91 → 1,76 s. Tegen de stand vóór #81 en #82: structuren 1,46–1,55 → 1,15–1,22 s;
+  de graaflading blijft gelijk (1,91–2,01 tegen 1,81–2,06 s).
+  Bij een onverwachte shapely-fout in bulk valt `_Bulkbouw` terug op de weg per object.
 
 ## [0.2.4] - 2026-09-06
 _Versie 0.2.3 is nooit gepubliceerd: de tag `v0.2.3` (05-09-2026) wees naar een commit waarvan

@@ -80,9 +80,9 @@ logger = logging.getLogger(__name__)
 # één keer herbouwd -- bedoelde mechaniek.
 # Bij "4" sinds issue #81: een vraagterm (`graaf._kanoniek`) pickelt naar die functie, zodat
 # de gedepickelde graaf dezelfde objecten draagt als de lezers; ook dat is een vormwijziging.
-# In dezelfde versie (issue #82): de structurenpickle draagt haar geometrieën vooraf als één
-# WKB-lijst (`_schrijf_structuren`).
-LADER_VERSIE = "4"
+# Bij "5" sinds issue #82: de structurenpickle draagt haar geometrieën vooraf als één
+# WKB-lijst (`_schrijf_structuren`); een "4"-structurenpickle is daar niet mee te lezen.
+LADER_VERSIE = "5"
 
 BESTAND_STRUCTUREN = "structuren.pickle"
 BESTAND_GRAAF = "graaf.pickle"

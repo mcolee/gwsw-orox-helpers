@@ -116,7 +116,7 @@ def _ontleed_met_z(
 
 
 # Een geometrie die `_Bulkbouw` nog moet maken: de soort en de plek in haar lijst.
-Uitgesteld = tuple[str, int]
+_Uitgesteld = tuple[str, int]
 
 
 class _Bulkbouw:
@@ -139,7 +139,7 @@ class _Bulkbouw:
 
     def lees(
         self, literal: str
-    ) -> tuple[Point | LineString | Polygon | Uitgesteld, list[float | None]]:
+    ) -> tuple[Point | LineString | Polygon | _Uitgesteld, list[float | None]]:
         """Als `parse_gml_met_z`, maar een punt of lijn komt terug als `Uitgesteld`."""
         soort, vlak, z_waarden = _ontleed_met_z(literal)
         if soort == "Point":
@@ -151,21 +151,35 @@ class _Bulkbouw:
         return _bouw(soort, vlak), z_waarden
 
     def geometrie(
-        self, waarde: Point | LineString | Polygon | Uitgesteld | None
+        self, waarde: Point | LineString | Polygon | _Uitgesteld | None
     ) -> Point | LineString | Polygon | None:
         """De echte geometrie bij een uitkomst van `lees`; bouwt alles bij de eerste vraag."""
         if not isinstance(waarde, tuple):
             return waarde
         if self._klaar is None:
-            punten = list(shapely.points(self._punten)) if self._punten else []
-            lijnen: list[LineString] = []
-            if self._lijnen:
-                plat = [punt for lijn in self._lijnen for punt in lijn]
-                indices = [nummer for nummer, lijn in enumerate(self._lijnen) for _ in lijn]
-                lijnen = list(shapely.linestrings(plat, indices=indices))
-            self._klaar = {"Point": punten, "LineString": lijnen}
+            self._klaar = {"Point": self._bouw_punten(), "LineString": self._bouw_lijnen()}
         soort, plek = waarde
         return self._klaar[soort][plek]
+
+    def _bouw_punten(self) -> list[Point | LineString]:
+        if not self._punten:
+            return []
+        try:
+            return list(shapely.points(self._punten))
+        except (ValueError, ShapelyError):
+            # Niet verwacht (elk uitgesteld punt heeft een coordinaat); dan de weg per object,
+            # die een eventuele fout als `GeometryError` geeft, net als `parse_gml_met_z`.
+            return [_bouw("Point", [punt]) for punt in self._punten]
+
+    def _bouw_lijnen(self) -> list[Point | LineString]:
+        if not self._lijnen:
+            return []
+        plat = [punt for lijn in self._lijnen for punt in lijn]
+        indices = [nummer for nummer, lijn in enumerate(self._lijnen) for _ in lijn]
+        try:
+            return list(shapely.linestrings(plat, indices=indices))
+        except (ValueError, ShapelyError):
+            return [_bouw("LineString", lijn) for lijn in self._lijnen]
 
 
 def coordinaattokens(literal: str) -> list[str]:

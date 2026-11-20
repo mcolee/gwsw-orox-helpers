@@ -99,23 +99,23 @@ def _plaats_alle(
             # Een onleesbare geometrie zaait niets, net als in `_plaats`.
             gelezen.append(None)
     meetkundes = [bouw.geometrie(waarde) for waarde in gelezen]
-    gedekt = []
-    for vlak in vlakken:
-        shapely.prepare(vlak.meetkunde)
-        gedekt.append(shapely.covers(vlak.meetkunde, meetkundes).tolist())
+    # Per vlak, per geometrie: dekt dit vlak haar? `vlak.meetkunde` is al voorbereid door
+    # `prep()` in `_lees_grenzen`, dus `covers` gebruikt dezelfde GEOS-index.
+    dekt_per_vlak = [shapely.covers(vlak.meetkunde, meetkundes).tolist() for vlak in vlakken]
 
     uit: list[tuple[int, tuple[_Stuk, ...] | None]] = []
     rijen = zip(literalen, gelezen, meetkundes, strict=True)
     for index, (literal, waarde, meetkunde) in enumerate(rijen):
-        eerste = next((nummer for nummer, rij in enumerate(gedekt) if rij[index]), None)
         if meetkunde is None:
             uit.append((0, None))
-        elif not isinstance(waarde, tuple):
+            continue
+        if not isinstance(waarde, tuple):  # niet uitgesteld (een polygoon): de oude weg
             uit.append(_plaats(literal, vlakken))
-        elif eerste is not None:
-            uit.append((1 << eerste, None))
-        elif waarde[0] == "LineString":
-            assert isinstance(meetkunde, LineString)
+            continue
+        dekkend = next((nr for nr, dekt in enumerate(dekt_per_vlak) if dekt[index]), None)
+        if dekkend is not None:
+            uit.append((1 << dekkend, None))
+        elif isinstance(meetkunde, LineString):
             uit.append(_knip_lijn(literal, meetkunde, vlakken))
         else:
             uit.append((1 << _vlak_van(meetkunde, vlakken), None))

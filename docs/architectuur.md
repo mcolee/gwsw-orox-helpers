@@ -352,7 +352,7 @@ die anders uit elkaar loopt, en die staat één keer:
 | De prefixkop van een OroX-export | `schrijven.STANDAARD_PREFIXEN`, opgebouwd uit `namen` | `schrijven`, `clip.orkest` (krijgt ze via `lees_orox` en vult `knip:` aan) |
 | UTF-8 (met of zonder een leidende BOM, via `utf-8-sig`) met terugvalcodering, inclusief beide foutmeldingen | `codering.decodeer` (de bron in het geheugen) en sinds issue #66 `codering.hercodeerstroom` (dezelfde regel, blokgewijs streamend, met `decodeer` als foutbron) | `bestand._decode` (decodeer), `schrijven.lees_orox` (hercodeerstroom) |
 | Het verslag van zo'n terugval (`DecodeFallback`) | `codering.terugvalverslag` | alleen `bestand` |
-| De GML-lezers | `geometry` | `inlezen` (`parse_gml_met_z`), `clip.knip`, `clip.plan`, `clip.merge`, `clip.bereik` (`parse_gml` / `parse_gml_z`), `dataset` (doorgeefluik) |
+| De GML-lezers | `geometry` | `inlezen` (`parse_gml_met_z`, via `_Bulkbouw`), `clip.knip` (ook `_Bulkbouw`, sinds issue #86), `clip.plan`, `clip.merge`, `clip.bereik` (`parse_gml` / `parse_gml_z`), `dataset` (doorgeefluik) |
 | De tekstkant van diezelfde literaal: de coordinatenlijst als tokens, het terugleggen ervan in het omhulsel, en hoeveel getallen er op een punt gaan (`coordinaattokens`, `vervang_coordinaten`, `tokens_per_punt`) | `geometry` | `clip.knip` (de knip), `clip.stroom` (het stuk wegschrijven), `clip.merge` (de omkering) |
 | De `knip:`-naamruimte, de stuknamen (`<origineel>__knip<k>`) en het herkennen van een GML-literaal (`_gml_waarde`) | `clip.termen` | `clip.plan`, `clip.stroom`, `clip.merge`, `clip.bereik`, `clip.orkest` |
 
@@ -428,6 +428,8 @@ Sinds issue #82 roept de leeslaag `parse_gml_met_z` niet meer per geometrie aan,
 `geometry._Bulkbouw`. Die doet dezelfde tekststappen (`_ontleed_met_z`), stelt een punt of een
 lijn met minstens twee coordinaten uit en bouwt ze na de lus in één shapely-aanroep. Wat kan
 mislukken, gaat meteen langs `_bouw`; de foutmeldingen blijven dus die van `parse_gml_met_z`.
+Sinds issue #86 doet de clip hetzelfde in `clip.knip._plaats_alle`: punten en lijnen in bulk,
+en `covers` per vlak in één shapely-aanroep over alle geometrieën.
 
 ### Store is geen derde pad
 

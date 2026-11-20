@@ -1,6 +1,21 @@
 # Changelog
 
 ## [Unreleased]
+- Canonieke vraagtermen in de leesweg (issue #81, performance; **additief**: geen signatuur,
+  retourvorm of volgorde wijzigt). `graaf._kanoniek` geeft voor `rdf:type`, `rdfs:label`,
+  `rdfs:subClassOf` en de leestermen in elke GWSW-basis (`namen._LEESNAMEN`) één gedeeld
+  `URIRef`-object. De index krijgt het via `naar_rdflib`, de lezers via `inlezen._leestermen`,
+  en de cache pickelt zo'n term naar `_kanoniek` (`LADER_VERSIE` → "4": bestaande caches
+  herbouwen één keer). `GraafIndex.__contains__` en `vul_uit` filteren eerst met `str.__eq__`.
+  De gebundelde GraafIndex-pickles zijn opnieuw gebouwd (`graaf.py` zit in hun hash).
+  Gemeten op de 112 MB-export:
+  - rdflib-`Identifier.__eq__` in `_read_nodes` + `_read_conduits`: 2.416.720 → 23.489
+    aanroepen;
+  - CPU-tijd van die twee lezers, drie gepaarde runs: 9,44 → 7,71 s, 10,73 → 8,94 s en
+    9,08 → 8,50 s;
+  - parse: geen meetbaar verschil.
+  End-to-end `load_dataset` was niet te meten: de machine had een load van 11–15 door een
+  andere sessie.
 
 ## [0.2.4] - 2026-09-06
 _Versie 0.2.3 is nooit gepubliceerd: de tag `v0.2.3` (05-09-2026) wees naar een commit waarvan

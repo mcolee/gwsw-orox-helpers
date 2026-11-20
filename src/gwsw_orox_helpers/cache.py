@@ -58,7 +58,9 @@ from gwsw_orox_helpers.bronnen import GEBUNDELDE_VERSIES, gebundelde_ontologie_v
 from gwsw_orox_helpers.dataset import GwswDataset, load_dataset, ontologiepaden
 from gwsw_orox_helpers.errors import BestandError
 from gwsw_orox_helpers.graaf import (
+    _KANONIEK,
     GraafIndex,
+    _kanoniek,
     _literal_snel,
     _literal_string_snel,
     _uriref_snel,
@@ -75,7 +77,9 @@ logger = logging.getLogger(__name__)
 # staat niet in `LADERMODULES` (het staat in `BUITEN_DE_SLEUTEL`), dus die vormwijziging
 # invalideert de sleutel niet vanzelf; deze bump doet dat wel. Bestaande caches worden zo
 # één keer herbouwd -- bedoelde mechaniek.
-LADER_VERSIE = "3"
+# Bij "4" sinds issue #81: een vraagterm (`graaf._kanoniek`) pickelt naar die functie, zodat
+# de gedepickelde graaf dezelfde objecten draagt als de lezers; ook dat is een vormwijziging.
+LADER_VERSIE = "4"
 
 BESTAND_STRUCTUREN = "structuren.pickle"
 BESTAND_GRAAF = "graaf.pickle"
@@ -732,7 +736,13 @@ def _reduce_uriref(term: URIRef) -> tuple[Callable[[str], URIRef], tuple[str]]:
     al gecontroleerd. `_uriref_snel` neemt het `str.__new__`-pad rechtstreeks; pickle noemt de
     functie bij naam, dus het laden kiest haar vanzelf.
     """
-    return (_uriref_snel, (str(term),))
+    tekst = str(term)
+    # Een vraagterm (issue #81) komt terug als het gedeelde object van `graaf._kanoniek`, zodat
+    # de opzoekingen op de gedepickelde graaf op identiteit slagen. De toets staat hier, op de
+    # schrijfweg, zodat het teruglezen van de overige termen niets extra's kost.
+    if _KANONIEK.get(tekst) is term:
+        return (_kanoniek, (tekst,))
+    return (_uriref_snel, (tekst,))
 
 
 def _reduce_bnode(term: BNode) -> tuple[type[BNode], tuple[str]]:

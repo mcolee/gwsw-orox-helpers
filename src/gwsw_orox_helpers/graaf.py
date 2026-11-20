@@ -62,7 +62,7 @@ import pyoxigraph
 from rdflib import BNode, Literal, URIRef
 from rdflib.term import Node as RdfNode
 
-from gwsw_orox_helpers.namen import GWSW, XSD_STRING
+from gwsw_orox_helpers.namen import _LEESNAMEN, GWSW, RDF, RDFS, XSD_STRING, basis_uit_iri
 
 
 def _uriref_snel(value: str) -> URIRef:
@@ -94,6 +94,35 @@ def _uriref_snel(value: str) -> URIRef:
     iets anders in stopt kreeg een fout en krijgt nu een misser.
     """
     return str.__new__(URIRef, value)
+
+
+# De vaste vraagtermen buiten de GWSW-basis; de GWSW-kant gaat op naam (`namen._LEESNAMEN`).
+_VASTE_VRAAGTERMEN = frozenset({f"{RDF}type", f"{RDFS}label", f"{RDFS}subClassOf"})
+_KANONIEK: dict[str, URIRef] = {}
+
+
+def _kanoniek(iri: str) -> URIRef:
+    """De `URIRef` van een IRI, met één gedeeld object per vraagterm (issue #81).
+
+    Een dict-treffer met een gelijk-maar-niet-identiek sleutelobject valt in CPython door naar
+    `__eq__`, en dat is bij rdflib Python-code. Voor de termen waarmee de lezers de index
+    bevragen (`rdf:type`, `rdfs:label`, `rdfs:subClassOf` en de `namen._LEESNAMEN` in elke
+    GWSW-basis) geeft deze functie daarom altijd hetzelfde object terug: de index krijgt het
+    via `naar_rdflib` en de lezers via `inlezen._leestermen`, zodat hun opzoekingen op
+    identiteit slagen. Elke andere IRI krijgt een verse term via `_uriref_snel`; de registry
+    blijft zo begrensd tot een handvol termen per basis.
+
+    De term zelf is niet te onderscheiden van `URIRef(iri)` (zie `_uriref_snel`).
+    """
+    term = _KANONIEK.get(iri)
+    if term is not None:
+        return term
+    term = _uriref_snel(iri)
+    if iri in _VASTE_VRAAGTERMEN or (
+        iri.rpartition("/")[2] in _LEESNAMEN and basis_uit_iri(iri) is not None
+    ):
+        term = _KANONIEK.setdefault(iri, term)
+    return term
 
 
 def _literal_string_snel(value: str) -> Literal:
@@ -180,7 +209,7 @@ def naar_rdflib(
     taal-literaal, elk ander datatype en de `BNode` blijven op de generieke weg.
     """
     if isinstance(term, pyoxigraph.NamedNode):
-        return _uriref_snel(term.value)
+        return _kanoniek(term.value)
     if isinstance(term, pyoxigraph.BlankNode):
         return BNode(term.value)
     if not isinstance(term, pyoxigraph.Literal):
@@ -338,7 +367,7 @@ class GraafIndex:
                     if o in objecten:
                         continue
                     objecten[o] = None
-                elif objecten is o or objecten == o:
+                elif objecten is o or (str.__eq__(cast(str, objecten), o) and objecten == o):
                     continue
                 else:
                     per_predicaat[p] = {cast(RdfNode, objecten): None, o: None}
@@ -402,7 +431,13 @@ class GraafIndex:
         objecten = self._spo.get(subject, _LEEG).get(predicate)
         if type(objecten) is dict:
             return object_ in objecten
-        return objecten == object_
+        if objecten is object_:
+            return True
+        # `str.__eq__` in C als voorfilter: rdflib's `__eq__` is Python-code en twee termen met
+        # een verschillende tekst zijn nooit gelijk (issue #81).
+        return objecten is not None and bool(
+            str.__eq__(cast(str, objecten), object_) and objecten == object_
+        )
 
     def __len__(self) -> int:
         """Het aantal triples, zonder duplicaten."""

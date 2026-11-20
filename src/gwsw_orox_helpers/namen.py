@@ -111,6 +111,40 @@ _short = korte_naam
 _BASIS_PATROON: Final = re.compile(r"http://data\.gwsw\.nl/(\d+\.\d+)/totaal/")
 
 
+# De lokale namen die de leeslaag als vraagterm gebruikt (`inlezen.Leestermen`), in elke
+# GWSW-basis. `graaf._kanoniek` houdt voor deze IRI's één `URIRef` per IRI vast, zodat de
+# index en de lezers hetzelfde object delen (issue #81). Op naam en niet op basis: de
+# registry moet al gelden tijdens de parse, vóór de basis gedetecteerd is.
+# `tests/test_kanoniek.py` houdt deze verzameling gelijk met de velden van `Leestermen`.
+_LEESNAMEN: Final = frozenset(
+    {
+        "hasAspect",
+        "hasPart",
+        "isAspectOf",
+        "isPartOf",
+        "hasConnection",
+        "hasValue",
+        "hasReference",
+        "Inwinning",
+        "WijzeVanInwinning",
+        "DatumInwinning",
+        "Maaiveldorientatie",
+        "Maaiveldhoogte",
+        "Putdekselniveau",
+        "Punt",
+        "Lijn",
+        "BeginpuntLeiding",
+        "BeginpuntOnderdeel",
+        "BeginpuntAfvoerrelatie",
+        "EindpuntLeiding",
+        "EindpuntOnderdeel",
+        "EindpuntAfvoerrelatie",
+        "BobBeginpuntLeiding",
+        "BobEindpuntLeiding",
+    }
+)
+
+
 @dataclass(frozen=True)
 class Termen:
     """De GWSW-properties van één basis, als tekst.

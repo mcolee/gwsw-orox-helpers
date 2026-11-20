@@ -207,7 +207,7 @@ Elke module beantwoordt één vraag; in deze volgorde heeft niets ooit iets van 
 | `bronnen` | Waar liggen de meegeleverde ontologie en vocabulaire-index? |
 | `namen` | Hoe spellen we een IRI? (de naamruimten en de properties als tekst, plus `_uri`/`_short` die een korte klassenaam uitschrijven en weer teruglezen; alleen tekst, geen imports) |
 | `geometry` | Wat staat er in een GML-literaal? (shapely; z apart van xy of allebei in een gang; en de coordinatentekst zelf, voor wie hem letterlijk moet terugleggen) |
-| `graaf` | Hoe vraag je een graaf iets? (`GraafIndex`: twee dicts, rdflib-termen) |
+| `graaf` | Hoe vraag je een graaf iets? (`GraafIndex`: twee dicts, rdflib-termen; sinds issue #81 deelt `_kanoniek` één object per vraagterm met de lezers, zodat opzoekingen op identiteit slagen in plaats van via rdflib's Python-`__eq__`) |
 | `codering` | Hoe worden de bytes van een TTL tekst? (UTF-8 met terugval) |
 | `rdfmotor` | Hoe roepen we pyoxigraph aan? (`ontleed_turtle`, `serialiseer_turtle`, plus de poort op de ondersteunde versiereeks) |
 | `ontologie` | Wat zegt een `owl:Restriction` over een klasse of kenmerk? (op allebei de graafvormen; zie hieronder) |

@@ -37,7 +37,7 @@ from gwsw_orox_helpers.geometry import (
     is_multipart_literal,
     parse_gml_met_z,
 )
-from gwsw_orox_helpers.graaf import GraafIndex, _uriref_snel
+from gwsw_orox_helpers.graaf import GraafIndex, _kanoniek, _uriref_snel
 from gwsw_orox_helpers.klassen import (
     KLASSE_PUTDEKSEL,
     WORTEL_KNOOPPUNT,
@@ -58,8 +58,10 @@ from gwsw_orox_helpers.namen import _short
 #
 # `dataset` leent `_RDF_TYPE` hiervandaan (issue #23) in plaats van er een tweede naast te
 # zetten: de `URIRef`-vorm van een GWSW-IRI woont in deze module (`docs/architectuur.md`).
-_RDF_TYPE = RDF.type
-_RDFS_LABEL = RDFS.label
+#
+# Sinds issue #81 via `graaf._kanoniek`: dezelfde objecten die de index als sleutel draagt.
+_RDF_TYPE = _kanoniek(str(RDF.type))
+_RDFS_LABEL = _kanoniek(str(RDFS.label))
 
 # De staart die de BrutIS-export achter de naam van een hulpstuk plakt in het
 # hasConnection-doel van een leidingeinde, waar de orientatie zelf anders heet.
@@ -135,25 +137,25 @@ def _leestermen(basis: str) -> Leestermen:
     # opgebouwd (`namen` draagt geen klassennamen).
     t = namen.termen_voor(basis)
     return _Leestermen(
-        has_aspect=URIRef(t.has_aspect),
-        has_part=URIRef(t.has_part),
-        is_aspect_of=URIRef(t.is_aspect_of),
-        is_part_of=URIRef(t.is_part_of),
-        has_connection=URIRef(t.has_connection),
-        has_value=URIRef(t.has_value),
-        has_reference=URIRef(t.has_reference),
-        klasse_inwinning=URIRef(f"{basis}Inwinning"),
-        klasse_wijze_van_inwinning=URIRef(f"{basis}WijzeVanInwinning"),
-        klasse_datum_inwinning=URIRef(f"{basis}DatumInwinning"),
-        klasse_maaiveldorientatie=URIRef(f"{basis}Maaiveldorientatie"),
-        klasse_maaiveldhoogte=URIRef(f"{basis}Maaiveldhoogte"),
-        klasse_putdekselniveau=URIRef(f"{basis}Putdekselniveau"),
-        klasse_punt=URIRef(f"{basis}Punt"),
-        klasse_lijn=URIRef(f"{basis}Lijn"),
-        klassen_beginpunt=tuple(URIRef(f"{basis}{naam}") for naam in _BEGINPUNT_NAMEN),
-        klassen_eindpunt=tuple(URIRef(f"{basis}{naam}") for naam in _EINDPUNT_NAMEN),
-        klasse_bob_begin=URIRef(f"{basis}BobBeginpuntLeiding"),
-        klasse_bob_eind=URIRef(f"{basis}BobEindpuntLeiding"),
+        has_aspect=_kanoniek(t.has_aspect),
+        has_part=_kanoniek(t.has_part),
+        is_aspect_of=_kanoniek(t.is_aspect_of),
+        is_part_of=_kanoniek(t.is_part_of),
+        has_connection=_kanoniek(t.has_connection),
+        has_value=_kanoniek(t.has_value),
+        has_reference=_kanoniek(t.has_reference),
+        klasse_inwinning=_kanoniek(f"{basis}Inwinning"),
+        klasse_wijze_van_inwinning=_kanoniek(f"{basis}WijzeVanInwinning"),
+        klasse_datum_inwinning=_kanoniek(f"{basis}DatumInwinning"),
+        klasse_maaiveldorientatie=_kanoniek(f"{basis}Maaiveldorientatie"),
+        klasse_maaiveldhoogte=_kanoniek(f"{basis}Maaiveldhoogte"),
+        klasse_putdekselniveau=_kanoniek(f"{basis}Putdekselniveau"),
+        klasse_punt=_kanoniek(f"{basis}Punt"),
+        klasse_lijn=_kanoniek(f"{basis}Lijn"),
+        klassen_beginpunt=tuple(_kanoniek(f"{basis}{naam}") for naam in _BEGINPUNT_NAMEN),
+        klassen_eindpunt=tuple(_kanoniek(f"{basis}{naam}") for naam in _EINDPUNT_NAMEN),
+        klasse_bob_begin=_kanoniek(f"{basis}BobBeginpuntLeiding"),
+        klasse_bob_eind=_kanoniek(f"{basis}BobEindpuntLeiding"),
     )
 
 

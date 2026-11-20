@@ -34,8 +34,9 @@ from gwsw_orox_helpers import namen
 from gwsw_orox_helpers.domein import Aspect, Conduit, Inwinning, Koppelingsherstel, Node, _as_date
 from gwsw_orox_helpers.geometry import (
     GeometryError,
+    Uitgesteld,
+    _Bulkbouw,
     is_multipart_literal,
-    parse_gml_met_z,
 )
 from gwsw_orox_helpers.graaf import GraafIndex, _kanoniek, _uriref_snel
 from gwsw_orox_helpers.klassen import (
@@ -472,11 +473,13 @@ def _types(graph: GraafIndex, subject: RdfNode) -> frozenset[str]:
 
 
 def _geometry(
-    graph: GraafIndex, orientation: RdfNode, klasse: URIRef
-) -> tuple[Point | LineString | Polygon | None, list[float | None], str | None]:
+    graph: GraafIndex, orientation: RdfNode, klasse: URIRef, bouw: _Bulkbouw
+) -> tuple[Point | LineString | Polygon | Uitgesteld | None, list[float | None], str | None]:
     """Zoekt de geometrie van een orientatie en geeft die met haar z-waarden en fout terug.
 
-    Via `parse_gml_met_z` en niet via `parse_gml` plus `parse_gml_z`: die twee zouden
+    Via `_Bulkbouw.lees` (de tekststappen van `parse_gml_met_z`; een punt of lijn komt als
+    `Uitgesteld` terug en wordt na de lus in één shapely-aanroep gebouwd, issue #82) en niet
+    via `parse_gml` plus `parse_gml_z`: die twee zouden
     dezelfde literaal twee tot vijf keer regexen en naar floats omzetten, en dit is het
     pad dat dat voor elke geometrie in de export doet. De uitkomst en elke foutmelding
     zijn per contract dezelfde (`test_parse_gml_met_z_is_gelijkwaardig_aan_de_twee_losse_lezers`).
@@ -494,7 +497,7 @@ def _geometry(
         if literal is None:
             continue
         try:
-            geometrie, z_waarden = parse_gml_met_z(str(literal))
+            geometrie, z_waarden = bouw.lees(str(literal))
         except GeometryError as error:
             return None, [], str(error)
         return geometrie, z_waarden, None
@@ -528,13 +531,18 @@ def _read_nodes(
     # per onderdeel daarvan, en bouwde ze tot issue #23 elke keer opnieuw uit tekst op.
     deksel_termen = frozenset(_uriref_snel(klasse) for klasse in deksel_klassen)
 
+    # De punten worden na de lus in één shapely-aanroep gebouwd (issue #82); `te_bouwen`
+    # houdt bij welke knoop welk uitgesteld punt krijgt.
+    bouw = _Bulkbouw()
+    te_bouwen: list[tuple[Node, Uitgesteld]] = []
+
     if knooppunt_klassen:
         bron = _orientations_of_class(graph, knooppunt_klassen)
     else:
         bron = _orientations_with(graph, t.klasse_punt)
 
     for orientation in bron:
-        point, z_waarden, geometriefout = _geometry(graph, orientation, t.klasse_punt)
+        point, z_waarden, geometriefout = _geometry(graph, orientation, t.klasse_punt, bouw)
         maaiveld, maaiveld_inwinning = _maaiveld_kenmerk(graph, orientation)
         multipart = _is_multipart(graph, orientation, t.klasse_punt)
         houder_gezien = False
@@ -550,13 +558,13 @@ def _read_nodes(
             if uri in nodes:
                 continue
             deksel, deksel_inwinning = _deksel_kenmerk(graph, subject, deksel_termen)
-            nodes[uri] = Node(
+            node = nodes[uri] = Node(
                 uri=uri,
                 label=_label(graph, subject),
                 types=_types(graph, subject),
                 orientation=str(orientation),
                 orientation_types=_types(graph, orientation),
-                point=point,
+                point=None if isinstance(point, tuple) else point,
                 z=z_waarden[0] if z_waarden else None,
                 parents=_parents(graph, subject),
                 aspects=_read_aspects(graph, subject),
@@ -566,12 +574,18 @@ def _read_nodes(
                 deksel_inwinning=deksel_inwinning,
                 multipart=multipart,
             )
+            if isinstance(point, tuple):
+                te_bouwen.append((node, point))
         # Wees-orientatie (issue #36): een kapotte literaal op een orientatie die geen
         # enkel object draagt, valt terug op de orientatie-URI, anders verdwijnt de
         # melding stil. Zo'n wees zit per definitie in geen enkele subset.
         if geometriefout is not None and not houder_gezien:
             errors[str(orientation)] = geometriefout
 
+    # De knoop is nog niet buiten deze functie geweest; het punt erin zetten is de laatste
+    # stap van zijn opbouw, niet een wijziging van een uitgegeven waardeobject.
+    for node, waarde in te_bouwen:
+        object.__setattr__(node, "point", bouw.geometrie(waarde))
     return nodes, houders
 
 
@@ -652,6 +666,9 @@ def _read_conduits(
     hersteld: list[str] = []
     conduits: dict[str, Conduit] = {}
     houders: set[str] = set()
+    # Zie `_read_nodes`: de lijnen komen na de lus uit één shapely-aanroep (issue #82).
+    bouw = _Bulkbouw()
+    te_bouwen: list[tuple[Conduit, Uitgesteld]] = []
 
     bron = (
         _orientations_of_class(graph, verbinding_klassen)
@@ -659,7 +676,7 @@ def _read_conduits(
         else _leiding_orientations(graph)
     )
     for orientation in bron:
-        line, z_waarden, geometriefout = _geometry(graph, orientation, t.klasse_lijn)
+        line, z_waarden, geometriefout = _geometry(graph, orientation, t.klasse_lijn, bouw)
         multipart = _is_multipart(graph, orientation, t.klasse_lijn)
         begin = _endpoint(graph, orientation, t.klassen_beginpunt)
         eind = _endpoint(graph, orientation, t.klassen_eindpunt)
@@ -678,11 +695,11 @@ def _read_conduits(
             # Draagt één orientatie twee leidingen, dan telt hetzelfde herstelde eind
             # twee keer in `koppelingen`; `hulpstukken` klopt wel, want dat gaat via een
             # set. Het referentievoorbeeld heeft nul van zulke orientaties.
-            conduits[uri] = Conduit(
+            conduit = conduits[uri] = Conduit(
                 uri=uri,
                 label=_label(graph, subject),
                 types=_types(graph, subject),
-                line=line,
+                line=None if isinstance(line, tuple) else line,
                 start_node=_connected_node(
                     graph, begin, orientation_to_node, hulpstukken, hersteld
                 ),
@@ -693,11 +710,15 @@ def _read_conduits(
                 multipart=multipart,
                 z_values=tuple(z_waarden),
             )
+            if isinstance(line, tuple):
+                te_bouwen.append((conduit, line))
         # Wees-orientatie (issue #36), net als bij `_read_nodes`: een kapotte lijn op een
         # orientatie zonder enkele houder valt terug op de orientatie-URI.
         if geometriefout is not None and not houder_gezien:
             errors[str(orientation)] = geometriefout
 
+    for conduit, waarde in te_bouwen:
+        object.__setattr__(conduit, "line", bouw.geometrie(waarde))
     return conduits, Koppelingsherstel(len(hersteld), len(set(hersteld))), houders
 
 

@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import re
 
+import shapely
 from shapely.errors import ShapelyError
 from shapely.geometry import LineString, Point, Polygon
 
@@ -96,15 +97,75 @@ def parse_gml_met_z(literal: str) -> tuple[Point | LineString | Polygon, list[fl
     soort geeft daar z-waarden en hier een fout. Ze delegeren daarom niet aan elkaar
     maar aan dezelfde private stappen.
     """
+    soort, vlak, z_waarden = _ontleed_met_z(literal)
+    return _bouw(soort, vlak), z_waarden
+
+
+def _ontleed_met_z(
+    literal: str,
+) -> tuple[str, list[tuple[float, float]], list[float | None]]:
+    """De tekststappen van `parse_gml_met_z`: soort, xy-coordinaten en z, zonder shapely."""
     soort = _kind(literal)
     getallen = _values(literal)
     dimensie = _dimensie_van(literal, getallen)
     tupels = _tupels(getallen, dimensie)
-
-    meetkunde = _bouw(soort, [(waarde[0], waarde[1]) for waarde in tupels])
+    vlak = [(waarde[0], waarde[1]) for waarde in tupels]
     if dimensie < 3:
-        return meetkunde, [None] * len(tupels)
-    return meetkunde, [waarde[2] for waarde in tupels]
+        return soort, vlak, [None] * len(tupels)
+    return soort, vlak, [waarde[2] for waarde in tupels]
+
+
+# Een geometrie die `_Bulkbouw` nog moet maken: de soort en de plek in haar lijst.
+Uitgesteld = tuple[str, int]
+
+
+class _Bulkbouw:
+    """Leest GML-literalen nu en bouwt de punten en lijnen straks in één shapely-aanroep.
+
+    Een losse `Point(...)` of `LineString(...)` kost tientallen microseconden aan
+    shapely-overhead per object; `shapely.points` en `shapely.linestrings` over de hele lijst
+    kosten dat één keer (issue #82). De uitkomst is dezelfde geometrie als via `_bouw`.
+
+    Alleen wat niet kan mislukken wordt uitgesteld: een punt (`_tupels` garandeert minstens
+    één coordinaat) en een lijn met minstens twee coordinaten. Al het andere -- een polygoon,
+    een lijn met één coordinaat -- gaat meteen langs `_bouw`, zodat een fout op dezelfde plek
+    en met dezelfde melding valt als bij `parse_gml_met_z`.
+    """
+
+    def __init__(self) -> None:
+        self._punten: list[tuple[float, float]] = []
+        self._lijnen: list[list[tuple[float, float]]] = []
+        self._klaar: dict[str, list[Point | LineString]] | None = None
+
+    def lees(
+        self, literal: str
+    ) -> tuple[Point | LineString | Polygon | Uitgesteld, list[float | None]]:
+        """Als `parse_gml_met_z`, maar een punt of lijn komt terug als `Uitgesteld`."""
+        soort, vlak, z_waarden = _ontleed_met_z(literal)
+        if soort == "Point":
+            self._punten.append(vlak[0])
+            return ("Point", len(self._punten) - 1), z_waarden
+        if soort == "LineString" and len(vlak) >= 2:
+            self._lijnen.append(vlak)
+            return ("LineString", len(self._lijnen) - 1), z_waarden
+        return _bouw(soort, vlak), z_waarden
+
+    def geometrie(
+        self, waarde: Point | LineString | Polygon | Uitgesteld | None
+    ) -> Point | LineString | Polygon | None:
+        """De echte geometrie bij een uitkomst van `lees`; bouwt alles bij de eerste vraag."""
+        if not isinstance(waarde, tuple):
+            return waarde
+        if self._klaar is None:
+            punten = list(shapely.points(self._punten)) if self._punten else []
+            lijnen: list[LineString] = []
+            if self._lijnen:
+                plat = [punt for lijn in self._lijnen for punt in lijn]
+                indices = [nummer for nummer, lijn in enumerate(self._lijnen) for _ in lijn]
+                lijnen = list(shapely.linestrings(plat, indices=indices))
+            self._klaar = {"Point": punten, "LineString": lijnen}
+        soort, plek = waarde
+        return self._klaar[soort][plek]
 
 
 def coordinaattokens(literal: str) -> list[str]:

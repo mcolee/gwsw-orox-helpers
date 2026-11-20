@@ -424,6 +424,11 @@ uitkomst betreft is de eenpaslezer per contract `(parse_gml(l), parse_gml_z(l))`
 met de foutmelding, en `test_parse_gml_met_z_is_gelijkwaardig_aan_de_twee_losse_lezers`
 toetst dat op de geslaagde én de mislukte literalen.
 
+Sinds issue #82 roept de leeslaag `parse_gml_met_z` niet meer per geometrie aan, maar
+`geometry._Bulkbouw`. Die doet dezelfde tekststappen (`_ontleed_met_z`), stelt een punt of een
+lijn met minstens twee coordinaten uit en bouwt ze na de lus in één shapely-aanroep. Wat kan
+mislukken, gaat meteen langs `_bouw`; de foutmeldingen blijven dus die van `parse_gml_met_z`.
+
 ### Store is geen derde pad
 
 `pyoxigraph.Store` lijkt een derde weg -- een Rust-eigen index in plaats van de rdflib-`GraafIndex`,

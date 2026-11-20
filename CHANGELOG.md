@@ -16,6 +16,14 @@
   - parse: geen meetbaar verschil.
   End-to-end `load_dataset` was niet te meten: de machine had een load van 11–15 door een
   andere sessie.
+- Geometrie in bulk bij het lezen (issue #82, deel a; performance; **additief**). De lezers
+  bouwen punten en lijnen niet meer één voor één, maar na de lus in één `shapely.points`- en
+  één `shapely.linestrings`-aanroep (`geometry._Bulkbouw`, met de tekststappen van
+  `parse_gml_met_z` in `_ontleed_met_z`). Een polygoon of een lijn met één coordinaat gaat
+  meteen langs `_bouw`, zodat de foutmelding gelijk blijft. `tests/test_bulkbouw.py` houdt
+  geometrie, z en `geometry_errors` op alle fixtures gelijk aan de weg per object. CPU-tijd
+  van `_read_nodes` + `_read_conduits`, drie gepaarde runs ten opzichte van #81:
+  7,93 → 5,94 s, 7,24 → 6,34 s en 6,00 → 3,98 s.
 
 ## [0.2.4] - 2026-09-06
 _Versie 0.2.3 is nooit gepubliceerd: de tag `v0.2.3` (05-09-2026) wees naar een commit waarvan

@@ -1,6 +1,13 @@
 # Changelog
 
 ## [Unreleased]
+- Ruimtelijke toewijzing van de clip in bulk (issue #86, performance; **additief**: delen
+  byte-gelijk). `clip.knip._plaats_alle` bouwt de punten en lijnen met `_Bulkbouw` en toetst
+  `covers` per vlak in één shapely-aanroep. Dat is hetzelfde predicaat als de voorbereide
+  `covers`, dus een punt op de grens krijgt hetzelfde vlak. Alleen wat geen vlak dekt, gaat
+  de oude weg (terugval of `_knip_lijn`); een polygoon gaat helemaal de oude weg.
+  `_zaai` op de 112 MB-export: 2,90–3,40 → 1,02–1,08 s CPU; `clip_orox` 30,6–33,4 →
+  29,2–31,1 s (3 gepaarde runs). Beide delen sha256-gelijk.
 - Terugvalverslag zoekt alleen in blokken met een niet-ASCII-byte (issue #87, performance;
   **additief**: `DecodeFallback` blijft identiek). `bytes.isascii` keurt per MiB-blok in C;
   de regex en de `translate`-telling draaien alleen nog in de blokken die afwijken (4 van de

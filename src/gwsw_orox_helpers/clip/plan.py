@@ -17,7 +17,7 @@ from pathlib import Path
 import pyoxigraph
 
 from gwsw_orox_helpers.clip.grenzen import _Vlak
-from gwsw_orox_helpers.clip.knip import _plaats, _Stuk
+from gwsw_orox_helpers.clip.knip import _plaats, _plaats_alle, _Stuk
 from gwsw_orox_helpers.clip.termen import _KNIPSTAART, KNIP, _Kniptermen
 from gwsw_orox_helpers.errors import KnipError
 from gwsw_orox_helpers.geometry import is_multipart_literal
@@ -335,11 +335,21 @@ def _verbindingsgraaf(verbindingen: list[tuple[str, str]], plan: _Plan) -> dict[
 
 
 def _zaai(plan: _Plan, literalen: dict[str, list[str]], vlakken: tuple[_Vlak, ...]) -> None:
-    """Geeft elk blok met een geometrie zijn vlakken, en knipt de lijnen die de grens kruisen."""
+    """Geeft elk blok met een geometrie zijn vlakken, en knipt de lijnen die de grens kruisen.
+
+    De enkelvoudige geometrieën worden in bulk geplaatst (`_plaats_alle`, issue #86) en
+    daarna in de oorspronkelijke volgorde toegekend, zodat het plan gelijk blijft.
+    """
+    enkel = {
+        knoop: waarden[0]
+        for knoop, waarden in literalen.items()
+        if len(waarden) == 1 and not is_multipart_literal(waarden[0])
+    }
+    plaatsing = dict(zip(enkel, _plaats_alle(list(enkel.values()), vlakken), strict=True))
     for knoop, waarden in literalen.items():
         masker = 0
-        if len(waarden) == 1 and not is_multipart_literal(waarden[0]):
-            masker, stukken = _plaats(waarden[0], vlakken)
+        if knoop in plaatsing:
+            masker, stukken = plaatsing[knoop]
             if stukken is not None:
                 plan.stukken[knoop] = stukken
         else:

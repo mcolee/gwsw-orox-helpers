@@ -18,13 +18,16 @@ from collections.abc import Iterator, Sequence
 from dataclasses import dataclass
 from typing import Final
 
-from shapely.geometry import LineString, Point
+import shapely
+from shapely.geometry import LineString, Point, Polygon
 from shapely.geometry.base import BaseGeometry
 
 from gwsw_orox_helpers.clip.grenzen import _Vlak
 from gwsw_orox_helpers.errors import KnipError
 from gwsw_orox_helpers.geometry import (
     GeometryError,
+    _Bulkbouw,
+    _Uitgesteld,
     coordinaattokens,
     heeft_srsdimension,
     parse_gml,
@@ -74,6 +77,49 @@ def _plaats(
         # zou hem in een van beide vlakken laten verdwijnen terwijl hij in allebei ligt.
         return _heel(meetkunde, vlakken), None
     return 1 << _vlak_van(meetkunde.representative_point(), vlakken), None
+
+
+def _plaats_alle(
+    literalen: Sequence[str], vlakken: tuple[_Vlak, ...]
+) -> list[tuple[int, tuple[_Stuk, ...] | None]]:
+    """`_plaats(literal, vlakken)` voor elke literaal, met de GEOS-stappen in bulk (issue #86).
+
+    De punten en lijnen bouwt `_Bulkbouw` in één shapely-aanroep, en `covers` loopt per vlak
+    één keer over alle geometrieën. Dat is hetzelfde predicaat als de voorbereide `covers` in
+    `_vlak_van` en `_knip_lijn`, dus ook op de rand dezelfde uitkomst. Wat geen vlak dekt,
+    gaat de oude weg: een punt naar de terugval op het dichtstbijzijnde vlak, een lijn naar
+    `_knip_lijn`. Een polygoon gaat helemaal de oude weg.
+    """
+    bouw = _Bulkbouw()
+    gelezen: list[Point | LineString | Polygon | _Uitgesteld | None] = []
+    for literal in literalen:
+        try:
+            gelezen.append(bouw.lees(literal)[0])
+        except GeometryError:
+            # Een onleesbare geometrie zaait niets, net als in `_plaats`.
+            gelezen.append(None)
+    meetkundes = [bouw.geometrie(waarde) for waarde in gelezen]
+    gedekt = []
+    for vlak in vlakken:
+        shapely.prepare(vlak.meetkunde)
+        gedekt.append(shapely.covers(vlak.meetkunde, meetkundes).tolist())
+
+    uit: list[tuple[int, tuple[_Stuk, ...] | None]] = []
+    rijen = zip(literalen, gelezen, meetkundes, strict=True)
+    for index, (literal, waarde, meetkunde) in enumerate(rijen):
+        eerste = next((nummer for nummer, rij in enumerate(gedekt) if rij[index]), None)
+        if meetkunde is None:
+            uit.append((0, None))
+        elif not isinstance(waarde, tuple):
+            uit.append(_plaats(literal, vlakken))
+        elif eerste is not None:
+            uit.append((1 << eerste, None))
+        elif waarde[0] == "LineString":
+            assert isinstance(meetkunde, LineString)
+            uit.append(_knip_lijn(literal, meetkunde, vlakken))
+        else:
+            uit.append((1 << _vlak_van(meetkunde, vlakken), None))
+    return uit
 
 
 def _vlak_van(punt: Point, vlakken: tuple[_Vlak, ...]) -> int:

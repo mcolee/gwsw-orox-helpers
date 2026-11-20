@@ -162,7 +162,7 @@ clip.grenzen    <- blad binnen clip/: de GeoJSON-vlakken en hun bestandsnaam
 clip.knip       -> clip.grenzen                          (+ errors, geometry)
 clip.plan       -> clip.grenzen, clip.knip, clip.termen  (+ errors, geometry, namen,
                                                             schrijven)
-clip.stroom     -> clip.knip, clip.plan, clip.termen     (+ geometry, namen)
+clip.stroom     -> clip.knip, clip.plan, clip.termen     (+ errors, geometry, namen)
 clip.merge      -> clip.termen                           (+ errors, geometry, namen,
                                                             schrijven)
 clip.bereik     -> clip.grenzen, clip.termen             (+ geometry, namen, schrijven)

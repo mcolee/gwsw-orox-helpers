@@ -21,6 +21,7 @@ from __future__ import annotations
 import collections
 import itertools
 from collections.abc import Iterable, Iterator
+from typing import Final
 
 import pyoxigraph
 
@@ -40,6 +41,7 @@ from gwsw_orox_helpers.clip.termen import (
     _stukterm,
     _term,
 )
+from gwsw_orox_helpers.errors import KnipError
 from gwsw_orox_helpers.geometry import vervang_coordinaten
 
 
@@ -48,20 +50,11 @@ def _deelstroom(
 ) -> Iterator[pyoxigraph.Quad | pyoxigraph.Triple]:
     """De triples die naar dit deel gaan, uit de quadstroom van de bron.
 
-    Sinds issue #64 leest deze pass de positietabel van het plan (`posmasker`, `herschrijf`)
-    per stroompositie in plaats van per quad opnieuw uit te rekenen wat waarheen gaat. Staat
-    de herschrijf-vlag uit, dan gaat de bron-quad ongewijzigd de deur uit -- geen nieuwe
-    `Triple`, geen nummering. Dat mag omdat Turtle geen benoemde grafen kent: een
+    Eerst het merk `knip:geknipt` op de houders van een geknipte geometrie, dan de bron zoals
+    de positietabel van het plan (`posmasker`, `herschrijf`) hem verdeelt (`_reeksen`). Een
+    gewone quad gaat ongewijzigd de deur uit: Turtle kent geen benoemde grafen, dus een
     default-graaf-`Quad` schrijft byte-gelijk aan de gelijke `Triple`. Zo levert de fase een
-    gemengde Quad/Triple-stroom, die de serializer aanvaardt. Staat de vlag aan, dan loopt het
-    oude herschrijfpad (`_term`, `_stuktermen`, `_knipmerken`); alleen daar kan een blanke
-    knoop zitten, dus daar (en alleen daar) nummert `_nummer` hem -- vóór de deel-gate, zodat
-    de stroomvolgorde-naam deel-onafhankelijk blijft.
-
-    Sinds issue #84 loopt Python niet meer per quad. De stroom valt uiteen in reeksen van
-    gewone posities (allemaal doorgeven of allemaal overslaan) en losse herschrijfposities.
-    Een reeks gaat als `islice` van de bron in C naar de serializer; Python ziet alleen de
-    reeksgrenzen (op de export ~100 per deel) en de herschrijfquads (39).
+    gemengde Quad/Triple-stroom, die de serializer aanvaardt.
     """
     bit = 1 << deel
     kop = [
@@ -79,19 +72,29 @@ def _reeksen(
 ) -> Iterator[Iterable[pyoxigraph.Quad | pyoxigraph.Triple]]:
     """De bron in reeksen: een `islice` per doorgeefreeks, een lijst per herschrijfquad.
 
-    `acties` heeft per positie een 1 als de quad naar dit deel gaat. Het zoeken naar de
-    volgende reeksgrens en de volgende herschrijfpositie gebeurt met `bytes.find`, in C. Een
-    overgeslagen reeks wordt in C leeggelopen (`deque` met `maxlen=0`).
+    Python loopt hier niet per quad (issue #84). `naar_deel` heeft per positie een 1 als de
+    quad naar dit deel gaat; de volgende reeksgrens en de volgende herschrijfpositie zoekt
+    `bytes.find`, in C. Een doorgeefreeks gaat als `islice` van de bron naar de serializer,
+    een overgeslagen reeks loopt in C leeg (`deque` met `maxlen=0`). Alleen een
+    herschrijfquad (blanke knoop of geknipte geometrie) gaat door Python: `_nummer` geeft
+    zijn blanke knopen hun stroomvolgorde-naam, ook als hij niet naar dit deel gaat, zodat
+    die naam niet van het deel afhangt.
+
+    Alle reeksen delen één `bron`-iterator. De afnemer moet een reeks dus helemaal leeglopen
+    voordat hij de volgende vraagt; `itertools.chain.from_iterable` in `_deelstroom` doet dat.
+
+    Telt de bron meer quads dan de positietabel, of houdt hij op vóór een herschrijfquad,
+    dan is het bestand sinds de analyseronde veranderd: dat is een `KnipError`.
     """
     bit = 1 << deel
     posmasker = plan.posmasker
     if posmasker.typecode == "B":
         tabel = bytes(1 if waarde & bit else 0 for waarde in range(256))
-        acties = posmasker.tobytes().translate(tabel)
+        naar_deel = posmasker.tobytes().translate(tabel)
     else:  # meer dan 8 vlakken: het masker past niet in een byte
-        acties = bytes(1 if masker & bit else 0 for masker in posmasker)
+        naar_deel = bytes(1 if masker & bit else 0 for masker in posmasker)
     herschrijf = plan.herschrijf
-    aantal = len(acties)
+    aantal = len(naar_deel)
     labels: dict[str, str] = {}
     teller = itertools.count()
 
@@ -101,27 +104,33 @@ def _reeksen(
         if grens == -1:
             grens = aantal
         while positie < grens:
-            doorgeven = acties[positie]
-            einde = acties.find(b"\x00" if doorgeven else b"\x01", positie, grens)
+            doorgeven = naar_deel[positie]
+            einde = naar_deel.find(b"\x00" if doorgeven else b"\x01", positie, grens)
             if einde == -1:
                 einde = grens
             reeks = itertools.islice(bron, einde - positie)
             if doorgeven:
-                # Verreweg de meeste quads: geen blanke knoop, geen geknipte geometrie. De
-                # bron-quad gaat ongewijzigd door -- geen nieuwe Triple, geen opzoeking.
                 yield reeks
             else:
                 collections.deque(reeks, maxlen=0)
             positie = einde
         if positie == aantal:
             break
-        quad = next(bron)
-        # Alleen een herschrijf-quad kan een blanke knoop dragen; nummer hem hier, vóór de
-        # gate, zodat de stroomvolgorde-naam los staat van welk deel er geschreven wordt.
+        quad = next(bron, None)
+        if quad is None:
+            raise KnipError(_VERANDERD)
         _nummer(quad, labels, teller)
-        if acties[positie]:
+        if naar_deel[positie]:
             yield list(_herschreven(quad, plan, deel, termen, labels))
         positie += 1
+    if next(bron, None) is not None:
+        raise KnipError(_VERANDERD)
+
+
+_VERANDERD: Final = (
+    "de bron telt een ander aantal quads dan bij de analyseronde van de clip; is het bestand "
+    "tussen de lezingen veranderd?"
+)
 
 
 def _herschreven(

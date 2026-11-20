@@ -129,7 +129,7 @@ def _nummer(quad: pyoxigraph.Quad, namen: dict[str, str], teller: Iterator[int])
     """Kent de blanke knopen in `quad` hun stroomvolgorde-naam `_:b<n>` toe.
 
     Dezelfde nummering als `_genummerd` (subject vóór object, op eerste ontmoeting), maar per
-    quad en zonder de sleutels terug te geven: `stroom._deelstroom` roept hem alleen aan voor
+    quad en zonder de sleutels terug te geven: `stroom._reeksen` roept hem alleen aan voor
     de quads die de positietabel als "herschrijven" merkt, en dat zijn de enige die een
     blanke knoop kunnen dragen. Zo krijgt elke blanke knoop bij elke lezing van de bron
     dezelfde naam en delen de N geschreven delen dezelfde brug -- zonder dat de schrijfronde

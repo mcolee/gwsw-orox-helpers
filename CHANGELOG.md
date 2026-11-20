@@ -8,7 +8,10 @@
   (`_herschreven`). Op de 112 MB-export zijn dat ~100 reeksgrenzen en 39 herschrijfquads
   per deel. De Python-filtertijd per pass: 0,11 → 0,02 s per 600 k quads (5 runs), dus
   ~0,3 s per deel op de hele export; de winst groeit met het aantal vlakken. End-to-end
-  valt dat binnen de ruis van deze machine.
+  valt dat binnen de ruis van deze machine. Telt de bron in een schrijfpass een ander aantal
+  quads dan bij de analyseronde (het bestand veranderde tussen de lezingen), dan is dat nu
+  een `KnipError`. Voorheen gaf een langere bron een kale `IndexError` en werd een kortere
+  stil afgekapt.
 - Ruimtelijke toewijzing van de clip in bulk (issue #86, performance; **additief**: delen
   byte-gelijk). `clip.knip._plaats_alle` bouwt de punten en lijnen met `_Bulkbouw` en toetst
   `covers` per vlak in één shapely-aanroep. Dat is hetzelfde predicaat als de voorbereide

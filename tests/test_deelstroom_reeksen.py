@@ -22,6 +22,7 @@ from gwsw_orox_helpers.clip.termen import (
     _kniptermen,
     _term,
 )
+from gwsw_orox_helpers.errors import KnipError
 from gwsw_orox_helpers.schrijven import lees_orox
 
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -77,3 +78,20 @@ def test_de_reeksen_geven_dezelfde_stroom_als_de_weg_per_quad(typecode: str, zaa
         verwacht = list(_per_quad(iter(quads), plan, deel, termen))
         gekregen = list(_deelstroom(quads, plan, deel, termen))
         assert gekregen == verwacht
+
+
+def test_een_langere_bron_dan_de_positietabel_is_een_knipfout() -> None:
+    """Het bestand veranderde tussen de analyseronde en de schrijfpass: niet stil inkorten."""
+    plan, termen = _plan()
+    quads = list(lees_orox(BRON).quads)
+    with pytest.raises(KnipError, match="ander aantal quads"):
+        list(_deelstroom([*quads, quads[0]], plan, 0, termen))
+
+
+def test_een_bron_die_voor_een_herschrijfquad_ophoudt_is_een_knipfout() -> None:
+    plan, termen = _plan()
+    quads = list(lees_orox(BRON).quads)
+    plan.herschrijf = bytearray(len(quads))
+    plan.herschrijf[-1] = 1
+    with pytest.raises(KnipError, match="ander aantal quads"):
+        list(_deelstroom(quads[:-1], plan, 0, termen))

@@ -168,10 +168,11 @@ class KnipError(DatasetError):
     er dan misging: de bron draagt zelf al de knipstaart van de clip of een predicaat uit
     de `knip:`-naamruimte, een knippunt krijgt geen hoogte, er zijn geen delen opgegeven,
     een knipmerk is onvolledig, de stukken van een lijn komen uit verschillende knipbeurten
-    of ze zijn niet compleet.
+    of ze zijn niet compleet, of de bron telt in een schrijfpass een ander aantal quads dan
+    bij de analyseronde.
 
-    Tien plekken, in `clip.plan` (twee), `clip.knip` (twee), `clip.orkest` en `clip.merge`
-    (vijf).
+    Twaalf plekken, in `clip.plan` (twee), `clip.knip` (twee), `clip.orkest`, `clip.stroom`
+    (twee) en `clip.merge` (vijf).
     """
 
 

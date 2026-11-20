@@ -1,6 +1,14 @@
 # Changelog
 
 ## [Unreleased]
+- Schrijfpass van de clip in reeksen (issue #84, performance; **additief**: delen
+  byte-gelijk). `clip.stroom._deelstroom` loopt niet meer per quad in Python: de stroom valt
+  uiteen in reeksen gewone posities (via `bytes.translate` en `bytes.find`) die als `islice`
+  van de bron in C naar de serializer gaan, plus de losse herschrijfquads
+  (`_herschreven`). Op de 112 MB-export zijn dat ~100 reeksgrenzen en 39 herschrijfquads
+  per deel. De Python-filtertijd per pass: 0,11 → 0,02 s per 600 k quads (5 runs), dus
+  ~0,3 s per deel op de hele export; de winst groeit met het aantal vlakken. End-to-end
+  valt dat binnen de ruis van deze machine.
 - Ruimtelijke toewijzing van de clip in bulk (issue #86, performance; **additief**: delen
   byte-gelijk). `clip.knip._plaats_alle` bouwt de punten en lijnen met `_Bulkbouw` en toetst
   `covers` per vlak in één shapely-aanroep. Dat is hetzelfde predicaat als de voorbereide

@@ -355,6 +355,8 @@ die anders uit elkaar loopt, en die staat één keer:
 | De GML-lezers | `geometry` | `inlezen` (`parse_gml_met_z`, via `_Bulkbouw`), `clip.knip` (ook `_Bulkbouw`, sinds issue #86), `clip.plan`, `clip.merge`, `clip.bereik` (`parse_gml` / `parse_gml_z`), `dataset` (doorgeefluik) |
 | De tekstkant van diezelfde literaal: de coordinatenlijst als tokens, het terugleggen ervan in het omhulsel, en hoeveel getallen er op een punt gaan (`coordinaattokens`, `vervang_coordinaten`, `tokens_per_punt`) | `geometry` | `clip.knip` (de knip), `clip.stroom` (het stuk wegschrijven), `clip.merge` (de omkering) |
 | De `knip:`-naamruimte, de stuknamen (`<origineel>__knip<k>`) en het herkennen van een GML-literaal (`_gml_waarde`) | `clip.termen` | `clip.plan`, `clip.stroom`, `clip.merge`, `clip.bereik`, `clip.orkest` |
+| Het sleutelformaat van een term (de IRI, of `_:` plus de naam van een blanke knoop; terug via `_term`) en de interning van sleutels tot int-id's voor de positietabel (`_interning`, sinds issue #89) | `clip.termen` | `clip.plan`, `clip.stroom`, `clip.merge` |
+| De nummering van blanke knopen (`b<n>` op eerste ontmoeting, subject vóór object) | drie uitgeschreven kopieën: `clip.plan._genummerd` en `schrijven._hernummerd` (hete lussen, bewust inline) en `clip.plan._nummer` (per herschrijfquad); `tests/test_bnode_nummering.py` houdt ze gelijk (issue #89) | `clip.plan`, `clip.stroom`, `schrijven` |
 
 Dat laatste onderscheid is opzettelijk: het verslag telt de afwijkende bytes en zoekt de
 regels waarin ze staan, en dat is een tweede gang over het hele bestand. Een lezing wordt

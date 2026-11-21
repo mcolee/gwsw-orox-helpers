@@ -9,6 +9,8 @@ van `gwsw_orox_helpers.clip`.
 
 from __future__ import annotations
 
+import collections
+import itertools
 import logging
 import re
 from collections.abc import Iterable
@@ -132,8 +134,24 @@ def _bronbasis(quads: Iterable[pyoxigraph.Quad], bron: object) -> str:
     return basis
 
 
+def _interning() -> collections.defaultdict[str, int]:
+    """Sleutel -> int-id, uitgedeeld op eerste opzoeking: 0, 1, 2, ...
+
+    De id's volgen de invoegvolgorde van de dict, dus `list(tabel)` is de sleutel per id.
+    `clip.plan._maak_plan` en `clip.merge._scan_delen` bouwen er hun positietabel mee. De
+    teller zit in C (`defaultdict` met `count().__next__`), zodat de opzoeking per quad
+    geen Python-aanroep kost.
+    """
+    return collections.defaultdict(itertools.count().__next__)
+
+
 def _term(sleutel: str) -> pyoxigraph.NamedNode | pyoxigraph.BlankNode:
-    """De term achter een sleutel: een blanke knoop bij `_:`, anders een IRI."""
+    """De term achter een sleutel: een blanke knoop bij `_:`, anders een IRI.
+
+    Eén sleutelformaat voor clip en merge: `_:` plus de naam van de blanke knoop. De clip
+    geeft die naam eerst zijn stroomvolgorde-nummer (`b<n>`, `clip.plan._genummerd`); de
+    merge leest hem ongewijzigd uit de delen, waar de clip hem zo schreef.
+    """
     if sleutel.startswith("_:"):
         return pyoxigraph.BlankNode(sleutel[2:])
     return pyoxigraph.NamedNode(sleutel)

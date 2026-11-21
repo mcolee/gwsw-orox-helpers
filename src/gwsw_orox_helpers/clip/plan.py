@@ -18,7 +18,7 @@ import pyoxigraph
 
 from gwsw_orox_helpers.clip.grenzen import _Vlak
 from gwsw_orox_helpers.clip.knip import _plaats, _plaats_alle, _Stuk
-from gwsw_orox_helpers.clip.termen import _KNIPSTAART, KNIP, _Kniptermen
+from gwsw_orox_helpers.clip.termen import _KNIPSTAART, KNIP, _interning, _Kniptermen
 from gwsw_orox_helpers.errors import KnipError
 from gwsw_orox_helpers.geometry import is_multipart_literal
 from gwsw_orox_helpers.namen import GML_LITERAL
@@ -42,10 +42,6 @@ class _Plan:
     stukken: dict[str, tuple[_Stuk, ...]] = field(default_factory=dict)
     # Blok-sleutel van een houder van een geknipte geometrie -> bitmasker; draagt `knip:geknipt`.
     geknipte_houders: dict[str, int] = field(default_factory=dict)
-    # Het bitmasker per term, platgeslagen: `toewijzing` na `blok`. `_maak_plan` vult hem
-    # met `bouw_maskers` als laatste stap; `_bouw_positietabel` leidt er de positietabel uit
-    # af, en de test `test_maak_plan_zet...` leest hem terug.
-    maskers: dict[str, int] = field(default_factory=dict)
     # De positietabel (issue #64): per stroompositie het effectieve masker -- welke vlakken
     # deze quad in gaat, ná de `blok`-afleiding én ná de rand-predicaat-overslag van
     # `stroom._deelstroom` -- plus een vlag "herschrijven" (blanke knoop of geknipte
@@ -58,24 +54,9 @@ class _Plan:
         """Het blok waar deze term in valt: hijzelf, of het blok van zijn blanke knoop."""
         return self.eigenaar.get(sleutel, sleutel)
 
-    def bouw_maskers(self) -> None:
-        """Slaat `toewijzing` en `eigenaar` plat tot een tabel per term.
-
-        Dit is de basis waaruit `_bouw_positietabel` (issue #64) het effectieve masker per
-        stroompositie afleidt: per term langs `blok` lopen kost twee opzoekingen in plaats
-        van een, en platgeslagen is het er een.
-
-        `_maak_plan` bouwt de tabel als laatste stap, wanneer `toewijzing` en `eigenaar`
-        niet meer veranderen. Dat is bewust geen luie vulling bij de eerste vraag: die zou
-        de tabel laten afhangen van *wanneer* er voor het eerst naar gevraagd werd, en een
-        latere verzetting stil buiten beeld laten. Wie het plan alsnog verzet, bouwt hem
-        opnieuw.
-        """
-        toewijzing = self.toewijzing
-        plat = dict(toewijzing)
-        for knoop, blok in self.eigenaar.items():
-            plat[knoop] = toewijzing.get(blok, 0)
-        self.maskers = plat
+    def masker(self, sleutel: str) -> int:
+        """Het bitmasker van de vlakken waar deze term heen gaat: dat van zijn blok."""
+        return self.toewijzing.get(self.blok(sleutel), 0)
 
 
 def _genummerd(
@@ -93,7 +74,10 @@ def _genummerd(
     per term: deze lus draait per quad van de bron. Sinds issue #64 loopt hij nog maar één
     keer -- in `_maak_plan`, dat de per-quad-kennis platslaat tot de positietabel -- in
     plaats van in elke schrijfpass opnieuw; de schrijfronde leest die tabel en nummert met
-    `stroom._nummer` alleen nog de blanke knopen van de quads die herschreven worden.
+    `_nummer` alleen nog de blanke knopen van de quads die herschreven worden.
+
+    Dezelfde regel staat ook in `_nummer` en `schrijven._hernummerd`; dat de drie dezelfde
+    namen geven, bewaakt `tests/test_bnode_nummering.py` (issue #89).
     """
     namen: dict[str, str] = {}
     teller = itertools.count()
@@ -168,27 +152,19 @@ def _maak_plan(
     randpredicaten = termen.randpredicaten
 
     # De per-positie-kennis voor de positietabel (issue #64): elke term-sleutel krijgt een
-    # int-id (interning), en per stroompositie bewaren we het subject-id, het object-id (-1
+    # int-id (`_interning`), en per stroompositie bewaren we het subject-id, het object-id (-1
     # voor een literaal) en of de quad een randpredicaat met een voorwerp draagt. `array('i')`
-    # is ~4 B per kolom en dus ~8-9 B per positie, geen quads; ná `bouw_maskers` slaat
-    # `_bouw_positietabel` dat plat tot één masker-byte plus een herschrijf-vlag per positie
-    # en worden deze int-tabellen losgelaten.
-    sleutel_id: dict[str, int] = {}
-    sleutels: list[str] = []
+    # is ~4 B per kolom en dus ~8-9 B per positie, geen quads; `_bouw_positietabel` slaat dat
+    # plat tot één masker-byte plus een herschrijf-vlag per positie en daarna worden deze
+    # int-tabellen losgelaten.
+    sleutel_id = _interning()
     subj_ids = array("i")
     obj_ids = array("i")
     randpred = bytearray()
 
-    def _id(sleutel: str) -> int:
-        gevonden = sleutel_id.get(sleutel)
-        if gevonden is None:
-            gevonden = sleutel_id[sleutel] = len(sleutels)
-            sleutels.append(sleutel)
-        return gevonden
-
     for quad, onderwerp, voorwerp in _genummerd(quads):
         subjecten.add(onderwerp)
-        subj_ids.append(_id(onderwerp))
+        subj_ids.append(sleutel_id[onderwerp])
         if voorwerp is not None and voorwerp.startswith("_:"):
             ouder_van.setdefault(voorwerp, onderwerp)
         predicaat = quad.predicate.value
@@ -199,7 +175,7 @@ def _maak_plan(
                 f"geknipte te onderscheiden."
             )
         if voorwerp is not None:
-            obj_ids.append(_id(voorwerp))
+            obj_ids.append(sleutel_id[voorwerp])
             randpred.append(1 if predicaat in randpredicaten else 0)
             if predicaat in houder_naar_onderdeel:
                 randen.append((onderwerp, voorwerp))
@@ -233,8 +209,7 @@ def _maak_plan(
     _omlaag(plan, blokken, ouders, _verbindingsgraaf(verbindingen, plan), len(vlakken))
     _omhoog(plan, ouders)
     _merk_houders(plan, randen)
-    plan.bouw_maskers()
-    _bouw_positietabel(plan, sleutels, subj_ids, obj_ids, randpred)
+    _bouw_positietabel(plan, list(sleutel_id), subj_ids, obj_ids, randpred)
     return plan
 
 
@@ -251,16 +226,15 @@ def _bouw_positietabel(
     subject, en voor een randpredicaat-quad versmald met het masker van het voorwerp, precies
     zoals `stroom._deelstroom` het vroeger per quad opnieuw uitrekende. Daarnaast een
     herschrijf-vlag: aan zodra een van beide einden een blanke knoop of een geknipte
-    geometrieknoop (`plan.stukken`) is, anders uit. De maskers en de vlag per *term* worden
-    één keer opgezocht (`mask_per_id`, `herschrijf_per_id`) en dan per positie geïndexeerd,
-    zodat het platslaan over de posities niets meer opzoekt.
+    geometrieknoop (`plan.stukken`) is, anders uit. Het masker (`_Plan.masker`) en de vlag
+    per *term* worden één keer opgezocht (`mask_per_id`, `herschrijf_per_id`) en dan per
+    positie geïndexeerd, zodat het platslaan over de posities niets meer opzoekt.
 
     De masker-byte volstaat voor de reële grenslagen (N ≤ 8); een grenslaag met meer vlakken
     laat de tabel meegroeien naar een breder type, zodat het masker blijft passen.
     """
-    maskers = plan.maskers
     stukken = plan.stukken
-    mask_per_id = [maskers.get(sleutel, 0) for sleutel in sleutels]
+    mask_per_id = [plan.masker(sleutel) for sleutel in sleutels]
     herschrijf_per_id = [sleutel.startswith("_:") or sleutel in stukken for sleutel in sleutels]
 
     posmasker = array("B" if len(plan.namen) <= 8 else "L")

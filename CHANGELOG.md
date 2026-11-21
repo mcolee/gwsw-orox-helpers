@@ -1,6 +1,14 @@
 # Changelog
 
 ## [Unreleased]
+- Clip-duplicatie samengevoegd (issue #89, onderhoud; **additief**: delen en samenvoeging
+  byte-gelijk). `clip.termen._interning` vervangt de twee uitgeschreven `_id`-closures in
+  `clip.plan._maak_plan` en `clip.merge._scan_delen` (een `defaultdict` met een C-teller).
+  `_Plan.maskers` en `_Plan.bouw_maskers` zijn weg: `_Plan.masker` zoekt het masker van een
+  term op via zijn blok. De drie kopieën van de blanke-knoopnummering blijven inline (twee
+  ervan zijn hete lussen); `tests/test_bnode_nummering.py` houdt ze gelijk. De twee
+  positietabelbouwers blijven apart: ze rekenen iets anders uit, en de gedeelde bouwer
+  hoorde bij #83, dat zonder winst gesloten is.
 - Schrijfpass van de clip in reeksen (issue #84, performance; **additief**: delen
   byte-gelijk). `clip.stroom._deelstroom` loopt niet meer per quad in Python: de stroom valt
   uiteen in reeksen gewone posities (via `bytes.translate` en `bytes.find`) die als `islice`

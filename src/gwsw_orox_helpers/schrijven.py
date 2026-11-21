@@ -319,7 +319,8 @@ def _hernummerd(
     aangeroepen en niet via `rdfmotor`: die naad draagt alleen parse en serialize, de
     fabrieken staan bewust buiten de adapter (zie `docs/architectuur.md`, "Wat er niet
     doorheen gaat"). De twee takken staan, net als in `clip.plan._genummerd`, uitgeschreven
-    in plaats van in een hulp per term: deze lus draait per quad van de bron.
+    in plaats van in een hulp per term: deze lus draait per quad van de bron. Dat beide
+    kopieën dezelfde namen geven, bewaakt `tests/test_bnode_nummering.py`.
     """
     labels: dict[str, pyoxigraph.BlankNode] = {}
     teller = itertools.count()

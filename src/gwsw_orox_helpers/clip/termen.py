@@ -140,7 +140,8 @@ def _interning() -> collections.defaultdict[str, int]:
     De id's volgen de invoegvolgorde van de dict, dus `list(tabel)` is de sleutel per id.
     `clip.plan._maak_plan` en `clip.merge._scan_delen` bouwen er hun positietabel mee. De
     teller zit in C (`defaultdict` met `count().__next__`), zodat de opzoeking per quad
-    geen Python-aanroep kost.
+    geen Python-aanroep kost. Let op: elke `tabel[sleutel]` deelt een id uit; toets
+    lidmaatschap met `in`, anders groeit de tabel stil.
     """
     return collections.defaultdict(itertools.count().__next__)
 

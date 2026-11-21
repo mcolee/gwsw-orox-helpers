@@ -21,10 +21,14 @@ MINI = Path(__file__).parent / "fixtures" / "ttl" / "mini_orox.ttl"
 
 
 def _eigen() -> list[pyoxigraph.Quad]:
-    """Een blanke knoop eerst als object, een lus op zichzelf, en een literaal als object."""
+    """Twee verse knopen in één quad (subject vóór object), een verse lus op zichzelf, een
+    blanke knoop eerst als object, een lus op een al genummerde knoop, en een literaal."""
     a, p = pyoxigraph.NamedNode("http://x/a"), pyoxigraph.NamedNode("http://x/p")
+    u, v, w = pyoxigraph.BlankNode(), pyoxigraph.BlankNode(), pyoxigraph.BlankNode()
     x, y, z = pyoxigraph.BlankNode(), pyoxigraph.BlankNode(), pyoxigraph.BlankNode()
     return [
+        pyoxigraph.Quad(u, p, v),
+        pyoxigraph.Quad(w, p, w),
         pyoxigraph.Quad(a, p, x),
         pyoxigraph.Quad(y, p, x),
         pyoxigraph.Quad(x, p, z),
@@ -53,7 +57,10 @@ def test_de_drie_nummeringen_geven_dezelfde_namen(bron: str) -> None:
         _nummer(quad, namen, teller)
     schrijfpass = [(_sleutel(q.subject, namen), _sleutel(q.object, namen)) for q in quads]
 
+    # Zonder `namen` spelt `_sleutel` zoals `clip.merge` een sleutel uit een deel leest
+    # (`_:` plus de naam): zo toetst deze kolom ook dat het sleutelformaat één is.
     deterministisch = [(_sleutel(q.subject), _sleutel(q.object)) for q in _hernummerd(quads)]
 
     assert analyse == schrijfpass == deterministisch
-    assert any(onderwerp == "_:b0" for onderwerp, _ in analyse)
+    if bron == "eigen":
+        assert analyse[:2] == [("_:b0", "_:b1"), ("_:b2", "_:b2")]

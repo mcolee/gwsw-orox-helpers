@@ -19,7 +19,8 @@
   valt dat binnen de ruis van deze machine. Telt de bron in een schrijfpass een ander aantal
   quads dan bij de analyseronde (het bestand veranderde tussen de lezingen), dan is dat nu
   een `KnipError`. Voorheen gaf een langere bron een kale `IndexError` en werd een kortere
-  stil afgekapt.
+  stil afgekapt. Deze gedragswijziging van `clip_orox` is een auteursbeslissing
+  (21-11-2026).
 - Ruimtelijke toewijzing van de clip in bulk (issue #86, performance; **additief**: delen
   byte-gelijk). `clip.knip._plaats_alle` bouwt de punten en lijnen met `_Bulkbouw` en toetst
   `covers` per vlak in één shapely-aanroep. Dat is hetzelfde predicaat als de voorbereide

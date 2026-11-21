@@ -162,7 +162,7 @@ clip.grenzen    <- blad binnen clip/: de GeoJSON-vlakken en hun bestandsnaam
 clip.knip       -> clip.grenzen                          (+ errors, geometry)
 clip.plan       -> clip.grenzen, clip.knip, clip.termen  (+ errors, geometry, namen,
                                                             schrijven)
-clip.stroom     -> clip.knip, clip.plan, clip.termen     (+ geometry, namen)
+clip.stroom     -> clip.knip, clip.plan, clip.termen     (+ errors, geometry, namen)
 clip.merge      -> clip.termen                           (+ errors, geometry, namen,
                                                             schrijven)
 clip.bereik     -> clip.grenzen, clip.termen             (+ geometry, namen, schrijven)
@@ -207,7 +207,7 @@ Elke module beantwoordt één vraag; in deze volgorde heeft niets ooit iets van 
 | `bronnen` | Waar liggen de meegeleverde ontologie en vocabulaire-index? |
 | `namen` | Hoe spellen we een IRI? (de naamruimten en de properties als tekst, plus `_uri`/`_short` die een korte klassenaam uitschrijven en weer teruglezen; alleen tekst, geen imports) |
 | `geometry` | Wat staat er in een GML-literaal? (shapely; z apart van xy of allebei in een gang; en de coordinatentekst zelf, voor wie hem letterlijk moet terugleggen) |
-| `graaf` | Hoe vraag je een graaf iets? (`GraafIndex`: twee dicts, rdflib-termen) |
+| `graaf` | Hoe vraag je een graaf iets? (`GraafIndex`: twee dicts, rdflib-termen; sinds issue #81 deelt `_kanoniek` één object per vraagterm met de lezers, zodat opzoekingen op identiteit slagen in plaats van via rdflib's Python-`__eq__`) |
 | `codering` | Hoe worden de bytes van een TTL tekst? (UTF-8 met terugval) |
 | `rdfmotor` | Hoe roepen we pyoxigraph aan? (`ontleed_turtle`, `serialiseer_turtle`, plus de poort op de ondersteunde versiereeks) |
 | `ontologie` | Wat zegt een `owl:Restriction` over een klasse of kenmerk? (op allebei de graafvormen; zie hieronder) |
@@ -352,9 +352,11 @@ die anders uit elkaar loopt, en die staat één keer:
 | De prefixkop van een OroX-export | `schrijven.STANDAARD_PREFIXEN`, opgebouwd uit `namen` | `schrijven`, `clip.orkest` (krijgt ze via `lees_orox` en vult `knip:` aan) |
 | UTF-8 (met of zonder een leidende BOM, via `utf-8-sig`) met terugvalcodering, inclusief beide foutmeldingen | `codering.decodeer` (de bron in het geheugen) en sinds issue #66 `codering.hercodeerstroom` (dezelfde regel, blokgewijs streamend, met `decodeer` als foutbron) | `bestand._decode` (decodeer), `schrijven.lees_orox` (hercodeerstroom) |
 | Het verslag van zo'n terugval (`DecodeFallback`) | `codering.terugvalverslag` | alleen `bestand` |
-| De GML-lezers | `geometry` | `inlezen` (`parse_gml_met_z`), `clip.knip`, `clip.plan`, `clip.merge`, `clip.bereik` (`parse_gml` / `parse_gml_z`), `dataset` (doorgeefluik) |
+| De GML-lezers | `geometry` | `inlezen` (`parse_gml_met_z`, via `_Bulkbouw`), `clip.knip` (ook `_Bulkbouw`, sinds issue #86), `clip.plan`, `clip.merge`, `clip.bereik` (`parse_gml` / `parse_gml_z`), `dataset` (doorgeefluik) |
 | De tekstkant van diezelfde literaal: de coordinatenlijst als tokens, het terugleggen ervan in het omhulsel, en hoeveel getallen er op een punt gaan (`coordinaattokens`, `vervang_coordinaten`, `tokens_per_punt`) | `geometry` | `clip.knip` (de knip), `clip.stroom` (het stuk wegschrijven), `clip.merge` (de omkering) |
 | De `knip:`-naamruimte, de stuknamen (`<origineel>__knip<k>`) en het herkennen van een GML-literaal (`_gml_waarde`) | `clip.termen` | `clip.plan`, `clip.stroom`, `clip.merge`, `clip.bereik`, `clip.orkest` |
+| Het sleutelformaat van een term (de IRI, of `_:` plus de naam van een blanke knoop; terug via `_term`) en de interning van sleutels tot int-id's voor de positietabel (`_interning`, sinds issue #89) | `clip.termen` | het formaat: `clip.plan`, `clip.stroom`, `clip.merge`; `_interning`: `clip.plan`, `clip.merge` |
+| De nummering van blanke knopen (`b<n>` op eerste ontmoeting, subject vóór object) | drie uitgeschreven kopieën: `clip.plan._genummerd` en `schrijven._hernummerd` (hete lussen, bewust inline) en `clip.plan._nummer` (per herschrijfquad); `tests/test_bnode_nummering.py` houdt ze gelijk (issue #89) | `clip.plan`, `clip.stroom`, `schrijven` |
 
 Dat laatste onderscheid is opzettelijk: het verslag telt de afwijkende bytes en zoekt de
 regels waarin ze staan, en dat is een tweede gang over het hele bestand. Een lezing wordt
@@ -423,6 +425,13 @@ opvallen als de leeslaag en de knip dezelfde literaal verschillend gaan lezen. W
 uitkomst betreft is de eenpaslezer per contract `(parse_gml(l), parse_gml_z(l))`, tot en
 met de foutmelding, en `test_parse_gml_met_z_is_gelijkwaardig_aan_de_twee_losse_lezers`
 toetst dat op de geslaagde én de mislukte literalen.
+
+Sinds issue #82 roept de leeslaag `parse_gml_met_z` niet meer per geometrie aan, maar
+`geometry._Bulkbouw`. Die doet dezelfde tekststappen (`_ontleed_met_z`), stelt een punt of een
+lijn met minstens twee coordinaten uit en bouwt ze na de lus in één shapely-aanroep. Wat kan
+mislukken, gaat meteen langs `_bouw`; de foutmeldingen blijven dus die van `parse_gml_met_z`.
+Sinds issue #86 doet de clip hetzelfde in `clip.knip._plaats_alle`: punten en lijnen in bulk,
+en `covers` per vlak in één shapely-aanroep over alle geometrieën.
 
 ### Store is geen derde pad
 

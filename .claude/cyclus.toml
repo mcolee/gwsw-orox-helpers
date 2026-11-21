@@ -1,0 +1,46 @@
+naam = "gwsw-orox-helpers"
+github = "mcolee/gwsw-orox-helpers"
+basis = "dev"                          # integratiebranch (CLAUDE.md: "Werk op dev"); main draagt alleen getagde versies
+manifesto = "manifesto.md"
+
+[test]
+volledig = "uv run pytest -q --cov=gwsw_orox_helpers --cov-fail-under=95"   # poortstap 5 (toets.yml)
+snel = "uv run pytest"                 # geen aparte snelle suite; marker `zwaar` staat standaard uit
+lint = ["uv run ruff check", "uv run ruff format --check .", "uv run mypy"]
+lock = ""
+
+[data]
+productie_db = ""
+env_symlink = false
+
+[labels]
+klaar = "ready-for-agent"
+vraag = "needs-info"
+
+[budget]
+audit_tokens = 2_000_000
+audit_agents = 8
+afk_tokens = 1_000_000
+afk_issues = 8
+stop_bij = 0.8
+
+[beschermd]
+generiek = [
+  "<manifesto>",
+  "CLAUDE.md (werkregels; beschrijving van nieuwe functies mag)",
+  ".claude/skills/onderhoud/",
+  ".claude/cyclus.toml",
+  ".github/workflows/",
+  "tests/conftest.py",
+  "elke bestaande testfunctie (een nieuwe testfunctie toevoegen mag)",
+]
+domein = [
+  { pad = "src/gwsw_orox_helpers/data/", wat = "gebundelde GWSW-ontologieën 1.6 en 1.7, vocabulaire-indexen en graafindexen (pickle + sha256)", bron = "CLAUDE.md, Harde regels (twee gebundelde GWSW-versies); manifesto principe 2 en 3" },
+  { pad = "src/gwsw_orox_helpers/__init__.py", wat = "publieke API die nlriochecker importeert (bevroren: signaturen, retourvormen, gedrag)", bron = "CLAUDE.md, Harde regels (nlriochecker mag nooit breken)" },
+  { pad = "tests/test_publieke_api.py", wat = "contracttest van de publieke API", bron = "CLAUDE.md, Harde regels (nlriochecker mag nooit breken)" },
+  { pad = "tests/fixtures/", wat = "testfixtures, gegenereerd door scripts/maak_fixtures.py en bewaakt door drifttests", bron = "CLAUDE.md, Werkwijze (regenereer elke generator)" },
+  { pad = "scripts/maak_gwsw_index.py", wat = "generator van de gebundelde indexen (drifttests bewaken beide richtingen)", bron = "CLAUDE.md, Harde regels en Werkwijze" },
+  { pad = "scripts/maak_fixtures.py", wat = "generator van de testfixtures", bron = "CLAUDE.md, Werkwijze" },
+  { pad = "pyproject.toml", wat = "dekkingsdrempel 95%, versiegrenzen van afhankelijkheden, sdist-allowlist", bron = "CLAUDE.md, Werkwijze (poort: dekking >= 95%; issue #44)" },
+  { pad = "CHANGELOG.md", wat = "versiebump- en CHANGELOG-regel bij elke API-wijziging; releases lopen via de auteur", bron = "CLAUDE.md, Harde regels en Werkwijze (Een versie uitbrengen)" },
+]

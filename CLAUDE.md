@@ -1,7 +1,8 @@
 # Project: gwsw-orox-helpers
 
-Lees vóór je code aanraakt `manifesto.md` in de repo-root (lokaal, git-ignored): het
-draagt de missie, de prioriteiten bij botsende doelen en wat we nadrukkelijk niet doen.
+Lees vóór je iets bouwt, wijzigt of reviewt `manifesto.md` in de repo-root (lokaal,
+git-ignored): het draagt de missie, de principes, de beslisregels bij botsende doelen en wat
+we nadrukkelijk niet doen.
 
 Leeslaag voor GWSW-OroX (TTL): grafmodel, geometrie, klassenhierarchie, cache.
 Eerste afnemer: nlriochecker. Nederlandse identifiers, GWSW-conform.
@@ -126,6 +127,13 @@ Eerste afnemer: nlriochecker. Nederlandse identifiers, GWSW-conform.
 - Regenereer elke generator die je raakt (`scripts/maak_fixtures.py`,
   `scripts/maak_gwsw_index.py`) en commit het gegenereerde bestand in dezelfde stap mee;
   de drifttests bewaken beide richtingen.
+
+## Lessen (begrensde zelfverbetering)
+Corrigeert de eigenaar een uitkomst, schrijf dan een les in `docs/lessen.md`, onder de kop van
+het onderdeel, in de vorm bovenaan dat bestand. Ook als je de fout meteen repareert.
+Verwerken gaat alleen via de skill `onderhoud` (`.claude/skills/onderhoud/SKILL.md`): één
+onderdeel, rode test → groen, één PR; de eigenaar merget. Testcommando's en beschermde paden
+staan in `.claude/cyclus.toml`. Principe 9 (voorstel) van `manifesto.md`.
 
 ## Naslag
 - **`docs/architectuur.md`** beschrijft de snit van `src/gwsw_orox_helpers/`: de lagen en

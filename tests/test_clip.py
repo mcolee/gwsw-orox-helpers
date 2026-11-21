@@ -1907,10 +1907,10 @@ def test_maak_plan_zet_een_al_geopende_stroom_voort(
 
     assert plan.namen == ("Mini-West", "Mini-Oost")
     west, oost = 0b01, 0b10
-    assert plan.maskers[f"{MINI_BASIS}Put_1"] & west
-    assert not plan.maskers[f"{MINI_BASIS}Put_1"] & oost
-    assert plan.maskers[f"{MINI_BASIS}Put_2"] & oost
-    assert not plan.maskers[f"{MINI_BASIS}Put_2"] & west
+    assert plan.masker(f"{MINI_BASIS}Put_1") & west
+    assert not plan.masker(f"{MINI_BASIS}Put_1") & oost
+    assert plan.masker(f"{MINI_BASIS}Put_2") & oost
+    assert not plan.masker(f"{MINI_BASIS}Put_2") & west
 
 
 def test_clip_orox_opent_de_bron_precies_n_plus_1_keer(

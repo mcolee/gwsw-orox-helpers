@@ -18,8 +18,10 @@ vlag per stroompositie, geen quads. Een variant die de hele bron één keer als 
 
 from __future__ import annotations
 
+import collections
 import itertools
 from collections.abc import Iterable, Iterator
+from typing import Final
 
 import pyoxigraph
 
@@ -39,6 +41,7 @@ from gwsw_orox_helpers.clip.termen import (
     _stukterm,
     _term,
 )
+from gwsw_orox_helpers.errors import KnipError
 from gwsw_orox_helpers.geometry import vervang_coordinaten
 
 
@@ -47,25 +50,97 @@ def _deelstroom(
 ) -> Iterator[pyoxigraph.Quad | pyoxigraph.Triple]:
     """De triples die naar dit deel gaan, uit de quadstroom van de bron.
 
-    Sinds issue #64 leest deze pass de positietabel van het plan (`posmasker`, `herschrijf`)
-    per stroompositie in plaats van per quad opnieuw uit te rekenen wat waarheen gaat. Staat
-    de herschrijf-vlag uit, dan gaat de bron-quad ongewijzigd de deur uit -- geen nieuwe
-    `Triple`, geen nummering. Dat mag omdat Turtle geen benoemde grafen kent: een
+    Eerst het merk `knip:geknipt` op de houders van een geknipte geometrie, dan de bron zoals
+    de positietabel van het plan (`posmasker`, `herschrijf`) hem verdeelt (`_reeksen`). Een
+    gewone quad gaat ongewijzigd de deur uit: Turtle kent geen benoemde grafen, dus een
     default-graaf-`Quad` schrijft byte-gelijk aan de gelijke `Triple`. Zo levert de fase een
-    gemengde Quad/Triple-stroom, die de serializer aanvaardt. Staat de vlag aan, dan loopt het
-    oude herschrijfpad (`_term`, `_stuktermen`, `_knipmerken`); alleen daar kan een blanke
-    knoop zitten, dus daar (en alleen daar) nummert `_nummer` hem -- vóór de deel-gate, zodat
-    de stroomvolgorde-naam deel-onafhankelijk blijft.
+    gemengde Quad/Triple-stroom, die de serializer aanvaardt.
     """
     bit = 1 << deel
-    for blok, masker in plan.geknipte_houders.items():
-        if masker & bit:
-            yield pyoxigraph.Triple(_term(blok), _GEKNIPT, _WAAR)
+    kop = [
+        pyoxigraph.Triple(_term(blok), _GEKNIPT, _WAAR)
+        for blok, masker in plan.geknipte_houders.items()
+        if masker & bit
+    ]
+    return itertools.chain(
+        kop, itertools.chain.from_iterable(_reeksen(iter(quads), plan, deel, termen))
+    )
 
-    # De vaste tabellen en typen krijgen een lokale naam: hier onder draait alles per quad
-    # van de bron, en dat zijn er op de export van De Wolden en Hoogeveen 1,9 miljoen.
+
+def _reeksen(
+    bron: Iterator[pyoxigraph.Quad], plan: _Plan, deel: int, termen: _Kniptermen
+) -> Iterator[Iterable[pyoxigraph.Quad | pyoxigraph.Triple]]:
+    """De bron in reeksen: een `islice` per doorgeefreeks, een lijst per herschrijfquad.
+
+    Python loopt hier niet per quad (issue #84). `naar_deel` heeft per positie een 1 als de
+    quad naar dit deel gaat; de volgende reeksgrens en de volgende herschrijfpositie zoekt
+    `bytes.find`, in C. Een doorgeefreeks gaat als `islice` van de bron naar de serializer,
+    een overgeslagen reeks loopt in C leeg (`deque` met `maxlen=0`). Alleen een
+    herschrijfquad (blanke knoop of geknipte geometrie) gaat door Python: `_nummer` geeft
+    zijn blanke knopen hun stroomvolgorde-naam, ook als hij niet naar dit deel gaat, zodat
+    die naam niet van het deel afhangt.
+
+    Alle reeksen delen één `bron`-iterator. De afnemer moet een reeks dus helemaal leeglopen
+    voordat hij de volgende vraagt; `itertools.chain.from_iterable` in `_deelstroom` doet dat.
+
+    Telt de bron meer quads dan de positietabel, of houdt hij op vóór een herschrijfquad,
+    dan is het bestand sinds de analyseronde veranderd: dat is een `KnipError`.
+    """
+    bit = 1 << deel
     posmasker = plan.posmasker
+    if posmasker.typecode == "B":
+        tabel = bytes(1 if waarde & bit else 0 for waarde in range(256))
+        naar_deel = posmasker.tobytes().translate(tabel)
+    else:  # meer dan 8 vlakken: het masker past niet in een byte
+        naar_deel = bytes(1 if masker & bit else 0 for masker in posmasker)
     herschrijf = plan.herschrijf
+    aantal = len(naar_deel)
+    labels: dict[str, str] = {}
+    teller = itertools.count()
+
+    positie = 0
+    while positie < aantal:
+        grens = herschrijf.find(1, positie)
+        if grens == -1:
+            grens = aantal
+        while positie < grens:
+            doorgeven = naar_deel[positie]
+            einde = naar_deel.find(b"\x00" if doorgeven else b"\x01", positie, grens)
+            if einde == -1:
+                einde = grens
+            reeks = itertools.islice(bron, einde - positie)
+            if doorgeven:
+                yield reeks
+            else:
+                collections.deque(reeks, maxlen=0)
+            positie = einde
+        if positie == aantal:
+            break
+        quad = next(bron, None)
+        if quad is None:
+            raise KnipError(_VERANDERD)
+        _nummer(quad, labels, teller)
+        if naar_deel[positie]:
+            yield list(_herschreven(quad, plan, deel, termen, labels))
+        positie += 1
+    if next(bron, None) is not None:
+        raise KnipError(_VERANDERD)
+
+
+_VERANDERD: Final = (
+    "de bron telt een ander aantal quads dan bij de analyseronde van de clip; is het bestand "
+    "tussen de lezingen veranderd?"
+)
+
+
+def _herschreven(
+    quad: pyoxigraph.Quad,
+    plan: _Plan,
+    deel: int,
+    termen: _Kniptermen,
+    labels: dict[str, str],
+) -> Iterator[pyoxigraph.Triple]:
+    """Het herschrijfpad: blanke knopen krijgen hun vaste naam, geknipte geometrie haar stukken."""
     stukken_van = plan.stukken
     randpredicaten = termen.randpredicaten
     has_value = termen.has_value
@@ -73,91 +148,72 @@ def _deelstroom(
     named_node = pyoxigraph.NamedNode
     blank_node = pyoxigraph.BlankNode
     triple = pyoxigraph.Triple
-    labels: dict[str, str] = {}
-    teller = itertools.count()
+    subject = quad.subject
+    if isinstance(subject, named_node):
+        onderwerp = subject.value
+    elif isinstance(subject, blank_node):
+        onderwerp = labels[subject.value]
+    else:  # pragma: no cover -- een subject is nooit een literaal of RDF-ster-triple
+        raise AssertionError("een subject is nooit een literaal of RDF-ster-triple")
+    object_ = quad.object
+    if isinstance(object_, named_node):
+        voorwerp: str | None = object_.value
+    elif isinstance(object_, blank_node):
+        voorwerp = labels[object_.value]
+    else:
+        voorwerp = None
+    predicaat = quad.predicate.value
 
-    for positie, quad in enumerate(quads):
-        herschrijven = herschrijf[positie]
-        if herschrijven:
-            # Alleen een herschrijf-quad kan een blanke knoop dragen; nummer hem hier, vóór de
-            # gate, zodat de stroomvolgorde-naam los staat van welk deel er geschreven wordt.
-            _nummer(quad, labels, teller)
-        if not posmasker[positie] & bit:
-            continue
-        if not herschrijven:
-            # Verreweg de meeste quads: geen blanke knoop, geen geknipte geometrie. De
-            # bron-quad gaat ongewijzigd door -- geen nieuwe Triple, geen opzoeking.
-            yield quad
-            continue
+    # Blanke knopen gaan met hun vaste naam de deur uit; zie de docstring van het package.
+    subject_uit: pyoxigraph.NamedNode | pyoxigraph.BlankNode = (
+        subject if isinstance(subject, named_node) else _term(onderwerp)
+    )
+    object_uit = (
+        _term(voorwerp) if voorwerp is not None and isinstance(object_, blank_node) else object_
+    )
 
-        # --- Het herschrijfpad: blanke knopen krijgen hun vaste naam, geknipte geometrie
-        # haar stukken. Dit is de kern van de oude lus, nu alleen nog voor de gemerkte quads.
-        subject = quad.subject
-        if isinstance(subject, named_node):
-            onderwerp = subject.value
-        elif isinstance(subject, blank_node):
-            onderwerp = labels[subject.value]
-        else:  # pragma: no cover -- een subject is nooit een literaal of RDF-ster-triple
-            raise AssertionError("een subject is nooit een literaal of RDF-ster-triple")
-        object_ = quad.object
-        if isinstance(object_, named_node):
-            voorwerp: str | None = object_.value
-        elif isinstance(object_, blank_node):
-            voorwerp = labels[object_.value]
-        else:
-            voorwerp = None
-        predicaat = quad.predicate.value
+    eigen_stukken = stukken_van.get(onderwerp)
+    andere_stukken = stukken_van.get(voorwerp) if voorwerp is not None else None
+    if eigen_stukken is None and andere_stukken is None:
+        # Een herschrijf-quad zonder geknipte geometrie: alleen een blanke knoop kreeg
+        # een vaste naam. Er komt geen stukknoop in de plaats en er valt niets te merken.
+        yield triple(subject_uit, quad.predicate, object_uit)
+        return
 
-        # Blanke knopen gaan met hun vaste naam de deur uit; zie de docstring van het package.
-        subject_uit: pyoxigraph.NamedNode | pyoxigraph.BlankNode = (
-            subject if isinstance(subject, named_node) else _term(onderwerp)
-        )
-        object_uit = (
-            _term(voorwerp) if voorwerp is not None and isinstance(object_, blank_node) else object_
-        )
-
-        eigen_stukken = stukken_van.get(onderwerp)
-        andere_stukken = stukken_van.get(voorwerp) if voorwerp is not None else None
-        if eigen_stukken is None and andere_stukken is None:
-            # Een herschrijf-quad zonder geknipte geometrie: alleen een blanke knoop kreeg
-            # een vaste naam. Er komt geen stukknoop in de plaats en er valt niets te merken.
-            yield triple(subject_uit, quad.predicate, object_uit)
-            continue
-
-        onderwerpen = _stuktermen(plan, onderwerp, deel) if eigen_stukken is not None else None
-        voorwerpen = (
-            _stuktermen(plan, voorwerp, deel)
-            if voorwerp is not None and andere_stukken is not None
-            else None
-        )
-        if onderwerpen == []:
-            # Een geknipte geometrieknoop zonder stuk in dit deel. Dat kan: een blok kan in
-            # een vlak staan om een andere geometrie (de orientatie draagt naast de lijn ook
-            # een punt) terwijl de lijn daar geen stuk heeft. Dan hoort hier niet zijn hele
-            # ongeknipte geometrie te staan.
-            continue
-        if voorwerpen == []:
-            if predicaat in randpredicaten:
-                # Een houder/onderdeel-rand naar een geknipte geometrie zonder stuk hier:
-                # niet schrijven, anders zou er een naam in dit deel hangen waar niets bij
-                # staat. Kwijt raakt de triple er niet van, want de rand wordt naar de
-                # vlakken van het onderdeel geschreven en daar staat wel een stuk.
+    onderwerpen = _stuktermen(plan, onderwerp, deel) if eigen_stukken is not None else None
+    voorwerpen = (
+        _stuktermen(plan, voorwerp, deel)
+        if voorwerp is not None and andere_stukken is not None
+        else None
+    )
+    if onderwerpen == []:
+        # Een geknipte geometrieknoop zonder stuk in dit deel. Dat kan: een blok kan in
+        # een vlak staan om een andere geometrie (de orientatie draagt naast de lijn ook
+        # een punt) terwijl de lijn daar geen stuk heeft. Dan hoort hier niet zijn hele
+        # ongeknipte geometrie te staan.
+        return
+    if voorwerpen == []:
+        if predicaat in randpredicaten:
+            # Een houder/onderdeel-rand naar een geknipte geometrie zonder stuk hier:
+            # niet schrijven, anders zou er een naam in dit deel hangen waar niets bij
+            # staat. Kwijt raakt de triple er niet van, want de rand wordt naar de
+            # vlakken van het onderdeel geschreven en daar staat wel een stuk.
+            return
+        # Elk ander predicaat heeft die tweede thuisbasis niet: deze triple staat alleen
+        # hier, en overslaan zou hem uit de hereniging laten verdwijnen. Hij blijft dus
+        # staan en wijst naar de ongeknipte naam -- dezelfde keuze als de
+        # `hasConnection` die na de knip naar de put aan de overkant blijft wijzen.
+        voorwerpen = None
+    for subject_out, stuk in onderwerpen if onderwerpen is not None else ((subject_uit, None),):
+        if stuk is not None and predicaat == has_value:
+            # Pas hier naar de GML-tekst vragen: alleen een stuk van een geknipte
+            # geometrie doet er iets mee, en dat is een handvol van de miljoenen quads.
+            gml = _gml_waarde(quad.object)
+            if gml is not None:
+                yield from _knipmerken(subject_out, onderwerp, gml, stuk, plan, has_value_knoop)
                 continue
-            # Elk ander predicaat heeft die tweede thuisbasis niet: deze triple staat alleen
-            # hier, en overslaan zou hem uit de hereniging laten verdwijnen. Hij blijft dus
-            # staan en wijst naar de ongeknipte naam -- dezelfde keuze als de
-            # `hasConnection` die na de knip naar de put aan de overkant blijft wijzen.
-            voorwerpen = None
-        for subject_out, stuk in onderwerpen if onderwerpen is not None else ((subject_uit, None),):
-            if stuk is not None and predicaat == has_value:
-                # Pas hier naar de GML-tekst vragen: alleen een stuk van een geknipte
-                # geometrie doet er iets mee, en dat is een handvol van de miljoenen quads.
-                gml = _gml_waarde(quad.object)
-                if gml is not None:
-                    yield from _knipmerken(subject_out, onderwerp, gml, stuk, plan, has_value_knoop)
-                    continue
-            for object_out, _ in voorwerpen if voorwerpen is not None else ((object_uit, None),):
-                yield triple(subject_out, quad.predicate, object_out)
+        for object_out, _ in voorwerpen if voorwerpen is not None else ((object_uit, None),):
+            yield triple(subject_out, quad.predicate, object_out)
 
 
 def _stuktermen(

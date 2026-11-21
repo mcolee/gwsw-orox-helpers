@@ -32,6 +32,7 @@ from gwsw_orox_helpers.clip.termen import (
     KNIP,
     KNIP_PREFIX,
     _gml_waarde,
+    _interning,
     _Kniptermen,
     _kniptermen,
     _term,
@@ -98,21 +99,12 @@ def _scan_delen(delen: Sequence[Path], termen: _Kniptermen) -> _Scan:
     has_value = scan.termen.has_value
 
     # De per-positie-kennis voor de positietabel (issue #65), net als `clip.plan._maak_plan`:
-    # elke term-sleutel krijgt een int-id (interning), en per stroompositie bewaren we het
+    # elke term-sleutel krijgt een int-id (`_interning`), en per stroompositie bewaren we het
     # subject-id, het object-id (-1 voor een literaal of een niet-benoemd object) en of de quad
     # een knip:-predicaat draagt. `array('i')` is ~4 B per kolom, geen quads; ná de scan slaat
     # `_bouw_posities` dat per deel plat tot één byte per positie en worden deze int-tabellen
     # losgelaten. De delen komen zo nooit als geheel in het geheugen.
-    sleutel_id: dict[str, int] = {}
-    sleutels: list[str] = []
-
-    def _id(sleutel: str) -> int:
-        gevonden = sleutel_id.get(sleutel)
-        if gevonden is None:
-            gevonden = sleutel_id[sleutel] = len(sleutels)
-            sleutels.append(sleutel)
-        return gevonden
-
+    sleutel_id = _interning()
     deel_kennis: list[tuple[array[int], array[int], bytearray]] = []
 
     for index, pad in enumerate(delen):
@@ -133,7 +125,7 @@ def _scan_delen(delen: Sequence[Path], termen: _Kniptermen) -> _Scan:
                 assert isinstance(subject_in, blank_node)  # een subject is nooit een literaal
                 onderwerp = f"_:{subject_in.value}"
             hier.add(onderwerp)
-            subj_ids.append(_id(onderwerp))
+            subj_ids.append(sleutel_id[onderwerp])
             predicaat = quad.predicate.value
             object_in = quad.object
             is_knip = predicaat.startswith(KNIP)
@@ -158,7 +150,7 @@ def _scan_delen(delen: Sequence[Path], termen: _Kniptermen) -> _Scan:
             if voorwerp is None:
                 obj_ids.append(-1)
             else:
-                obj_ids.append(_id(voorwerp))
+                obj_ids.append(sleutel_id[voorwerp])
                 if "__knip" in voorwerp:
                     verwijzers.setdefault(voorwerp, set()).add(onderwerp)
             knip.append(1 if is_knip else 0)
@@ -176,7 +168,7 @@ def _scan_delen(delen: Sequence[Path], termen: _Kniptermen) -> _Scan:
     for stukknoop in scan.herkomst_van:
         scan.ontdubbelen |= verwijzers.get(stukknoop, set())
 
-    _bouw_posities(scan, sleutels, deel_kennis)
+    _bouw_posities(scan, list(sleutel_id), deel_kennis)
     return scan
 
 

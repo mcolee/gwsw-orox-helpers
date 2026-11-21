@@ -1,6 +1,73 @@
 # Changelog
 
 ## [Unreleased]
+- Clip-duplicatie samengevoegd (issue #89, onderhoud; **additief**: delen en samenvoeging
+  byte-gelijk). `clip.termen._interning` vervangt de twee uitgeschreven `_id`-closures in
+  `clip.plan._maak_plan` en `clip.merge._scan_delen` (een `defaultdict` met een C-teller).
+  `_Plan.maskers` en `_Plan.bouw_maskers` zijn weg: `_Plan.masker` zoekt het masker van een
+  term op via zijn blok. De drie kopieën van de blanke-knoopnummering blijven inline (twee
+  ervan zijn hete lussen); `tests/test_bnode_nummering.py` houdt ze gelijk. De twee
+  positietabelbouwers blijven apart: ze rekenen iets anders uit, en de gedeelde bouwer
+  hoorde bij #83, dat zonder winst gesloten is.
+- Schrijfpass van de clip in reeksen (issue #84, performance; **additief**: delen
+  byte-gelijk). `clip.stroom._deelstroom` loopt niet meer per quad in Python: de stroom valt
+  uiteen in reeksen gewone posities (via `bytes.translate` en `bytes.find`) die als `islice`
+  van de bron in C naar de serializer gaan, plus de losse herschrijfquads
+  (`_herschreven`). Op de 112 MB-export zijn dat ~100 reeksgrenzen en 39 herschrijfquads
+  per deel. De Python-filtertijd per pass: 0,11 → 0,02 s per 600 k quads (5 runs), dus
+  ~0,3 s per deel op de hele export; de winst groeit met het aantal vlakken. End-to-end
+  valt dat binnen de ruis van deze machine. Telt de bron in een schrijfpass een ander aantal
+  quads dan bij de analyseronde (het bestand veranderde tussen de lezingen), dan is dat nu
+  een `KnipError`. Voorheen gaf een langere bron een kale `IndexError` en werd een kortere
+  stil afgekapt. Deze gedragswijziging van `clip_orox` is een auteursbeslissing
+  (21-11-2026).
+- Ruimtelijke toewijzing van de clip in bulk (issue #86, performance; **additief**: delen
+  byte-gelijk). `clip.knip._plaats_alle` bouwt de punten en lijnen met `_Bulkbouw` en toetst
+  `covers` per vlak in één shapely-aanroep. Dat is hetzelfde predicaat als de voorbereide
+  `covers`, dus een punt op de grens krijgt hetzelfde vlak. Alleen wat geen vlak dekt, gaat
+  de oude weg (terugval of `_knip_lijn`); een polygoon gaat helemaal de oude weg.
+  `_zaai` op de 112 MB-export: 2,90–3,40 → 1,02–1,08 s CPU; `clip_orox` 30,6–33,4 →
+  29,2–31,1 s (3 gepaarde runs). Beide delen sha256-gelijk.
+- Terugvalverslag zoekt alleen in blokken met een niet-ASCII-byte (issue #87, performance;
+  **additief**: `DecodeFallback` blijft identiek). `bytes.isascii` keurt per MiB-blok in C;
+  de regex en de `translate`-telling draaien alleen nog in de blokken die afwijken (4 van de
+  107 in de 112 MB-export). `terugvalverslag` op die export: 0,66–1,09 → 0,05–0,07 s CPU
+  (n = 5), verslag byte-gelijk. Het issue ging uit van 187.705 dubbele regels; de export
+  heeft er 5, dus de tijd zat in de scan zelf en niet in de `decode`.
+- Canonieke vraagtermen in de leesweg (issue #81, performance; **additief**: geen signatuur,
+  retourvorm of volgorde wijzigt). `graaf._kanoniek` geeft voor `rdf:type`, `rdfs:label`,
+  `rdfs:subClassOf` en de leestermen in elke GWSW-basis (`namen._LEESNAMEN`) één gedeeld
+  `URIRef`-object. De index krijgt het via `naar_rdflib`, de lezers via `inlezen._leestermen`,
+  en de cache pickelt zo'n term naar `_kanoniek` (`LADER_VERSIE` → "4": bestaande caches
+  herbouwen één keer). `GraafIndex.__contains__` en `vul_uit` filteren eerst met `str.__eq__`
+  (`NotImplemented` tegen een niet-str valt door naar `==`, dus `(s, p, None) in graaf` blijft
+  `False`).
+  De gebundelde GraafIndex-pickles zijn opnieuw gebouwd (`graaf.py` zit in hun hash).
+  Gemeten op de 112 MB-export:
+  - rdflib-`Identifier.__eq__` in `_read_nodes` + `_read_conduits`: 2.416.720 → 23.489
+    aanroepen;
+  - CPU-tijd van die twee lezers, drie gepaarde runs: 9,44 → 7,71 s, 10,73 → 8,94 s en
+    9,08 → 8,50 s;
+  - parse: geen meetbaar verschil.
+  End-to-end `load_dataset` was niet te meten: de machine had een load van 11–15 door een
+  andere sessie.
+- Geometrie in bulk bij het lezen (issue #82, deel a; performance; **additief**). De lezers
+  bouwen punten en lijnen niet meer één voor één, maar na de lus in één `shapely.points`- en
+  één `shapely.linestrings`-aanroep (`geometry._Bulkbouw`, met de tekststappen van
+  `parse_gml_met_z` in `_ontleed_met_z`). Een polygoon of een lijn met één coordinaat gaat
+  meteen langs `_bouw`, zodat de foutmelding gelijk blijft. `tests/test_bulkbouw.py` houdt
+  geometrie, z en `geometry_errors` op alle fixtures gelijk aan de weg per object. CPU-tijd
+  van `_read_nodes` + `_read_conduits`, drie gepaarde runs ten opzichte van #81:
+  7,93 → 5,94 s, 7,24 → 6,34 s en 6,00 → 3,98 s.
+- Geometrie in bulk in de cache (issue #82, deel b; performance; **additief**; `LADER_VERSIE`
+  → "5", want een "4"-structurenpickle is in het nieuwe formaat niet te lezen). De structurenpickle verwijst
+  naar elke shapely-geometrie via een persistent id (`cache._GeometriePickler`). De
+  geometrieën staan vooraf als één WKB-lijst in hetzelfde bestand en komen terug met één
+  `shapely.from_wkb`, in plaats van 46.925 losse aanroepen. CPU-tijd van een cachetreffer
+  (structuren plus sleutel), drie gepaarde runs: 2,16 → 1,59 s, 2,15 → 1,60 s en
+  1,91 → 1,76 s. Tegen de stand vóór #81 en #82: structuren 1,46–1,55 → 1,15–1,22 s;
+  de graaflading blijft gelijk (1,91–2,01 tegen 1,81–2,06 s).
+  Bij een onverwachte shapely-fout in bulk valt `_Bulkbouw` terug op de weg per object.
 
 ## [0.2.4] - 2026-09-06
 _Versie 0.2.3 is nooit gepubliceerd: de tag `v0.2.3` (05-09-2026) wees naar een commit waarvan

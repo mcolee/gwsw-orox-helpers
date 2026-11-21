@@ -73,6 +73,32 @@ def test_bom_loze_terugval_geeft_hetzelfde_verslag() -> None:
     assert any("cavaljéweg" in sample for sample in verslag.samples)
 
 
+@pytest.mark.parametrize("blok", [1 << 20, 7, 64])
+def test_het_verslag_hangt_niet_af_van_de_blokgrenzen(
+    blok: int, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Herhaalde regels, regels over een blokgrens, ASCII-blokken ertussen (issue #87)."""
+    monkeypatch.setattr(codering, "_ZOEKBLOK", blok)
+    herhaald = b':a :naam "cavalj\x82weg" .\n'
+    rauw = (
+        herhaald * 50
+        + b":x :y :z .\n" * 40
+        + b':b :naam "caf\x82 \x82" .\n'
+        + b':c :naam "\x81\x81\x81" .\n'
+        + b':d :naam "\x84"'
+    )
+
+    verslag = codering.terugvalverslag(CP850, rauw, "cp850")
+
+    assert verslag.byte_count == 56
+    assert verslag.samples == [
+        ':a :naam "cavaljéweg" .',
+        ':b :naam "café é" .',
+        ':c :naam "üüü" .',
+        ':d :naam "ä"',
+    ]
+
+
 def test_bom_foutpositie_telt_de_bom_mee() -> None:
     """Met BOM meldt de CoderingError de bestand-positie, BOM incluis (issue #53).
 
